@@ -35,6 +35,9 @@ const AgentSchema = Schema.StructWithRest(
       description: "Maximum number of agentic iterations before forcing text-only response",
     }),
     maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
+    writable: Schema.optional(Schema.Boolean).annotate({
+      description: "Whether this agent may write to the workspace (default: derived from its own edit permission)",
+    }),
     permission: Schema.optional(ConfigPermissionV1.Info),
   }),
   [Schema.Record(Schema.String, Schema.Any)],
@@ -53,6 +56,7 @@ const KNOWN_KEYS = new Set([
   "color",
   "steps",
   "maxSteps",
+  "writable",
   "options",
   "permission",
   "disable",
