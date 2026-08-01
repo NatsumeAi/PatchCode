@@ -69,6 +69,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   let assistantActive = false
   let assistantFailed = false
   let providerFailed = false
+  let assistantText = ""
   let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
 
   const startAssistant = Effect.fnUntraced(function* () {
@@ -120,14 +121,15 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
 
   const text = fragments("text", (textID, value) =>
     Effect.gen(function* () {
-      yield* events.publish(SessionEvent.Text.Ended, {
+        yield* events.publish(SessionEvent.Text.Ended, {
         sessionID: input.sessionID,
         assistantMessageID: yield* currentAssistantMessageID(),
         timestamp: yield* timestamp,
         textID,
-        text: value,
-      })
-    }),
+          text: value,
+        })
+        assistantText += value
+      }),
   )
   const reasoning = fragments("reasoning", (reasoningID, value, providerMetadata) =>
     Effect.gen(function* () {
@@ -416,6 +418,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     hasActiveAssistant: () => assistantActive,
     hasAssistantStarted: () => assistantMessageID !== undefined,
     hasProviderError: () => providerFailed,
+    assistantText: () => assistantText,
     stepSettlement: () => stepSettlement,
     startAssistant,
     assistantMessageID: assistantMessageIDForTool,

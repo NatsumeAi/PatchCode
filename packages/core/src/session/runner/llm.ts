@@ -39,6 +39,13 @@ import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
+import { LoopControlHost, type LoopControlHooks } from "./loop-control-host"
+import { IterationBudget } from "../loop-control/iteration-budget"
+import { TimerDaemon } from "../loop-control/timer-daemon"
+import { TerminalController } from "../loop-control/terminal-controller"
+import { ContextEngine } from "./context-engine"
+import { VerifierBiDirectional, type NextTurnSystemContext } from "./verifier-bi-directional"
+import { SessionRuntime, type Instance } from "../runtime"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -105,6 +112,7 @@ const layer = Layer.effect(
     const referenceGuidance = yield* ReferenceGuidance.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
+    const runtime = yield* SessionRuntime.Service
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
@@ -170,15 +178,85 @@ const layer = Layer.effect(
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
 
+    /**
+     * Per-drain loop-control context. Built once at the start of each `run`
+     * drain from the session-keyed `SessionRuntime.Instance` bundle, so two
+     * concurrent drains over different session IDs never share mutable
+     * loop-control services (terminal, budget, worker state, ...). Passed
+     * through `runTurnAttempt` and the compaction/failover helper paths so
+     * every per-turn hook call resolves the same session-bound hooks.
+     */
+    interface DrainContext {
+      readonly hooks: LoopControlHooks
+      readonly timerDaemon: TimerDaemon.Interface
+      readonly contextEngine: ContextEngine.Interface
+      readonly budget: IterationBudget.Interface
+      readonly terminal: TerminalController.Interface
+      readonly verifierBiDirectional: VerifierBiDirectional.Interface
+    }
+
+    /**
+     * Render one drained verifier-reject feedback slice into a single
+     * model-visible system-context text. Returns the empty string when both
+     * the reason and the evidence are empty, so the caller can omit the
+     * SystemPart entirely and avoid duplicating the static baseline parts.
+     * The rendering is intentionally stable and self-describing so a snapshot
+     * test can pin its shape without coupling to wiring.
+     */
+    const renderVerifierFeedback = (next: NextTurnSystemContext): string => {
+      if (next.verifier_reject_reason.length === 0 && next.verifier_reject_evidence.length === 0) return ""
+      const lines = [`<verifier-feedback reason=${JSON.stringify(next.verifier_reject_reason)}>`]
+      if (next.verifier_reject_reason.length > 0) lines.push(`reason: ${next.verifier_reject_reason}`)
+      for (const item of next.verifier_reject_evidence) {
+        const loc = item.line === undefined ? item.file : `${item.file}:${item.line}`
+        lines.push(`evidence: ${loc} — ${item.issue}`)
+      }
+      lines.push("</verifier-feedback>")
+      return lines.join("\n")
+    }
+
+    /**
+     * Build the per-drain loop-control context inside the caller's `Scope`.
+     *
+     * `runtime.getOrCreate` returns the bundle (idempotent per session ID); the
+     * bundle is reset before the drain starts and its timer fibers are forked
+     * in the same scope that owns the hooks' finalizers, so when the drain
+     * scope closes both the hook subscription and the timer fibers tear down
+     * together. The location-captured `LLMClient` is provided to
+     * `makeSessionHooks` so the registry never depends on it at construction.
+     */
+    const buildDrainContext = Effect.fn("SessionRunner.buildDrainContext")(function* (
+      sessionID: SessionSchema.ID,
+    ) {
+      const instance: Instance = yield* runtime.getOrCreate(sessionID)
+      yield* runtime.resetForDrain(sessionID)
+      const hooks = yield* LoopControlHost.makeSessionHooks(sessionID, instance).pipe(
+        Effect.provideService(LLMClient.Service, llm),
+      )
+      yield* instance.timerDaemon.start.pipe(Effect.forkScoped)
+      return {
+        hooks,
+        timerDaemon: instance.timerDaemon,
+        contextEngine: instance.contextEngine,
+        budget: instance.budget,
+        terminal: instance.terminal,
+        verifierBiDirectional: instance.verifierBiDirectional,
+      }
+    })
+
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      drain: DrainContext,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
       const session = yield* getSession(sessionID)
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
+      yield* drain.hooks.onTurnStart({ sessionID: session.id, step })
+      if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id)))
+        return { needsContinuation: false, step }
       const agent = yield* agents.select(session.agent)
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
       const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
@@ -197,6 +275,31 @@ const layer = Layer.effect(
       const system =
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
       const model = yield* models.resolve(session)
+      // Drain any verifier rejection feedback captured for this session since
+      // the previous turn — DoneDecisionLoop injects reason + evidence into
+      // the session-bound VerifierBiDirectional channel after a rejected
+      // worker claim. Folding it here into the next request's system context
+      // makes the rejection visible to the worker without persisting the
+      // feedback as a durable transcript message. The drain is atomic per
+      // queue, so a second turn sees empty reason + empty evidence and the
+      // feedback SystemPart is omitted entirely (no duplicate baseline part).
+      const verifierFeedback = renderVerifierFeedback(
+        yield* drain.verifierBiDirectional.getNextTurnSystemContext,
+      )
+      // Debit the iteration budget only after model selection succeeded so that
+      // resolution failures do not waste budget (audit #23). Exhaustion admits
+      // one single-use grace turn, then requests terminal budget_exhausted and
+      // stops the drain without starting another provider turn.
+      const admission = yield* drain.budget.consume(1).pipe(
+        Effect.catchTag("LoopControl.IterationBudget.BudgetExhausted", () =>
+          Effect.gen(function* () {
+            if (yield* drain.budget.useGrace) return "grace" as const
+            yield* drain.terminal.request("budget_exhausted")
+            return "exhausted" as const
+          }),
+        ),
+      )
+      if (admission === "exhausted") return { needsContinuation: false, step: currentStep }
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
       const context = entries.map((entry) => entry.message)
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
@@ -205,7 +308,7 @@ const layer = Layer.effect(
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline]
+        system: [agent.info?.system, system.baseline, verifierFeedback]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
@@ -214,6 +317,12 @@ const layer = Layer.effect(
       })
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
+      if (yield* drain.contextEngine.shouldProactiveCompact) {
+        if (yield* compaction.compactAfterOverflow({ sessionID: session.id, entries, model, request })) {
+          yield* drain.contextEngine.compact
+          return yield* Effect.die(continueAfterCompaction(currentStep))
+        }
+      }
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
@@ -240,11 +349,13 @@ const layer = Layer.effect(
               }
             }
             yield* publish(event)
+            yield* drain.hooks.onStream({ _tag: "chunk", sessionID: session.id })
             if (event.type !== "tool-call" || event.providerExecuted) return
             if (!toolMaterialization) {
               yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
               return
             }
+            yield* drain.hooks.onToolCall({ name: event.name, callID: event.id, sessionID: session.id })
             needsContinuation = true
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
@@ -284,8 +395,12 @@ const layer = Layer.effect(
             !publisher.hasAssistantStarted() &&
             isContextOverflowFailure(overflowFailure ?? failure) &&
             (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
-          )
+          ) {
+            // Context-overflow recovery via compaction succeeded; do not route
+            // through onFailover (a non-retryable classification would wrongly
+            // request terminal failure when the turn legitimately replays).
             return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
+          }
           if (overflowFailure) yield* publish(overflowFailure)
           const llmFailure = failure instanceof LLMError ? failure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
@@ -314,14 +429,32 @@ const layer = Layer.effect(
             yield* withPublication(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
           }
           const stepSettlement = publisher.stepSettlement()
+          const endSnapshot = yield* snapshots.capture()
+          const files =
+            startSnapshot && endSnapshot
+              ? yield* snapshots
+                  .files({ from: startSnapshot, to: endSnapshot })
+                  .pipe(Effect.catch(() => Effect.succeed(undefined)))
+              : undefined
+          // Verifier audit only runs on a genuinely successful stream; a failed
+          // provider stream must not audit a partial or empty claim.
+          if (stream._tag === "Success" && !publisher.hasProviderError()) {
+            yield* drain.hooks.onStreamComplete({
+              sessionID: session.id,
+              finishReason: stepSettlement?.finish ?? "stop",
+              workerClaim: publisher.assistantText(),
+              workerDiffPath: files?.join("\n") ?? "",
+              model,
+            })
+          }
+          // onStreamComplete may request a terminal state (verifier approval,
+          // verifier failure, hard abort). When it does, no further provider
+          // continuation should be offered even if the stream produced tool calls.
+          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
+            needsContinuation = false
+            return { needsContinuation: false, step: currentStep }
+          }
           if (stepSettlement && !publisher.hasProviderError()) {
-            const endSnapshot = yield* snapshots.capture()
-            const files =
-              startSnapshot && endSnapshot
-                ? yield* snapshots
-                    .files({ from: startSnapshot, to: endSnapshot })
-                    .pipe(Effect.catch(() => Effect.succeed(undefined)))
-                : undefined
             yield* withPublication(
               events.publish(SessionEvent.Step.Ended, {
                 sessionID: session.id,
@@ -339,9 +472,21 @@ const layer = Layer.effect(
             yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
           if (stream._tag === "Success" && !publisher.hasProviderError())
             yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-          if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
-          if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
+          if (stream._tag === "Failure") {
+            // Classify the failure once for loop-control observation: a
+            // non-retryable or repeated reason requests terminal
+            // unrecoverable_failure so the outer drain stops. The runner does
+            // not replay the provider turn here; the original error is
+            // propagated so a later explicit resume can retry.
+            const err = failure instanceof LLMError ? failure : undefined
+            if (err && !publisher.hasProviderError()) {
+              yield* drain.hooks.onFailover(err)
+            }
+            return yield* Effect.failCause(stream.cause)
+          }
+          if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
             return yield* Effect.failCause(settled.cause)
+          }
           return { needsContinuation: !publisher.hasProviderError() && needsContinuation, step: currentStep }
         }),
       )
@@ -350,34 +495,54 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      drain: DrainContext,
     ) => Effect.Effect<{ readonly needsContinuation: boolean; readonly step: number }, RunError>
 
-    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step).pipe(
+    const runAfterOverflowCompaction: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, drain) {
+      return yield* runTurnAttempt(sessionID, promotion, step, drain).pipe(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
             if (defect.transition._tag === "ContinueAfterOverflowCompaction")
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
             yield* Effect.yieldNow
-            return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
+            return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step, drain)
           }),
         ),
       )
     })
 
-    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step) {
-      return yield* runTurnAttempt(sessionID, promotion, step, compaction.compactAfterOverflow).pipe(
-        Effect.catchDefect(
-          Effect.fnUntraced(function* (defect) {
-            if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
-            yield* Effect.yieldNow
-            if (defect.transition._tag === "ContinueAfterOverflowCompaction")
-              return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step)
-            return yield* runTurn(sessionID, undefined, defect.transition.step)
+    const runTurn: RunTurn = Effect.fnUntraced(function* (sessionID, promotion, step, drain) {
+      let needsContinuation = false
+      const runTurnCore: RunTurn = Effect.fnUntraced(function* (
+        sessionID: SessionSchema.ID,
+        promotion: SessionInput.Delivery | undefined,
+        step: number,
+        drain: DrainContext,
+      ) {
+        return yield* runTurnAttempt(sessionID, promotion, step, drain, compaction.compactAfterOverflow).pipe(
+          Effect.map((result) => {
+            needsContinuation = result.needsContinuation
+            return result
           }),
-        ),
+          Effect.catchDefect(
+            Effect.fnUntraced(function* (defect) {
+              if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
+              yield* Effect.yieldNow
+              if (defect.transition._tag === "ContinueAfterOverflowCompaction") {
+                const replayed = yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step, drain)
+                needsContinuation = replayed.needsContinuation
+                return replayed
+              }
+              return yield* runTurnCore(sessionID, undefined, defect.transition.step, drain)
+            }),
+          ),
+        )
+      })
+      const result = yield* runTurnCore(sessionID, promotion, step, drain).pipe(
+        Effect.ensuring(drain.hooks.onTurnEnd({ sessionID, needsContinuation })),
       )
+      return result
     })
 
     const run = Effect.fn("SessionRunner.run")(function* (input: {
@@ -388,22 +553,27 @@ const layer = Layer.effect(
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return
       yield* failInterruptedTools(input.sessionID)
+      const drain = yield* buildDrainContext(input.sessionID)
       let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
       let shouldRun = input.force || hasSteer || hasQueue
       while (shouldRun) {
         let needsContinuation = true
         let step = 1
         while (needsContinuation) {
-          const result = yield* runTurn(input.sessionID, promotion, step)
+          const result = yield* runTurn(input.sessionID, promotion, step, drain)
           needsContinuation = result.needsContinuation
           step = result.step + 1
           promotion = "steer"
           if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
         }
+        // Turn boundary: a terminal request (verifier approval, abort, timeout,
+        // budget exhaustion, unrecoverable failure) is authoritative — stop
+        // promoting queued inputs once the controller is no longer continuing.
+        if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
         shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
         promotion = shouldRun ? "queue" : undefined
       }
-    })
+    }, Effect.scoped)
 
     return Service.of({
       run,
@@ -428,5 +598,6 @@ export const node = makeLocationNode({
     Config.node,
     Snapshot.node,
     Database.node,
+    SessionRuntime.node,
   ],
 })

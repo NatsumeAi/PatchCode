@@ -5,6 +5,7 @@ import {
   LLMEvent,
   Model,
   TransportReason,
+  InvalidProviderOutputReason,
   InvalidRequestReason,
   type LLMClientShape,
   type LLMRequest,
@@ -34,6 +35,8 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
 import { SessionRunner } from "@opencode-ai/core/session/runner"
 import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
@@ -271,6 +274,7 @@ const it = testEffect(
       Config.node,
       Snapshot.node,
       SessionRunnerLLM.node,
+      SessionRuntime.node,
       SessionExecution.node,
       SessionV2.node,
     ]),
@@ -2454,6 +2458,75 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("isolates terminal aborts between concurrent session drains", () =>
+    Effect.gen(function* () {
+      yield* setup
+      yield* insertSession(otherSessionID)
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run first tool" }), resume: false })
+      yield* session.prompt({ sessionID: otherSessionID, prompt: Prompt.make({ text: "Run second tool" }), resume: false })
+
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-first", name: "echo", input: { text: "first" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-second", name: "echo", input: { text: "second" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.textStart({ id: "second-final" }),
+          LLMEvent.textDelta({ id: "second-final", text: "second complete" }),
+          LLMEvent.textEnd({ id: "second-final" }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+
+      const first = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+      const second = yield* session.resume(otherSessionID).pipe(Effect.forkChild)
+      while (requests.length < 2) yield* Effect.yieldNow
+
+      const runtime = yield* SessionRuntime.Service
+      const firstRuntime = yield* runtime.getOrCreate(sessionID)
+      yield* firstRuntime.terminal.request("user_abort")
+      yield* Deferred.succeed(streamGate, undefined)
+      streamGate = undefined
+      yield* Fiber.join(first)
+      yield* Fiber.join(second)
+      streamStarted = undefined
+
+      const keys = requests.map((request) => request.providerOptions?.openai?.promptCacheKey)
+      expect(keys.filter((key) => key === sessionID)).toHaveLength(1)
+      expect(keys.filter((key) => key === otherSessionID)).toHaveLength(2)
+      expect(yield* session.context(otherSessionID)).toMatchObject([
+        { type: "user", text: "Run second tool" },
+        {
+          type: "assistant",
+          finish: "tool-calls",
+          content: [
+            {
+              type: "tool",
+              id: "call-second",
+              state: { status: "completed", structured: { text: "second" } },
+            },
+          ],
+        },
+        { type: "assistant", finish: "stop", content: [{ type: "text", id: "second-final", text: "second complete" }] },
+      ])
+    }),
+  )
+
   it.effect("bounds 64-character session prompt cache keys", () =>
     Effect.gen(function* () {
       yield* setup
@@ -3360,6 +3433,174 @@ describe("SessionRunnerLLM", () => {
       expect(yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))).toBe(
         "Tool input delta before start: call-1",
       )
+    }),
+  )
+
+  it.effect(
+    "drains one verifier-reject feedback into the next turn's system context exactly once and out of the durable transcript",
+    () =>
+      Effect.gen(function* () {
+        yield* setup
+        const session = yield* SessionV2.Service
+        const runtime = yield* SessionRuntime.Service
+        const instance = yield* runtime.getOrCreate(sessionID)
+
+        yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start work" }), resume: false })
+        requests.length = 0
+        responses = [[LLMEvent.stepStart({ index: 0 }), LLMEvent.stepFinish({ index: 0, reason: "stop" }), LLMEvent.finish({ reason: "stop" })]]
+        yield* session.resume(sessionID)
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.system.map((part) => part.text)).toEqual(["Initial context"])
+
+        yield* instance.verifierBiDirectional.injectRejectReasonToWorkerContext(
+          "Reject reason one",
+          [{ file: "src/a.ts", line: 7, issue: "null guard missing" }],
+        ).pipe(Effect.provideService(EventBus.Service, instance.eventBus))
+
+        requests.length = 0
+        responses = [[LLMEvent.stepStart({ index: 0 }), LLMEvent.stepFinish({ index: 0, reason: "stop" }), LLMEvent.finish({ reason: "stop" })]]
+        yield* session.resume(sessionID)
+
+        expect(requests).toHaveLength(1)
+        const secondSystem = requests[0]!.system.map((part) => part.text)
+        expect(secondSystem).toHaveLength(2)
+        expect(secondSystem[0]).toBe("Initial context")
+        expect(secondSystem[1]).toContain("Reject reason one")
+        expect(secondSystem[1]).toContain("src/a.ts:7 — null guard missing")
+
+        requests.length = 0
+        responses = [[LLMEvent.stepStart({ index: 0 }), LLMEvent.stepFinish({ index: 0, reason: "stop" }), LLMEvent.finish({ reason: "stop" })]]
+        yield* session.resume(sessionID)
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.system.map((part) => part.text)).toEqual(["Initial context"])
+
+        const transcript = yield* session.context(sessionID)
+        const transcriptJson = JSON.stringify(transcript)
+        expect(transcriptJson).not.toContain("Reject reason one")
+        expect(transcriptJson).not.toContain("verifier-feedback")
+        expect(transcript.map((message) => message.type)).toEqual(["user", "assistant", "assistant", "assistant"])
+      }),
+  )
+
+  it.effect("onTurnEnd records Waiting after a turn that does not need continuation", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Settle now" }), resume: false })
+      requests.length = 0
+      responses = [[
+        LLMEvent.stepStart({ index: 0 }),
+        LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+        LLMEvent.finish({ reason: "stop" }),
+      ]]
+      yield* session.resume(sessionID)
+      expect(yield* instance.workerState.current).toEqual({ _tag: "Waiting", reason: "OnBackgroundExec" })
+    }),
+  )
+
+  it.effect("onTurnEnd keeps the drain running across a tool-call turn and settles Waiting at the end", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use a tool" }), resume: false })
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-1", name: "echo", input: { text: "hi" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+      yield* session.resume(sessionID)
+      expect(requests).toHaveLength(2)
+      expect(yield* instance.workerState.current).toEqual({ _tag: "Waiting", reason: "OnBackgroundExec" })
+    }),
+  )
+
+  it.effect("budget exhaustion consumes grace once then requests terminal budget_exhausted", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* instance.budget.setCap(1)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Work under cap" }), resume: false })
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-1", name: "echo", input: { text: "one" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-2", name: "echo", input: { text: "two" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+      ]
+      yield* session.resume(sessionID)
+      expect(requests).toHaveLength(2)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("budget_exhausted")
+      expect(snap.reason).toBe("budget_exhausted")
+    }),
+  )
+
+  it.effect("a failed provider stream does not invoke verifier audit", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* instance.goalStore.set("Finish the parser")
+      const hardAborts: string[] = []
+      yield* instance.eventBus.subscribe((event) =>
+        Effect.sync(() => {
+          if (event._tag === "HardAbort") hardAborts.push(event.reason)
+        }),
+      )
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail raw" }), resume: false })
+      const failure = providerUnavailable()
+      responseStream = Stream.fail(failure)
+      expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
+      expect(hardAborts).toEqual([])
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("running")
+      expect(snap.reason).toBe(null)
+    }),
+  )
+
+  it.effect("a non-retryable provider failure requests terminal unrecoverable_failure", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail badly" }), resume: false })
+      const failure = new LLMError({
+        module: "test",
+        method: "stream",
+        reason: new InvalidProviderOutputReason({ message: "malformed" }),
+      })
+      responseStream = Stream.fail(failure)
+      expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("failed")
+      expect(snap.reason).toBe("unrecoverable_failure")
     }),
   )
 })
