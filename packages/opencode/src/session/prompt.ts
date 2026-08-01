@@ -56,12 +56,33 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
+import { loopCommand } from "@opencode-ai/core/session/loop-control/command"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
+import { GoalStore } from "@opencode-ai/core/session/loop-control/goal-store"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
+import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
+import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
 
 const decodeMessageInfo = Schema.decodeUnknownExit(SessionV1.Info)
 const decodeMessagePart = Schema.decodeUnknownExit(SessionV1.Part)
+
+/** Run a `/loop` command against one session-owned runtime bundle. */
+const loopCommandForInstance = (raw: string, instance: SessionRuntime.Instance) =>
+  loopCommand(raw).pipe(
+    Effect.provideService(EventBus.Service, instance.eventBus),
+    Effect.provideService(GoalStore.Service, instance.goalStore),
+    Effect.provideService(IterationBudget.Service, instance.budget),
+    Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
+    Effect.provideService(WorkerState.Service, instance.workerState),
+    Effect.provideService(TerminalController.Service, instance.terminal),
+  )
 const MAX_MCP_RESOURCE_BLOB_BYTES = 10 * 1024 * 1024
 const SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES = new Set([
   "application/pdf",
@@ -140,6 +161,12 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const eventBus = yield* EventBus.Service
+    const goalStore = yield* GoalStore.Service
+    const iterationBudget = yield* IterationBudget.Service
+    const timerDaemon = yield* TimerDaemon.Service
+    const workerState = yield* WorkerState.Service
+    const terminalController = yield* TerminalController.Service
     const { db } = database
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -1359,6 +1386,93 @@ const layer = Layer.effect(
         command: input.command,
         agent: input.agent,
       })
+
+      if (input.command === "loop") {
+        // Resolve the session-owned runtime bundle the V2 runner uses for this
+        // session so /loop commands observe and control the same mutable
+        // services. Precedence: ambient SessionRuntime (already in env) →
+        // location layer (via LocationServiceMap, matching llm.ts) → legacy
+        // ambient global services.
+        const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+        const maybeLocations = yield* Effect.serviceOption(LocationServiceMap.Service)
+        let dispatch: Effect.Effect<string, Error, never>
+        if (Option.isSome(maybeRuntime)) {
+          const instance = yield* maybeRuntime.value.getOrCreate(input.sessionID)
+          dispatch = loopCommandForInstance(input.arguments, instance)
+        } else if (Option.isSome(maybeLocations)) {
+          const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+          const locationLayer = LocationServiceMap.Service.get({
+            directory: AbsolutePath.make(session.directory),
+            workspaceID: session.workspaceID,
+          })
+          dispatch = Effect.gen(function* () {
+            const maybe = yield* Effect.serviceOption(SessionRuntime.Service)
+            if (Option.isNone(maybe)) return yield* Effect.fail(new Error("session runtime unavailable"))
+            const instance = yield* maybe.value.getOrCreate(input.sessionID)
+            return yield* loopCommandForInstance(input.arguments, instance)
+          }).pipe(
+            Effect.provide(locationLayer),
+            Effect.provideService(LocationServiceMap.Service, maybeLocations.value),
+          )
+        } else {
+          dispatch = loopCommand(input.arguments).pipe(
+            Effect.provideService(EventBus.Service, eventBus),
+            Effect.provideService(GoalStore.Service, goalStore),
+            Effect.provideService(IterationBudget.Service, iterationBudget),
+            Effect.provideService(TimerDaemon.Service, timerDaemon),
+            Effect.provideService(WorkerState.Service, workerState),
+            Effect.provideService(TerminalController.Service, terminalController),
+          )
+        }
+        const text = yield* dispatch.pipe(Effect.orDie)
+        const user = yield* prompt({
+          sessionID: input.sessionID,
+          messageID: input.messageID,
+          agent: input.agent,
+          model: input.model ? Provider.parseModel(input.model) : undefined,
+          noReply: true,
+          parts: [
+            {
+              type: "text",
+              text: `/${input.command}${input.arguments.trim() ? ` ${input.arguments.trim()}` : ""}`,
+              synthetic: true,
+            },
+          ],
+        })
+        if (user.info.role !== "user") return yield* Effect.die("Expected loop command user message")
+        const ctx = yield* InstanceState.context
+        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        const model = user.info.model
+        const messageID = MessageID.ascending()
+        const completed = Date.now()
+        const part: SessionV1.TextPart = {
+          id: PartID.ascending(),
+          messageID,
+          sessionID: input.sessionID,
+          type: "text",
+          text,
+          synthetic: true,
+        }
+        const info: SessionV1.Assistant = {
+          id: messageID,
+          role: "assistant",
+          parentID: user.info.id,
+          sessionID: input.sessionID,
+          mode: input.agent ?? session.agent ?? "build",
+          agent: input.agent ?? session.agent ?? "build",
+          path: { cwd: ctx.directory, root: ctx.worktree },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: model.modelID,
+          providerID: model.providerID,
+          time: { created: completed, completed },
+          finish: "stop",
+        }
+        yield* sessions.updateMessage(info)
+        yield* sessions.updatePart(part)
+        return { info, parts: [part] }
+      }
+
       const cmd = yield* commands.get(input.command)
       if (!cmd) {
         const available = (yield* commands.list()).map((c) => c.name)
@@ -1625,6 +1739,12 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
+    EventBus.node,
+    GoalStore.node,
+    IterationBudget.node,
+    TimerDaemon.node,
+    WorkerState.node,
+    TerminalController.node,
   ],
 })
 

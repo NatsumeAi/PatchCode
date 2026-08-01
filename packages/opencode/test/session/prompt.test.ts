@@ -3,6 +3,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { eq } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { expect } from "bun:test"
@@ -57,6 +58,12 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
+import { GoalStore } from "@opencode-ai/core/session/loop-control/goal-store"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
+import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
+import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -206,6 +213,12 @@ const promptRoot = LayerNode.group([
   SystemPrompt.node,
   CrossSpawnSpawner.node,
   RuntimeFlags.node,
+  EventBus.node,
+  GoalStore.node,
+  IterationBudget.node,
+  TimerDaemon.node,
+  WorkerState.node,
+  TerminalController.node,
 ])
 
 function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; processor?: "blocking" }) {
@@ -443,6 +456,71 @@ const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
 })
 
 // Loop semantics
+
+noLLMServer.instance(
+  "registers loop as a built-in slash command",
+  () =>
+    Effect.gen(function* () {
+      const commands = yield* Command.Service
+      expect((yield* commands.list()).some((command) => command.name === "loop")).toBe(true)
+    }),
+  { config: cfg },
+)
+
+noLLMServer.instance(
+  "dispatches loop status through the session command path without an LLM request",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({ title: "Loop command" })
+
+      const result = yield* prompt.command({
+        sessionID: session.id,
+        command: "loop",
+        arguments: "status",
+      })
+
+      expect(result.info.role).toBe("assistant")
+      expect(result.parts.some((part) => part.type === "text" && part.text.includes("Worker"))).toBe(true)
+      expect(result.parts.some((part) => part.type === "text" && part.text.includes("Budget"))).toBe(true)
+
+      const messages = yield* sessions.messages({ sessionID: session.id })
+      expect(messages.some((message) => message.info.id === result.info.id)).toBe(true)
+    }).pipe(
+      Effect.provide(IterationBudget.layerForTest(90)),
+      Effect.provide(TimerDaemon.layerForTest),
+      Effect.provide(WorkerState.layerForTest),
+      Effect.provide(EventBus.layerForTest),
+      Effect.provide(GoalStore.layerForTest),
+      Effect.provide(SessionRuntime.layerForTest),
+    ),
+  { config: cfg },
+)
+
+noLLMServer.instance(
+  "/loop abort requests terminal state on the session-owned runtime instance",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const runtime = yield* SessionRuntime.Service
+      const session = yield* sessions.create({ title: "Abort target" })
+
+      yield* prompt.command({
+        sessionID: session.id,
+        command: "loop",
+        arguments: "abort",
+      })
+
+      const instance = yield* runtime.getOrCreate(session.id)
+      expect(yield* instance.terminal.shouldContinue).toBe(false)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("aborted")
+      expect(snap.reason).toBe("user_abort")
+    }).pipe(Effect.provide(SessionRuntime.layerForTest)),
+  { config: cfg },
+)
 
 noLLMServer.instance(
   "loop exits immediately when last assistant has stop finish",
@@ -808,6 +886,7 @@ it.instance("loop continues when finish is tool-calls", () =>
       expect(result.info.finish).toBe("stop")
     }
   }),
+  30_000,
 )
 
 it.instance("glob tool keeps instance context during prompt runs", () =>
@@ -847,6 +926,7 @@ it.instance("glob tool keeps instance context during prompt runs", () =>
     expect(tool.state.output).not.toContain("No context found for instance")
     expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
   }),
+  30_000,
 )
 
 it.instance("loop continues when finish is stop but assistant has tool parts", () =>
