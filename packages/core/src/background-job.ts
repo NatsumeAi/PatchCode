@@ -1,6 +1,6 @@
 export * as BackgroundJob from "./background-job"
 
-import { Cause, Clock, Context, Deferred, Effect, Exit, Layer, Scope, SynchronizedRef } from "effect"
+import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Scope, SynchronizedRef } from "effect"
 import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
 
@@ -85,13 +85,23 @@ export type WaitResult = {
   timedOut: boolean
 }
 
+const PROMOTE_WAIT_TIMEOUT = Duration.minutes(30)
+
+export class PromotionTimeoutError extends Error {
+  readonly _tag = "PromotionTimeoutError" as const
+  constructor(readonly jobID: string) {
+    super(`Background job ${jobID} was not promoted within 30 minutes`)
+    this.name = "PromotionTimeoutError"
+  }
+}
+
 export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: string) => Effect.Effect<Info | undefined>
   readonly start: (input: StartInput) => Effect.Effect<Info>
   readonly extend: (input: ExtendInput) => Effect.Effect<boolean>
   readonly wait: (input: WaitInput) => Effect.Effect<WaitResult>
-  readonly waitForPromotion: (id: string) => Effect.Effect<Info>
+  readonly waitForPromotion: (id: string) => Effect.Effect<Info, PromotionTimeoutError>
   readonly promote: (id: string) => Effect.Effect<Info | undefined>
   readonly cancel: (id: string) => Effect.Effect<Info | undefined>
 }
@@ -304,7 +314,11 @@ export const make = Effect.gen(function* () {
     const job = (yield* SynchronizedRef.get(state.jobs)).get(id)
     if (!job || job.info.status !== "running") return yield* Effect.never
     if (job.info.metadata?.background === true) return snapshot(job)
-    return yield* Deferred.await(job.promoted)
+    const promoted = yield* Deferred.await(job.promoted).pipe(
+      Effect.timeoutOption(PROMOTE_WAIT_TIMEOUT),
+    )
+    if (promoted._tag === "Some") return promoted.value
+    return yield* Effect.fail(new PromotionTimeoutError(id))
   })
 
   const promote: Interface["promote"] = Effect.fn("BackgroundJob.promote")(function* (id) {
