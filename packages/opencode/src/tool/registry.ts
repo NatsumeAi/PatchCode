@@ -220,7 +220,6 @@ const layer = Layer.effect(
           plan: Tool.init(plan),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
-
         return {
           custom,
           builtin: [

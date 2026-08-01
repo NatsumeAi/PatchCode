@@ -2,6 +2,13 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ForkMode } from "@opencode-ai/core/session/loop-control/fork-mode"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { SpawnEdge } from "@opencode-ai/core/session/loop-control/spawn-edge"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import type { ActiveAgentExceeded } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { buildForkPrompt } from "@opencode-ai/core/session/loop-control/fork-mode"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
@@ -10,7 +17,7 @@ import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
-import { Effect, Exit, Schema, Scope } from "effect"
+import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
@@ -22,6 +29,23 @@ export interface TaskPromptOps {
 }
 
 const id = "task"
+
+function loadParentTrace(sessionID: SessionID) {
+  return Effect.gen(function* () {
+    const database = yield* Database.Service
+    const result = yield* MessageV2.page({ sessionID, limit: 500 }).pipe(
+      Effect.provideService(Database.Service, database),
+      Effect.orDie,
+    )
+    return result.items
+      .filter((item) => item.info.role === "user" || item.info.role === "assistant")
+      .map((item) => ({
+        role: item.info.role,
+        content: item.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n"),
+      }))
+  })
+}
+
 const BACKGROUND_DESCRIPTION = [
   "Background mode: background=true launches the subagent asynchronously and returns immediately.",
   "Foreground is the default; use it when you need the result before continuing.",
@@ -49,6 +73,10 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
+  fork_mode: Schema.optional(ForkMode).annotate({
+    description:
+      "How much of the parent session trace the subagent receives. PromptOnly (default): no parent trace, only the prompt. LastNTurns: last 50 parent messages. FullHistory: entire parent trace.",
+  }),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)
@@ -88,11 +116,41 @@ export const TaskTool = Tool.define(
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const spawnEdges = new Map<string, SpawnEdge.SpawnEdge>()
+    const closeEdge = (childSessionID: string) =>
+      Effect.gen(function* () {
+        const edge = spawnEdges.get(childSessionID)
+        if (!edge) return
+        yield* SpawnEdge.close(edge)
+        spawnEdges.delete(childSessionID)
+      })
+    yield* Effect.addFinalizer(() =>
+      Effect.forEach(spawnEdges.values(), SpawnEdge.close, { discard: true }).pipe(
+        Effect.andThen(Effect.sync(() => spawnEdges.clear())),
+      ),
+    )
 
-    const run = Effect.fn("TaskTool.execute")(function* (
-      params: Schema.Schema.Type<typeof Parameters>,
-      ctx: Tool.Context,
-    ) {
+      const run = Effect.fn("TaskTool.execute")(function* (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ) {
+        // Publish a child terminal event onto the session-owned EventBus the
+        // V2 runner's LoopControlHost subscribes to; fall back to the ambient
+        // EventBus (V1 / tool-only environments) when no session runtime is
+        // present. The V2 tool-execution environment carries the location
+        // layer, so `SessionRuntime` resolves to the same registry the runner
+        // drain uses for this session.
+        const publishLoopEvent = (event: EventBus.LoopControlEvent) =>
+          Effect.gen(function* () {
+            const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+            if (Option.isSome(maybeRuntime)) {
+              const instance = yield* maybeRuntime.value.getOrCreate(ctx.sessionID)
+              yield* instance.eventBus.publish(event)
+              return
+            }
+            const maybe = yield* Effect.serviceOption(EventBus.Service)
+            if (Option.isSome(maybe)) yield* maybe.value.publish(event)
+          })
       const cfg = yield* config.get()
       const runInBackground = params.background === true
       if (runInBackground && !flags.experimentalBackgroundSubagents) {
@@ -169,7 +227,12 @@ export const TaskTool = Tool.define(
                 ),
             ),
           ],
-        }))
+         }))
+
+      const existingEdge = spawnEdges.get(nextSession.id)
+      if (existingEdge) yield* closeEdge(nextSession.id)
+      const edge = yield* SpawnEdge.make(ctx.sessionID, nextSession.id)
+      spawnEdges.set(nextSession.id, edge)
 
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(
         Effect.provideService(Database.Service, database),
@@ -198,7 +261,12 @@ export const TaskTool = Tool.define(
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
       const runTask = Effect.fn("TaskTool.runTask")(function* () {
-        const parts = yield* ops.resolvePromptParts(params.prompt)
+        const forkPrompt = yield* buildForkPrompt({
+          mode: params.fork_mode ?? "PromptOnly",
+          parentTrace: yield* loadParentTrace(ctx.sessionID),
+          promptOverride: params.prompt,
+        })
+        const parts = yield* ops.resolvePromptParts(forkPrompt)
         const result = yield* ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: nextSession.id,
@@ -218,28 +286,58 @@ export const TaskTool = Tool.define(
         text: string,
       ) {
         const currentParent = yield* sessions.get(ctx.sessionID)
-        yield* ops
-          .prompt({
-            sessionID: ctx.sessionID,
-            agent: currentParent.agent ?? ctx.agent,
-            variant,
-            parts: [
-              {
-                type: "text",
-                synthetic: true,
-                text: renderOutput({
-                  sessionID: nextSession.id,
-                  state,
-                  summary:
-                    state === "completed"
-                      ? `Background task completed: ${params.description}`
-                      : `Background task failed: ${params.description}`,
-                  text,
-                }),
-              },
-            ],
-          })
-          .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+        yield* Effect.forkIn(
+          Effect.gen(function* () {
+            const notification = yield* ops
+              .prompt({
+                sessionID: ctx.sessionID,
+                agent: currentParent.agent ?? ctx.agent,
+                variant,
+                parts: [
+                  {
+                    type: "text",
+                    synthetic: true,
+                    text: renderOutput({
+                      sessionID: nextSession.id,
+                      state,
+                      summary:
+                        state === "completed"
+                          ? `Background task completed: ${params.description}`
+                          : `Background task failed: ${params.description}`,
+                      text,
+                    }),
+                  },
+                ],
+              })
+              .pipe(Effect.exit)
+            if (Exit.isFailure(notification)) {
+              const error = Cause.squash(notification.cause)
+              yield* publishLoopEvent({
+                _tag: "SubagentFailed",
+                childSessionID: nextSession.id,
+                parentSessionID: ctx.sessionID,
+                error: error instanceof Error ? error.message : String(error),
+              })
+              return
+            }
+            if (state === "completed") {
+              yield* publishLoopEvent({
+                _tag: "SubagentCompleted",
+                childSessionID: nextSession.id,
+                parentSessionID: ctx.sessionID,
+              })
+              return
+            }
+            yield* publishLoopEvent({
+              _tag: "SubagentFailed",
+              childSessionID: nextSession.id,
+              parentSessionID: ctx.sessionID,
+              error: text,
+            })
+          }).pipe(Effect.ensuring(closeEdge(nextSession.id))),
+          scope,
+          { startImmediately: true },
+        )
       })
 
       const notify = Effect.fn("TaskTool.notifyBackgroundResult")(function* (jobID: string) {
@@ -253,7 +351,23 @@ export const TaskTool = Tool.define(
         )
       })
 
-      if (yield* background.extend({ id: nextSession.id, run: runTask() })) {
+      const maybeBudget = yield* Effect.serviceOption(IterationBudget.Service)
+      const agentGuard = Option.isSome(maybeBudget)
+        ? yield* maybeBudget.value.acquireAgentGuard.pipe(
+            Effect.catchTag(
+              "LoopControl.IterationBudget.ActiveAgentExceeded",
+              (error: ActiveAgentExceeded) =>
+                Effect.gen(function* () {
+                  yield* closeEdge(nextSession.id)
+                  return yield* Effect.fail(error)
+                }),
+            ),
+          )
+        : undefined
+      const releaseGuard = agentGuard?.release ?? Effect.void
+      const guardedRun = runTask().pipe(Effect.ensuring(releaseGuard))
+
+      if (yield* background.extend({ id: nextSession.id, run: guardedRun.pipe(Effect.provideService(Database.Service, database)) })) {
         return {
           title: params.description,
           metadata: {
@@ -282,7 +396,10 @@ export const TaskTool = Tool.define(
           }),
           notify(nextSession.id),
         ]),
-        run: runTask().pipe(Effect.onInterrupt(() => ops.cancel(nextSession.id))),
+        run: guardedRun.pipe(
+          Effect.provideService(Database.Service, database),
+          Effect.onInterrupt(() => ops.cancel(nextSession.id)),
+        ),
       })
 
       function backgroundResult() {
@@ -322,7 +439,11 @@ export const TaskTool = Tool.define(
           Effect.gen(function* () {
             const result = yield* Effect.raceFirst(
               background.wait({ id: nextSession.id }).pipe(Effect.map((waited) => waited.info)),
-              background.waitForPromotion(nextSession.id),
+              background.waitForPromotion(nextSession.id).pipe(Effect.exit, Effect.flatMap((exit) =>
+                exit._tag === "Failure"
+                  ? Effect.never
+                  : Effect.succeed(exit.value),
+              )),
             )
             if (result?.metadata?.background === true) return backgroundResult()
             if (result?.status === "error") return yield* Effect.fail(new Error(result.error ?? "Task failed"))
@@ -335,8 +456,33 @@ export const TaskTool = Tool.define(
           }),
         (_, exit) =>
           Effect.gen(function* () {
+            if (exit._tag === "Success") {
+              // When the foreground call was backgrounded by promotion, the
+              // promotion notification owns the terminal event: `notify` →
+              // `inject` publishes SubagentCompleted/SubagentFailed once the
+              // job settles. Publishing here too would double-report.
+              const value = exit.value as { metadata?: { background?: unknown } } | undefined
+              const promotedToBackground = value?.metadata?.background === true
+              if (!promotedToBackground) {
+                yield* publishLoopEvent({
+                  _tag: "SubagentCompleted",
+                  childSessionID: nextSession.id,
+                  parentSessionID: ctx.sessionID,
+                })
+              }
+            } else if (!Exit.hasInterrupts(exit)) {
+              const failure = exit as Exit.Failure<unknown, unknown>
+              const squashed = Cause.squash(failure.cause)
+              yield* publishLoopEvent({
+                _tag: "SubagentFailed",
+                childSessionID: nextSession.id,
+                parentSessionID: ctx.sessionID,
+                error: squashed instanceof Error ? squashed.message : String(squashed),
+              })
+            }
             if (Exit.hasInterrupts(exit))
               yield* Effect.all([cancel, background.cancel(nextSession.id)], { discard: true })
+            yield* closeEdge(nextSession.id)
           }).pipe(
             Effect.ensuring(
               Effect.sync(() => {

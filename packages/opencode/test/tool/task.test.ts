@@ -21,9 +21,13 @@ import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { disposeAllInstances } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { awaitWithTimeout, testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
+import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
+import { Option } from "effect"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -34,7 +38,7 @@ const ref = {
   modelID: ModelV2.ID.make("test-model"),
 }
 
-const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
+const layer = (flags: Partial<RuntimeFlags.Info> = {}, withBudget = false) =>
   LayerNode.compile(
     LayerNode.group([
       Agent.node,
@@ -51,12 +55,15 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       Database.node,
       RuntimeFlags.node,
       Ripgrep.node,
+      EventBus.node,
+      ...(withBudget ? [IterationBudget.node] : []),
     ]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
   )
 
 const it = testEffect(layer())
 const background = testEffect(layer({ experimentalBackgroundSubagents: true }))
+const backgroundWithBudget = testEffect(layer({ experimentalBackgroundSubagents: true }, true))
 
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -181,6 +188,10 @@ describe("tool.task", () => {
     },
   )
 
+  // These two tests run slower (~12s vs ~3s isolated) when executed after the
+  // earlier shared-layer tests in this file because the global Database node
+  // connection is rebuilt per instance; the default 5s bun timeout is too
+  // tight, so give them an explicit window.
   it.instance(
     "description hides denied subagents for the caller",
     () =>
@@ -214,17 +225,20 @@ describe("tool.task", () => {
         },
       },
     },
+    30000,
   )
 
-  it.instance("execute resumes an existing task session from task_id", () =>
-    Effect.gen(function* () {
-      const sessions = yield* Session.Service
-      const { chat, assistant } = yield* seed()
-      const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-      let seen: SessionPrompt.PromptInput | undefined
-      const promptOps = stubOps({ text: "resumed", onPrompt: (input) => (seen = input) })
+  it.instance(
+    "execute resumes an existing task session from task_id",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        let seen: SessionPrompt.PromptInput | undefined
+        const promptOps = stubOps({ text: "resumed", onPrompt: (input) => (seen = input) })
 
       const result = yield* def.execute(
         {
@@ -253,6 +267,7 @@ describe("tool.task", () => {
       expect(seen?.sessionID).toBe(child.id)
       expect(seen?.variant).toBe("xhigh")
     }),
+    30000,
   )
 
   it.instance("execute asks by default and skips checks when bypassed", () =>
@@ -670,6 +685,309 @@ describe("tool.task", () => {
       expect(job?.status).toBe("running")
     }),
   )
+
+  backgroundWithBudget.instance("releases the agent guard after a background child failure", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const result = yield* def.execute(
+        {
+          description: "fail child",
+          prompt: "fail deliberately",
+          subagent_type: "general",
+          background: true,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.fail(new Error("child failed")),
+            },
+          },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const info = yield* jobs.wait({ id: result.metadata.sessionId })
+      expect(info.info?.status).toBe("error")
+      expect(yield* IterationBudget.activeAgents).toBe(0)
+    }),
+  )
+
+  backgroundWithBudget.instance("releases the agent guard after a foreground child failure", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "fail foreground child",
+            prompt: "fail deliberately",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: {
+              promptOps: {
+                ...stubOps(),
+                prompt: () => Effect.fail(new Error("child failed")),
+              },
+            },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* IterationBudget.activeAgents).toBe(0)
+    }),
+  )
+
+  backgroundWithBudget.instance("publishes SubagentCompleted on foreground child success", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const events: string[] = []
+      yield* EventBus.subscribe((e) =>
+        Effect.sync(() => {
+          if (e._tag === "SubagentCompleted" || e._tag === "SubagentFailed") events.push(e._tag)
+        }),
+      )
+      yield* def.execute(
+        {
+          description: "ok foreground child",
+          prompt: "succeed",
+          subagent_type: "general",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: stubOps(),
+          },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+      expect(events).toEqual(["SubagentCompleted"])
+    }),
+  )
+
+  backgroundWithBudget.instance(
+    "publishes exactly one SubagentCompleted when a foreground task is promoted before settlement",
+    () =>
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const ready = yield* Deferred.make<void>()
+        const done = yield* Deferred.make<void>()
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const completions: string[] = []
+        yield* EventBus.subscribe((e) =>
+          Effect.sync(() => {
+            if (e._tag === "SubagentCompleted") completions.push(e.childSessionID)
+          }),
+        )
+        const promptOps: TaskPromptOps = {
+          cancel: () => Effect.void,
+          resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+          prompt: (input) => {
+            if (input.sessionID === chat.id) {
+              return Deferred.succeed(injected, input).pipe(Effect.as(reply(input, "injected")))
+            }
+            return Effect.gen(function* () {
+              yield* Deferred.succeed(ready, undefined)
+              yield* Deferred.await(done)
+              return reply(input, "background done")
+            })
+          },
+        }
+
+        const fiber = yield* def
+          .execute(
+            {
+              description: "promoted child",
+              prompt: "work slowly",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.forkChild)
+
+        yield* Deferred.await(ready)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("task job not found")
+        yield* jobs.promote(job.id)
+        const result = yield* Fiber.join(fiber)
+        expect(result.metadata.background).toBe(true)
+
+        yield* Deferred.succeed(done, undefined)
+        yield* Deferred.await(injected)
+        yield* Effect.yieldNow
+        yield* Effect.yieldNow
+        expect(completions).toHaveLength(1)
+      }),
+  )
+
+  backgroundWithBudget.instance("publishes SubagentFailed on foreground child failure", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const events: string[] = []
+      yield* EventBus.subscribe((e) =>
+        Effect.sync(() => {
+          if (e._tag === "SubagentCompleted" || e._tag === "SubagentFailed") events.push(e._tag)
+        }),
+      )
+      yield* def
+        .execute(
+          {
+            description: "fail foreground child",
+            prompt: "fail deliberately",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: {
+              promptOps: {
+                ...stubOps(),
+                prompt: () => Effect.fail(new Error("child failed")),
+              },
+            },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+      expect(events).toEqual(["SubagentFailed"])
+    }),
+  )
+
+  backgroundWithBudget.instance("publishes SubagentFailed when a background child fails", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const events: string[] = []
+      yield* EventBus.subscribe((e) =>
+        Effect.sync(() => {
+          if (e._tag === "SubagentCompleted" || e._tag === "SubagentFailed") events.push(e._tag)
+        }),
+      )
+
+      const result = yield* def.execute(
+        {
+          description: "fail background child",
+          prompt: "fail deliberately",
+          subagent_type: "general",
+          background: true,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.fail(new Error("child failed")),
+            },
+          },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      yield* jobs.wait({ id: result.metadata.sessionId, timeout: 1_000 })
+      expect(events).toEqual(["SubagentFailed"])
+    }),
+  )
+
+  backgroundWithBudget.instance("publishes SubagentFailed when parent notification fails", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const failed = yield* Deferred.make<string>()
+      yield* EventBus.subscribe((e) =>
+        Effect.gen(function* () {
+          if (e._tag === "SubagentFailed") yield* Deferred.succeed(failed, e.error)
+        }),
+      )
+
+      const result = yield* def.execute(
+        {
+          description: "fail parent notification",
+          prompt: "finish deliberately",
+          subagent_type: "general",
+          background: true,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: (input: SessionPrompt.PromptInput) =>
+                input.sessionID === chat.id
+                  ? Effect.fail(new Error("parent notification failed"))
+                  : Effect.succeed(reply(input, "child done")),
+            },
+          },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      yield* jobs.wait({ id: result.metadata.sessionId, timeout: 1_000 })
+      expect(yield* awaitWithTimeout(Deferred.await(failed), "parent notification failure was not observed")).toContain(
+        "parent notification failed",
+      )
+    }),
+  )
+
 
   background.instance("background task completion waits for running updates", () =>
     Effect.gen(function* () {
