@@ -374,7 +374,9 @@ function referencesComponent(input: unknown, name: string): boolean {
 
 function normalizeLegacyOperation(operation: OpenApiOperation, path: string, method: string) {
   if (path === "/experimental/console/switch" && method === "post") delete operation.responses?.["400"]
-  if ((path !== "/session/{sessionID}/message" && path !== "/session/{sessionID}/command") || method !== "post") return
+  // V2 转正（deprecate-v1-use-v2 Task 1）：session.prompt 已切 v2（响应 SessionInput.Admitted），
+  // 不再强制 WithParts 覆盖；/session/{sessionID}/command 在 Task 3 前仍是 v1，保留 legacy 形状。
+  if (path !== "/session/{sessionID}/command" || method !== "post") return
   const response = operation.responses?.["200"]?.content?.["application/json"]
   if (!response) return
   response.schema = {

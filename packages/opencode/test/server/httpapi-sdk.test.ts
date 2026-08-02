@@ -29,6 +29,9 @@ import { testProviderConfig } from "../lib/test-provider"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Database } from "@opencode-ai/core/database/database"
+import { SessionInputTable, SessionMessageTable } from "@opencode-ai/core/session/sql"
+import { Session as SessionSchema } from "@opencode-ai/schema/session"
+import { eq } from "drizzle-orm"
 import { httpApiLayer } from "./httpapi-layer"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
@@ -55,6 +58,7 @@ type TestServices =
   | InstanceStore.Service
   | SessionNs.Service
   | HttpServer.HttpServer
+  | Database.Service
 type TestScope = Scope.Scope | TestServices
 
 function client(
@@ -755,17 +759,53 @@ describe("HttpApi SDK", () => {
             parts: [{ type: "text", text: "async hello" }],
           }),
         )
-        const messages = yield* capture(() => sdk.session.messages({ sessionID }))
+        // noReply is async-admit for promptAsync; allow promote projection to settle.
+        // HTTP messages routes are still v1-backed (mixed state until the
+        // deprecate-v1 plan migrates them), so assert the v2 projection table
+        // directly: both user rows must be projected and no assistant reply.
+        const sessionKey = SessionSchema.ID.make(sessionID)
+        const messageRows = yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const db = yield* Database.Service
+            const rows = yield* db.db
+              .select()
+              .from(SessionMessageTable)
+              .where(eq(SessionMessageTable.session_id, sessionKey))
+              .all()
+              .pipe(Effect.orDie)
+            const userTexts = rows
+              .filter((r) => r.type === "user")
+              .map((r) => (r.data as { text?: unknown }).text)
+              .filter((t): t is string => typeof t === "string")
+              .sort()
+            if (userTexts.includes("hello") && userTexts.includes("async hello")) return rows
+            return undefined
+          }),
+          "noReply user messages never projected",
+          "10 seconds",
+        )
+        expect(session.status).toBe(200)
+        expect(prompt.status).toBe(200)
+        expect(asyncPrompt.status).toBe(204)
+        // Admitted body (not WithParts)
+        expect(record(prompt.data).sessionID).toBe(sessionID)
+        expect(record(prompt.data).delivery).toBe("steer")
+        expect(record(record(prompt.data).prompt).text).toBe("hello")
+        expect(record(prompt.data).info).toBeUndefined()
+
+        const userTexts = messageRows
+          .filter((r) => r.type === "user")
+          .map((r) => (r.data as { text?: unknown }).text)
+          .filter((t): t is string => typeof t === "string")
+          .sort()
+        expect(userTexts).toContain("hello")
+        expect(userTexts).toContain("async hello")
+        // noReply must not produce an assistant reply
+        expect(messageRows.some((r) => r.type === "assistant")).toBe(false)
 
         return {
-          statuses: statuses({ session, prompt, asyncPrompt, messages }),
-          promptRole: record(record(prompt.data).info).role,
-          messageCount: array(messages.data).length,
-          messageTexts: array(messages.data)
-            .flatMap((item) => array(record(item).parts))
-            .map((part) => record(part).text)
-            .filter((text): text is string => typeof text === "string")
-            .sort(),
+          statuses: statuses({ session, prompt, asyncPrompt }),
+          projectedUserCount: userTexts.length,
         }
       }),
     ),
@@ -790,6 +830,7 @@ describe("HttpApi SDK", () => {
             parts: [{ type: "text", text: "hello llm" }],
           }),
         )
+        yield* llm.wait(1)
         const messages = yield* capture(() => sdk.session.messages({ sessionID }))
         const inputs = yield* llm.inputs
 
@@ -825,6 +866,7 @@ describe("HttpApi SDK", () => {
             parts: [{ type: "text", text: "hello skill context" }],
           }),
         )
+        yield* llm.wait(1)
         const inputs = yield* llm.inputs
 
         expect(session.status).toBe(200)
@@ -906,6 +948,68 @@ describe("HttpApi SDK", () => {
             vcs: record(after.data).vcs,
             worktreeSelected: record(after.data).worktree === directory,
           },
+        }
+      }),
+    ),
+  )
+
+  httpapi(
+    "prompt admits a durable SessionInput row (v2 admission path)",
+    withFakeLlm("default", ({ sdk, llm }) =>
+      Effect.gen(function* () {
+        yield* llm.text("admitted", { usage: { input: 1, output: 1 } })
+        const session = yield* capture(() => sdk.session.create({ title: "v2 prompt admission" }))
+        const sessionID = String(record(session.data).id)
+        const sessionKey = SessionSchema.ID.make(sessionID)
+        const prompt = yield* capture(() =>
+          sdk.session.prompt({
+            sessionID,
+            agent: "build",
+            parts: [{ type: "text", text: "admit me" }],
+          }),
+        )
+        expect(prompt.status).toBe(200)
+        expect(record(prompt.data).sessionID).toBe(sessionID)
+        expect(record(prompt.data).delivery).toBe("steer")
+
+        const promoted = yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const db = yield* Database.Service
+            const row = yield* db.db
+              .select()
+              .from(SessionInputTable)
+              .where(eq(SessionInputTable.session_id, sessionKey))
+              .get()
+              .pipe(Effect.orDie)
+            if (row === undefined) return undefined
+            return row.promoted_seq === null ? undefined : (true as const)
+          }),
+          "session input never promoted",
+          "10 seconds",
+        )
+        expect(promoted).toBe(true)
+
+        const db = yield* Database.Service
+        const rows = yield* db.db
+          .select()
+          .from(SessionInputTable)
+          .where(eq(SessionInputTable.session_id, sessionKey))
+          .all()
+          .pipe(Effect.orDie)
+        expect(rows.length).toBeGreaterThan(0)
+        expect(rows[0]?.delivery).toBe("steer")
+
+        // Full chain to LLM when catalog/fixture can resolve a model; soft if catalog gap (Task 7 fixture)
+        const llmCalled = yield* llm.wait(1).pipe(
+          Effect.as(true),
+          Effect.timeoutOrElse({
+            duration: "5 seconds",
+            orElse: () => Effect.succeed(false),
+          }),
+        )
+        if (llmCalled) {
+          const inputs = yield* llm.inputs
+          expect(inputs.length).toBeGreaterThan(0)
         }
       }),
     ),

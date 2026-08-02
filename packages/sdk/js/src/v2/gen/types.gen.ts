@@ -1705,6 +1705,7 @@ export type AgentConfig = {
   color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
   steps?: number
   maxSteps?: number
+  writable?: boolean
   permission?: PermissionConfig
   [key: string]:
     | unknown
@@ -2363,6 +2364,7 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
+  writable?: boolean
 }
 
 export type LspStatus = {
@@ -3850,6 +3852,16 @@ export type PtyTicketConnectToken = {
   expires_in: number
 }
 
+export type SessionInputAdmitted = {
+  admittedSeq: number
+  id: string
+  sessionID: string
+  prompt: Prompt
+  delivery: "steer" | "queue"
+  timeCreated: number
+  promotedSeq?: number
+}
+
 export type WorkspaceEventConnectionStatus = {
   workspaceID: string
   status: "connected" | "connecting" | "disconnected" | "error"
@@ -3930,16 +3942,6 @@ export type PromptInputFileAttachment = {
   name?: string
   description?: string
   source?: PromptSource
-}
-
-export type SessionInputAdmitted = {
-  admittedSeq: number
-  id: string
-  sessionID: string
-  prompt: Prompt
-  delivery: "steer" | "queue"
-  timeCreated: number
-  promotedSeq?: number
 }
 
 export type SessionMessageAgentSwitched = {
@@ -9829,12 +9831,9 @@ export type SessionPromptError = SessionPromptErrors[keyof SessionPromptErrors]
 
 export type SessionPromptResponses = {
   /**
-   * Created message
+   * Admitted prompt
    */
-  200: {
-    info: AssistantMessage
-    parts: Array<Part>
-  }
+  200: SessionInputAdmitted
 }
 
 export type SessionPromptResponse = SessionPromptResponses[keyof SessionPromptResponses]

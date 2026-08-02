@@ -1,6 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Permission } from "@/permission"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionInput } from "@opencode-ai/schema/session-input"
 
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
@@ -317,7 +318,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           query: WorkspaceRoutingQuery,
           payload: PromptPayload,
-          success: described(SessionV1.WithParts, "Created message"),
+          success: described(SessionInput.Admitted, "Admitted prompt"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({

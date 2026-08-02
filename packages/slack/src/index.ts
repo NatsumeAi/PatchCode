@@ -8,16 +8,16 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN,
 })
 
-console.log("🔧 Bot configuration:")
+console.log(" Bot configuration:")
 console.log("- Bot token present:", !!process.env.SLACK_BOT_TOKEN)
 console.log("- Signing secret present:", !!process.env.SLACK_SIGNING_SECRET)
 console.log("- App token present:", !!process.env.SLACK_APP_TOKEN)
 
-console.log("🚀 Starting opencode server...")
+console.log(" Starting opencode server...")
 const opencode = await createOpencode({
   port: 0,
 })
-console.log("✅ Opencode server ready")
+console.log(" Opencode server ready")
 
 const sessions = new Map<string, { client: any; server: any; sessionId: string; channel: string; thread: string }>()
 void (async () => {
@@ -51,19 +51,19 @@ async function handleToolUpdate(part: ToolPart, channel: string, thread: string)
 }
 
 app.use(async ({ next, context }) => {
-  console.log("📡 Raw Slack event:", JSON.stringify(context, null, 2))
+  console.log(" Raw Slack event:", JSON.stringify(context, null, 2))
   await next()
 })
 
 app.message(async ({ message, say }) => {
-  console.log("📨 Received message event:", JSON.stringify(message, null, 2))
+  console.log(" Received message event:", JSON.stringify(message, null, 2))
 
   if (message.subtype || !("text" in message) || !message.text) {
-    console.log("⏭️ Skipping message - no text or has subtype")
+    console.log("⏭ Skipping message - no text or has subtype")
     return
   }
 
-  console.log("✅ Processing message:", message.text)
+  console.log(" Processing message:", message.text)
 
   const channel = message.channel
   const thread = (message as any).thread_ts || message.ts
@@ -80,7 +80,7 @@ app.message(async ({ message, say }) => {
     })
 
     if (createResult.error) {
-      console.error("❌ Failed to create session:", createResult.error)
+      console.error(" Failed to create session:", createResult.error)
       await say({
         text: "Sorry, I had trouble creating a session. Please try again.",
         thread_ts: thread,
@@ -88,7 +88,7 @@ app.message(async ({ message, say }) => {
       return
     }
 
-    console.log("✅ Created opencode session:", createResult.data.id)
+    console.log(" Created opencode session:", createResult.data.id)
 
     session = { client, server, sessionId: createResult.data.id, channel, thread }
     sessions.set(sessionKey, session)
@@ -96,21 +96,26 @@ app.message(async ({ message, say }) => {
     const shareResult = await client.session.share({ path: { id: createResult.data.id } })
     if (!shareResult.error && shareResult.data) {
       const sessionUrl = shareResult.data.share?.url
-      console.log("🔗 Session shared:", sessionUrl)
+      console.log(" Session shared:", sessionUrl)
       await app.client.chat.postMessage({ channel, thread_ts: thread, text: sessionUrl })
     }
   }
 
-  console.log("📝 Sending to opencode:", message.text)
+  console.log(" Sending to opencode:", message.text)
+  const before = await session.client.session.messages({
+    path: { id: session.sessionId },
+  })
+  const beforeCount = Array.isArray(before.data) ? before.data.length : 0
+
   const result = await session.client.session.prompt({
     path: { id: session.sessionId },
     body: { parts: [{ type: "text", text: message.text }] },
   })
 
-  console.log("📤 Opencode response:", JSON.stringify(result, null, 2))
+  console.log(" Opencode admit response:", JSON.stringify(result, null, 2))
 
   if (result.error) {
-    console.error("❌ Failed to send message:", result.error)
+    console.error(" Failed to send message:", result.error)
     await say({
       text: "Sorry, I had trouble processing your message. Please try again.",
       thread_ts: thread,
@@ -118,28 +123,56 @@ app.message(async ({ message, say }) => {
     return
   }
 
-  const response = result.data
+  // session.prompt now returns SessionInput.Admitted (async agent loop). Poll for the
+  // completed assistant message the same way ACP does after v2 cutover.
+  const responseText = await waitForAssistantText(session.client, session.sessionId, beforeCount)
+  if (!responseText) {
+    console.error(" Timed out waiting for assistant response")
+    await say({
+      text: "Sorry, I timed out waiting for a response. Please try again.",
+      thread_ts: thread,
+    })
+    return
+  }
 
-  // Build response text
-  const responseText =
-    response.info?.content ||
-    response.parts
-      ?.filter((p: any) => p.type === "text")
-      .map((p: any) => p.text)
-      .join("\n") ||
-    "I received your message but didn't have a response."
-
-  console.log("💬 Sending response:", responseText)
+  console.log(" Sending response:", responseText)
 
   // Send main response (tool updates will come via live events)
   await say({ text: responseText, thread_ts: thread })
 })
 
+async function waitForAssistantText(client: any, sessionId: string, beforeCount: number, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const messages = await client.session.messages({ path: { id: sessionId } })
+    const list = Array.isArray(messages.data) ? messages.data : []
+    const assistant = list
+      .slice(beforeCount)
+      .map((item: any) => item?.info)
+      .findLast((info: any) => info?.role === "assistant" && info?.time?.completed !== undefined)
+    if (assistant) {
+      const parts = list.find((item: any) => item?.info?.id === assistant.id)?.parts
+      const text =
+        (Array.isArray(parts)
+          ? parts
+              .filter((p: any) => p?.type === "text")
+              .map((p: any) => p.text)
+              .join("\n")
+          : "") ||
+        assistant.content ||
+        ""
+      if (text.trim()) return text
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  return undefined
+}
+
 app.command("/test", async ({ command, ack, say }) => {
   await ack()
-  console.log("🧪 Test command received:", JSON.stringify(command, null, 2))
-  await say("🤖 Bot is working! I can hear you loud and clear.")
+  console.log(" Test command received:", JSON.stringify(command, null, 2))
+  await say(" Bot is working! I can hear you loud and clear.")
 })
 
 await app.start()
-console.log("⚡️ Slack bot is running!")
+console.log(" Slack bot is running!")

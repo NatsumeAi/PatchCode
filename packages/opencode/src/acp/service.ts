@@ -32,7 +32,7 @@ import {
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import type { AssistantMessage, Message, OpencodeClient, SessionMessageResponse } from "@opencode-ai/sdk/v2"
-import { Context, Effect, Layer, ManagedRuntime } from "effect"
+import { Context, Duration, Effect, Layer, ManagedRuntime } from "effect"
 import * as ACPError from "./error"
 import { buildConfigOptions, parseModelSelection } from "./config-option"
 import { promptContentToParts } from "./content"
@@ -502,7 +502,12 @@ export function make(input: {
       const command = detectSlashCommand(parts)
 
       if (!command) {
-        const response = yield* request(
+        const before = yield* request(
+          () => input.sdk.session.messages({ directory: current.cwd, sessionID: current.id }, { throwOnError: true }),
+          "session",
+        )
+        const beforeCount = before.length
+        yield* request(
           () =>
             input.sdk.session.prompt(
               {
@@ -521,7 +526,8 @@ export function make(input: {
           "session",
         )
         yield* sendUsageUpdate(input.usage, input.sdk, input.connection, current.id, current.cwd)
-        return yield* promptResponse(response.info, params.messageId)
+        const info = yield* waitForAssistantMessage(input.sdk, current.id, current.cwd, beforeCount)
+        return yield* promptResponse(info, params.messageId)
       }
 
       const known = snapshot.availableCommands.find((item) => item.name === command.name)
@@ -812,6 +818,32 @@ function detectSlashCommand(parts: ReturnType<typeof promptContentToParts>) {
   if (!name) return
   return { name, args: rest.join(" ").trim() }
 }
+
+const waitForAssistantMessage = Effect.fn("ACP.waitForAssistantMessage")(function* (
+  sdk: OpencodeClient,
+  sessionID: string,
+  cwd: string,
+  beforeCount: number,
+) {
+  const deadline = Date.now() + 120_000
+  while (Date.now() < deadline) {
+    const messages = yield* request(
+      () => sdk.session.messages({ directory: cwd, sessionID }, { throwOnError: true }),
+      "session",
+    )
+    const assistant = messages
+      .slice(beforeCount)
+      .map((item) => item.info)
+      .findLast((info) => info.role === "assistant")
+    if (assistant) return assistant
+    yield* Effect.sleep(Duration.millis(500))
+  }
+  return yield* new ACPError.ServiceFailureError({
+    service: "session",
+    safeMessage: `Timed out waiting for assistant message on session ${sessionID}`,
+    errorName: "AssistantTimeout",
+  })
+})
 
 const promptResponse = Effect.fn("ACP.promptResponse")(function* (
   info: AssistantInfo,

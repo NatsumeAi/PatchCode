@@ -1,6 +1,8 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Agent } from "@/agent/agent"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
@@ -8,6 +10,7 @@ import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
+import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
@@ -36,7 +39,7 @@ import {
   SummarizePayload,
   UpdatePayload,
 } from "../groups/session"
-import { PermissionNotFoundError } from "../errors"
+import { ApiNotFoundError, PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
 
 const tryParseJson = (text: string) =>
@@ -59,6 +62,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const events = yield* EventV2Bridge.Service
+    const v2Svc = yield* SessionV2.Service
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -292,17 +296,102 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
+    const toV2Prompt = (payload: typeof PromptPayload.Type) =>
+      Effect.gen(function* () {
+        const parts = payload.parts ?? []
+        const text = parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+        const files = parts.flatMap((part) =>
+          part.type === "file"
+            ? [{ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }]
+            : [],
+        )
+        const agents = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
+        const dropped = parts.filter((part) => part.type === "subtask").length
+        if (dropped > 0) yield* Effect.logInfo("subtask parts dropped on v2 prompt", { count: dropped })
+        return {
+          text,
+          ...(files.length > 0 ? { files } : {}),
+          ...(agents.length > 0 ? { agents } : {}),
+        } satisfies PromptInput.Prompt
+      })
+
+    const switchTo = (sessionID: SessionID, payload: typeof PromptPayload.Type) =>
+      Effect.gen(function* () {
+        // v2 NotFoundError is not on the HTTP prompt error channel — swallow via Exit and log.
+        const got = yield* v2Svc.get(sessionID).pipe(Effect.exit)
+        if (got._tag === "Failure") {
+          yield* Effect.logWarning("switchTo: session get failed", { sessionID, cause: got.cause })
+          return
+        }
+        const info = got.value
+        if (payload.agent && payload.agent !== info.agent) {
+          const switched = yield* v2Svc.switchAgent({ sessionID, agent: payload.agent }).pipe(Effect.exit)
+          if (switched._tag === "Failure") {
+            yield* Effect.logWarning("switchTo: switchAgent failed", {
+              sessionID,
+              agent: payload.agent,
+              cause: switched.cause,
+            })
+          }
+        }
+        if (payload.model) {
+          const current = info.model
+          if (
+            current === undefined ||
+            current.providerID !== payload.model.providerID ||
+            current.id !== payload.model.modelID
+          ) {
+            const switched = yield* v2Svc
+              .switchModel({
+                sessionID,
+                model: { id: payload.model.modelID, providerID: payload.model.providerID },
+              })
+              .pipe(Effect.exit)
+            if (switched._tag === "Failure") {
+              yield* Effect.logWarning("switchTo: switchModel failed", {
+                sessionID,
+                model: payload.model,
+                cause: switched.cause,
+              })
+            }
+          }
+        }
+      })
+
+    const runV2Prompt = (sessionID: SessionID, payload: typeof PromptPayload.Type) =>
+      Effect.gen(function* () {
+        const id =
+          payload.messageID === undefined
+            ? undefined
+            : yield* Effect.try({
+                // messageID is MessageID brand; narrow after undefined check for SessionMessage.ID.make(string)
+                try: () => SessionMessage.ID.make(payload.messageID as string),
+                catch: () => new HttpApiError.BadRequest({}),
+              })
+        return yield* v2Svc
+          .prompt({
+            sessionID,
+            ...(id ? { id } : {}),
+            prompt: yield* toV2Prompt(payload),
+            // noReply → resume:false → SessionV2 admits + promoteSteers (user message) without wake/LLM
+            resume: payload.noReply === true ? false : undefined,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof SessionV2.NotFoundError
+                ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+                : new HttpApiError.BadRequest({}),
+            ),
+          )
+      })
+
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      const message = yield* promptSvc
-        .prompt({
-          ...ctx.payload,
-          sessionID: ctx.params.sessionID,
-        })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      yield* switchTo(ctx.params.sessionID, ctx.payload)
+      const message = yield* runV2Prompt(ctx.params.sessionID, ctx.payload)
       return HttpServerResponse.stream(Stream.make(JSON.stringify(message)).pipe(Stream.encodeText), {
         contentType: "application/json",
       })
@@ -313,7 +402,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
+      yield* switchTo(ctx.params.sessionID, ctx.payload)
+      yield* runV2Prompt(ctx.params.sessionID, ctx.payload).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* Effect.logError("prompt_async failed", { sessionID: ctx.params.sessionID, cause })

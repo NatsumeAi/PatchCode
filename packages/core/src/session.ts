@@ -379,7 +379,13 @@ const layer = Layer.effect(
             )
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) yield* execution.wake(admitted.sessionID)
+            if (input.resume !== false) {
+              yield* execution.wake(admitted.sessionID)
+            } else {
+              // noReply path: materialize the user message (Prompted → session.message user row)
+              // without waking the agent loop / running the LLM. Matches v1 "create user, return".
+              yield* SessionInput.promoteSteers(db, events, admitted.sessionID, Number.MAX_SAFE_INTEGER)
+            }
             return admitted
           }),
         ),
