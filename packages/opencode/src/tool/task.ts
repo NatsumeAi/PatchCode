@@ -30,6 +30,18 @@ export interface TaskPromptOps {
 
 const id = "task"
 
+export function makeLoopEventPublisher(
+  maybeInstance: Option.Option<SessionRuntime.Instance>,
+): (event: EventBus.LoopControlEvent) => Effect.Effect<void> {
+  return (event) =>
+    Option.isSome(maybeInstance)
+      ? maybeInstance.value.eventBus.publish(event)
+      : Effect.gen(function* () {
+          const maybe = yield* Effect.serviceOption(EventBus.Service)
+          if (Option.isSome(maybe)) yield* maybe.value.publish(event)
+        })
+}
+
 function loadParentTrace(sessionID: SessionID) {
   return Effect.gen(function* () {
     const database = yield* Database.Service
@@ -134,23 +146,17 @@ export const TaskTool = Tool.define(
         params: Schema.Schema.Type<typeof Parameters>,
         ctx: Tool.Context,
       ) {
-        // Publish a child terminal event onto the session-owned EventBus the
-        // V2 runner's LoopControlHost subscribes to; fall back to the ambient
-        // EventBus (V1 / tool-only environments) when no session runtime is
-        // present. The V2 tool-execution environment carries the location
-        // layer, so `SessionRuntime` resolves to the same registry the runner
-        // drain uses for this session.
-        const publishLoopEvent = (event: EventBus.LoopControlEvent) =>
-          Effect.gen(function* () {
-            const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
-            if (Option.isSome(maybeRuntime)) {
-              const instance = yield* maybeRuntime.value.getOrCreate(ctx.sessionID)
-              yield* instance.eventBus.publish(event)
-              return
-            }
-            const maybe = yield* Effect.serviceOption(EventBus.Service)
-            if (Option.isSome(maybe)) yield* maybe.value.publish(event)
-          })
+        // Resolve the session-owned EventBus once in the tool-execution
+        // environment and capture it in the closures below. Promotion
+        // notifications run in the caller's environment (the HTTP layer,
+        // which has no SessionRuntime/EventBus services), so the publish
+        // path must not re-resolve services at execution time or the
+        // terminal events would be silently dropped.
+        const sessionRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+        const maybeInstance = Option.isSome(sessionRuntime)
+          ? Option.some(yield* sessionRuntime.value.getOrCreate(ctx.sessionID))
+          : Option.none()
+        const publishLoopEvent = makeLoopEventPublisher(maybeInstance)
       const cfg = yield* config.get()
       const runInBackground = params.background === true
       if (runInBackground && !flags.experimentalBackgroundSubagents) {

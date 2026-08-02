@@ -3,7 +3,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer, Option } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -16,8 +16,9 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 
-import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { makeLoopEventPublisher, TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { disposeAllInstances } from "../fixture/fixture"
@@ -27,7 +28,6 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
 import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
-import { Option } from "effect"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -38,7 +38,7 @@ const ref = {
   modelID: ModelV2.ID.make("test-model"),
 }
 
-const layer = (flags: Partial<RuntimeFlags.Info> = {}, withBudget = false) =>
+const layer = (flags: Partial<RuntimeFlags.Info> = {}, withBudget = false, withRuntime = false) =>
   LayerNode.compile(
     LayerNode.group([
       Agent.node,
@@ -57,6 +57,7 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}, withBudget = false) =>
       Ripgrep.node,
       EventBus.node,
       ...(withBudget ? [IterationBudget.node] : []),
+      ...(withRuntime ? [SessionRuntime.node] : []),
     ]),
     [[RuntimeFlags.node, RuntimeFlags.layer(flags)]],
   )
@@ -64,6 +65,7 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}, withBudget = false) =>
 const it = testEffect(layer())
 const background = testEffect(layer({ experimentalBackgroundSubagents: true }))
 const backgroundWithBudget = testEffect(layer({ experimentalBackgroundSubagents: true }, true))
+const backgroundWithBudgetAndRuntime = testEffect(layer({ experimentalBackgroundSubagents: true }, true, true))
 
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -1301,3 +1303,98 @@ describe("tool.task", () => {
     }),
   )
 })
+
+backgroundWithBudgetAndRuntime.instance(
+  "publishes SubagentCompleted to the session-owned EventBus when a foreground task is promoted",
+  () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const runtime = yield* SessionRuntime.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const instance = yield* runtime.getOrCreate(chat.id)
+      const owned: string[] = []
+      yield* instance.eventBus.subscribe((e) =>
+        Effect.sync(() => {
+          if (e._tag === "SubagentCompleted" || e._tag === "SubagentFailed") owned.push(e._tag)
+        }),
+      )
+      const ready = yield* Deferred.make<void>()
+      const done = yield* Deferred.make<void>()
+      const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) => {
+          if (input.sessionID === chat.id) {
+            return Deferred.succeed(injected, input).pipe(Effect.as(reply(input, "injected")))
+          }
+          return Effect.gen(function* () {
+            yield* Deferred.succeed(ready, undefined)
+            yield* Deferred.await(done)
+            return reply(input, "background done")
+          })
+        },
+      }
+      const fiber = yield* def
+        .execute(
+          {
+            description: "promoted child",
+            prompt: "work slowly",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.forkChild)
+
+      yield* Deferred.await(ready)
+      const job = (yield* jobs.list())[0]
+      if (!job) throw new Error("task job not found")
+      yield* jobs.promote(job.id)
+      const result = yield* Fiber.join(fiber)
+      expect(result.metadata.background).toBe(true)
+
+      yield* Deferred.succeed(done, undefined)
+      yield* Deferred.await(injected)
+      yield* Effect.yieldNow
+      yield* Effect.yieldNow
+      expect(owned).toEqual(["SubagentCompleted"])
+    }),
+)
+
+backgroundWithBudgetAndRuntime.instance("publishes to the captured session-owned bus from an environment without runtime services", () =>
+  Effect.gen(function* () {
+    const runtime = yield* SessionRuntime.Service
+    const { chat } = yield* seed()
+    const instance = yield* runtime.getOrCreate(chat.id)
+    const owned: string[] = []
+    yield* instance.eventBus.subscribe((e) =>
+      Effect.sync(() => {
+        if (e._tag === "SubagentCompleted" || e._tag === "SubagentFailed") owned.push(e._tag)
+      }),
+    )
+    // The promotion path runs `onPromote` inside the HTTP layer, which has no
+    // SessionRuntime or ambient EventBus service. `makeLoopEventPublisher`
+    // captures the session-owned bus at tool-execution time, so publishing
+    // from an empty environment must still reach the captured bus.
+    const publish = makeLoopEventPublisher(Option.some(instance))
+    yield* publish({
+      _tag: "SubagentCompleted",
+      childSessionID: chat.id,
+      parentSessionID: chat.id,
+    }).pipe(Effect.provide(Layer.empty))
+    yield* Effect.yieldNow
+    yield* Effect.yieldNow
+    expect(owned).toEqual(["SubagentCompleted"])
+  }),
+)
