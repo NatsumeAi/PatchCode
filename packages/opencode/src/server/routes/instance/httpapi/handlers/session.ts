@@ -368,13 +368,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 try: () => SessionMessage.ID.make(payload.messageID as string),
                 catch: () => new HttpApiError.BadRequest({}),
               })
+        const noReply = payload.noReply === true
         return yield* v2Svc
           .prompt({
             sessionID,
             ...(id ? { id } : {}),
             prompt: yield* toV2Prompt(payload),
-            // noReply → resume:false → SessionV2 admits + promoteSteers (user message) without wake/LLM
-            resume: payload.noReply === true ? false : undefined,
+            // noReply: admit + project user message, do not wake agent / run LLM
+            ...(noReply ? { resume: false, projectUser: true } : {}),
           })
           .pipe(
             Effect.mapError((error) =>

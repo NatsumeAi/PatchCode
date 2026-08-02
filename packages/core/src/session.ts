@@ -163,7 +163,13 @@ export interface Interface {
     sessionID: SessionSchema.ID
     prompt: PromptInput.Prompt
     delivery?: SessionInput.Delivery
+    /** false = do not wake the agent loop (default true). */
     resume?: boolean
+    /**
+     * When resume is false, still promote pending steers so a user message is
+     * projected (HTTP noReply). Default false — admit-only inbox semantics.
+     */
+    projectUser?: boolean
   }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
   readonly shell: (input: {
     sessionID: SessionSchema.ID
@@ -395,9 +401,8 @@ const layer = Layer.effect(
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
             if (input.resume !== false) {
               yield* execution.wake(admitted.sessionID)
-            } else {
-              // noReply path: materialize the user message (Prompted → session.message user row)
-              // without waking the agent loop / running the LLM. Matches v1 "create user, return".
+            } else if (input.projectUser === true) {
+              // HTTP noReply: project user message (Prompted) without waking the agent/LLM.
               yield* SessionInput.promoteSteers(db, events, admitted.sessionID, Number.MAX_SAFE_INTEGER)
             }
             return admitted

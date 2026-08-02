@@ -568,6 +568,30 @@ describe("SessionV2.prompt", () => {
     }),
   )
 
+  it.effect("projects a user message when resume is false and projectUser is true", () =>
+    Effect.gen(function* () {
+      yield* setup
+      wakeCalls.length = 0
+      executionCalls.length = 0
+      const session = yield* SessionV2.Service
+      const result = yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "No-reply style" }),
+        resume: false,
+        projectUser: true,
+      })
+      expect(result.prompt.text).toBe("No-reply style")
+      expect(wakeCalls).toEqual([])
+      expect(executionCalls).toEqual([])
+      const messages = yield* session.messages({ sessionID })
+      expect(messages.some((m) => m.type === "user" && m.text === "No-reply style")).toBe(true)
+      expect(messages.some((m) => m.type === "assistant")).toBe(false)
+      // promoteSteers must have run (admitted row promoted)
+      const row = yield* admitted(result.id)
+      expect(row?.promotedSeq).toBeDefined()
+    }),
+  )
+
   it.effect("only records the prompt when resume is false", () =>
     Effect.gen(function* () {
       yield* setup
