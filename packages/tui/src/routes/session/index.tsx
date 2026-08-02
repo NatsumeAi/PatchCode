@@ -54,6 +54,9 @@ import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
+import { SidebarResizeHandle } from "./sidebar-resize-handle"
+import { createSidebarLayoutState } from "./sidebar-layout-state"
+import { DEFAULT_SIDEBAR_WIDTH } from "../../util/sidebar-layout"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { filetype } from "../../util/filetype"
 import parsers from "../../parsers-config"
@@ -123,6 +126,9 @@ const sessionBindingCommands = [
   "session.undo",
   "session.redo",
   "session.sidebar.toggle",
+  "session.sidebar.width.decrease",
+  "session.sidebar.width.increase",
+  "session.sidebar.width.reset",
   "session.toggle.conceal",
   "session.toggle.timestamps",
   "session.toggle.thinking",
@@ -268,7 +274,14 @@ export function Session() {
     return false
   })
   const showTimestamps = createMemo(() => timestamps() === "show")
-  const contentWidth = createMemo(() => dimensions().width - (sidebarVisible() ? 42 : 0) - 4)
+  const sidebarLayout = createSidebarLayoutState({
+    terminalWidth: () => dimensions().width,
+    visible: sidebarVisible,
+    storedWidth: () => kv.get("sidebar_width", DEFAULT_SIDEBAR_WIDTH),
+    ready: () => kv.ready,
+    persist: (width) => kv.set("sidebar_width", width),
+  })
+  const contentWidth = createMemo(() => sidebarLayout.layout().mainContentWidth)
   const providers = createMemo(() => Model.index(sync.data.provider))
 
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
@@ -673,6 +686,33 @@ export function Session() {
           setSidebar(() => (isVisible ? "hide" : "auto"))
           setSidebarOpen(!isVisible)
         })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Narrow sidebar",
+      value: "session.sidebar.width.decrease",
+      category: "Session",
+      run: () => {
+        sidebarLayout.decreaseWidth()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Widen sidebar",
+      value: "session.sidebar.width.increase",
+      category: "Session",
+      run: () => {
+        sidebarLayout.increaseWidth()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Reset sidebar width",
+      value: "session.sidebar.width.reset",
+      category: "Session",
+      run: () => {
+        sidebarLayout.resetWidth()
         dialog.clear()
       },
     },
@@ -1142,6 +1182,8 @@ export function Session() {
   // snap to bottom when session changes
   createEffect(on(() => route.sessionID, toBottom))
 
+  onCleanup(() => sidebarLayout.cancelResize())
+
   return (
     <LocationProvider location={location()}>
       <context.Provider
@@ -1321,12 +1363,21 @@ export function Session() {
             </Show>
             <Toast />
           </box>
-          <Show when={sidebarVisible()}>
+          <Show when={sidebarLayout.layout().handleVisible}>
             <Switch>
-              <Match when={wide()}>
-                <Sidebar sessionID={route.sessionID} />
+              <Match when={sidebarLayout.layout().mode === "dock"}>
+                <Show when={sidebarLayout.layout().handleVisible}>
+                  <SidebarResizeHandle
+                    color={theme.border}
+                    activeColor={theme.borderActive}
+                    onStart={(event) => sidebarLayout.beginResize(event.x)}
+                    onDrag={(event) => sidebarLayout.updateResize(event.x)}
+                    onEnd={() => sidebarLayout.endResize()}
+                  />
+                </Show>
+                <Sidebar sessionID={route.sessionID} width={sidebarLayout.layout().effectiveWidth} />
               </Match>
-              <Match when={!wide()}>
+              <Match when={sidebarLayout.layout().mode === "overlay"}>
                 <box
                   position="absolute"
                   top={0}
@@ -1334,9 +1385,21 @@ export function Session() {
                   right={0}
                   bottom={0}
                   alignItems="flex-end"
+                  justifyContent="flex-end"
                   backgroundColor={RGBA.fromInts(0, 0, 0, 70)}
                 >
-                  <Sidebar sessionID={route.sessionID} />
+                  <box flexDirection="row" height="100%" flexShrink={0}>
+                    <Show when={sidebarLayout.layout().handleVisible}>
+                      <SidebarResizeHandle
+                        color={theme.border}
+                        activeColor={theme.borderActive}
+                        onStart={(event) => sidebarLayout.beginResize(event.x)}
+                        onDrag={(event) => sidebarLayout.updateResize(event.x)}
+                        onEnd={() => sidebarLayout.endResize()}
+                      />
+                    </Show>
+                    <Sidebar sessionID={route.sessionID} width={sidebarLayout.layout().effectiveWidth} />
+                  </box>
                 </box>
               </Match>
             </Switch>

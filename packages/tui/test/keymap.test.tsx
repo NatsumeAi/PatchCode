@@ -139,3 +139,56 @@ test("mode-less bindings stay active when opencode mode changes", async () => {
     app.renderer.destroy()
   }
 })
+
+test("sidebar width bindings default to leader bracket and zero sequences", async () => {
+  expect(TuiKeybind.defaultValue("sidebar_width_decrease")).toBe("<leader>[")
+  expect(TuiKeybind.defaultValue("sidebar_width_increase")).toBe("<leader>]")
+  expect(TuiKeybind.defaultValue("sidebar_width_reset")).toBe("<leader>0")
+
+  const sequences: Record<string, string[][]> = {}
+  function Harness() {
+    const renderer = useRenderer()
+    const keymap = createDefaultOpenTuiKeymap(renderer)
+    const config = createResolvedKeymapConfig()
+    const offKeymap = registerOpencodeKeymap(keymap, renderer, config)
+    const offLayer = keymap.registerLayer({
+      bindings: config.keybinds.gather("session", [
+        "session.sidebar.width.decrease",
+        "session.sidebar.width.increase",
+        "session.sidebar.width.reset",
+      ]),
+    })
+    const bindings = keymap.getCommandBindings({
+      visibility: "registered",
+      commands: ["session.sidebar.width.decrease", "session.sidebar.width.increase", "session.sidebar.width.reset"],
+    })
+    for (const command of [
+      "session.sidebar.width.decrease",
+      "session.sidebar.width.increase",
+      "session.sidebar.width.reset",
+    ]) {
+      sequences[command] =
+        bindings.get(command)?.map((binding) => binding.sequence.map((part) => part.stroke.name)) ?? []
+    }
+    onCleanup(() => {
+      offLayer()
+      offKeymap()
+    })
+    return (
+      <OpencodeKeymapProvider keymap={keymap}>
+        <box />
+      </OpencodeKeymapProvider>
+    )
+  }
+
+  const app = await testRender(() => <Harness />)
+  try {
+    expect(sequences).toEqual({
+      "session.sidebar.width.decrease": [["x", "["]],
+      "session.sidebar.width.increase": [["x", "]"]],
+      "session.sidebar.width.reset": [["x", "0"]],
+    })
+  } finally {
+    app.renderer.destroy()
+  }
+})
