@@ -3862,6 +3862,21 @@ export type SessionInputAdmitted = {
   promotedSeq?: number
 }
 
+export type SessionMessageShell = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    created: number
+    completed?: number
+  }
+  type: "shell"
+  callID: string
+  command: string
+  output: string
+}
+
 export type WorkspaceEventConnectionStatus = {
   workspaceID: string
   status: "connected" | "connecting" | "disconnected" | "error"
@@ -4005,21 +4020,6 @@ export type SessionMessageSystem = {
   }
   type: "system"
   text: string
-}
-
-export type SessionMessageShell = {
-  id: string
-  metadata?: {
-    [key: string]: unknown
-  }
-  time: {
-    created: number
-    completed?: number
-  }
-  type: "shell"
-  callID: string
-  command: string
-  output: string
 }
 
 export type SessionMessageAssistantText = {
@@ -10275,10 +10275,7 @@ export type SessionShellResponses = {
   /**
    * Created message
    */
-  200: {
-    info: Message
-    parts: Array<Part>
-  }
+  200: SessionMessageShell
 }
 
 export type SessionShellResponse = SessionShellResponses[keyof SessionShellResponses]

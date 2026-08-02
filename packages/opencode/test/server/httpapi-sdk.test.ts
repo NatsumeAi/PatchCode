@@ -31,7 +31,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionInputTable, SessionMessageTable } from "@opencode-ai/core/session/sql"
 import { Session as SessionSchema } from "@opencode-ai/schema/session"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { httpApiLayer } from "./httpapi-layer"
 
 const noopBootstrapLayer = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
@@ -1010,6 +1010,67 @@ describe("HttpApi SDK", () => {
         if (llmCalled) {
           const inputs = yield* llm.inputs
           expect(inputs.length).toBeGreaterThan(0)
+        }
+      }),
+    ),
+  )
+})
+
+describe("HttpApi SDK shell", () => {
+  serverPathParity("matches generated SDK prompt shell route", (serverPath) =>
+    withStandardProject(serverPath, ({ sdk }) =>
+      Effect.gen(function* () {
+        const session = yield* capture(() => sdk.session.create({ title: "shell" }))
+        const sessionID = String(record(session.data).id)
+        const sessionKey = SessionSchema.ID.make(sessionID)
+        const shell = yield* capture(() =>
+          sdk.session.shell({
+            sessionID,
+            agent: "build",
+            command: "echo hello-shell",
+          }),
+        )
+        expect(shell.status).toBe(200)
+
+        // Shell message projected with the command output, and no assistant reply.
+        const shellRows = yield* pollWithTimeout(
+          Effect.gen(function* () {
+            const db = yield* Database.Service
+            const rows = yield* db.db
+              .select()
+              .from(SessionMessageTable)
+              .where(
+                and(eq(SessionMessageTable.session_id, sessionKey), eq(SessionMessageTable.type, "shell")),
+              )
+              .all()
+              .pipe(Effect.orDie)
+            const done = rows.filter((r) =>
+              String((r.data as { output?: unknown }).output).includes("hello-shell"),
+            )
+            if (done.length > 0) return rows
+            return undefined
+          }),
+          "shell message never projected",
+          "10 seconds",
+        )
+        expect(shellRows.length).toBeGreaterThan(0)
+        const shellData = shellRows[0]!.data as { output?: string; command?: string; time?: { completed?: number } }
+        expect(shellData.output).toContain("hello-shell")
+        expect(shellData.time?.completed).toBeDefined()
+
+        const db = yield* Database.Service
+        const assistantRows = yield* db.db
+          .select()
+          .from(SessionMessageTable)
+          .where(and(eq(SessionMessageTable.session_id, sessionKey), eq(SessionMessageTable.type, "assistant")))
+          .all()
+          .pipe(Effect.orDie)
+        // Shell must not trigger the LLM
+        expect(assistantRows.length).toBe(0)
+
+        return {
+          statuses: statuses({ session, shell }),
+          projectedShells: shellRows.length,
         }
       }),
     ),

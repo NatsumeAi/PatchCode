@@ -433,7 +433,28 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof ShellPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID }))
+      const messageID =
+        ctx.payload.messageID === undefined
+          ? undefined
+          : yield* Effect.try({
+              // messageID is the v1 MessageID brand; narrow after the undefined check
+              try: () => SessionMessage.ID.make(ctx.payload.messageID as string),
+              catch: () => new HttpApiError.BadRequest({}),
+            })
+      const ran = yield* v2Svc
+        .shell({
+          sessionID: ctx.params.sessionID,
+          ...(messageID ? { messageID } : {}),
+          command: ctx.payload.command,
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof SessionV2.SessionBusyError
+              ? new Session.BusyError({ sessionID: ctx.params.sessionID })
+              : new HttpApiError.BadRequest({}),
+          ),
+        )
+      return yield* SessionError.mapBusy(Effect.succeed(ran))
     })
 
     const revert = Effect.fn("SessionHttpApi.revert")(function* (ctx: {

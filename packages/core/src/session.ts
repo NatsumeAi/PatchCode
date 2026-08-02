@@ -1,7 +1,7 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { DateTime, Effect, Layer, Schema, Context, Stream } from "effect"
+import { Cause, DateTime, Effect, Exit, Layer, Schema, Context, Stream } from "effect"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, like, lt, or, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
@@ -18,6 +18,11 @@ import { SessionMessageTable, SessionTable } from "./session/sql"
 import { SessionSchema } from "./session/schema"
 import { AbsolutePath, PositiveInt, RelativePath } from "./schema"
 import { AgentV2 } from "./agent"
+import { Shell } from "./shell"
+import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { Identifier } from "./id/id"
+import { ChildProcess } from "effect/unstable/process"
+import { CrossSpawnSpawner } from "./cross-spawn-spawner"
 import { SessionV1 } from "./v1/session"
 import { InstallationVersion } from "./installation/version"
 import { Slug } from "./util/slug"
@@ -108,7 +113,16 @@ export class PromptConflictError extends Schema.TaggedErrorClass<PromptConflictE
 export const MessageNotFoundError = SessionRevert.MessageNotFoundError
 export type MessageNotFoundError = SessionRevert.MessageNotFoundError
 
-export type Error = NotFoundError | MessageDecodeError | OperationUnavailableError | PromptConflictError
+export class SessionBusyError extends Schema.TaggedErrorClass<SessionBusyError>()("SessionBusyError", {
+  sessionID: SessionSchema.ID,
+}) {}
+
+export type Error =
+  | NotFoundError
+  | MessageDecodeError
+  | OperationUnavailableError
+  | PromptConflictError
+  | SessionBusyError
 
 export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
@@ -152,11 +166,10 @@ export interface Interface {
     resume?: boolean
   }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
   readonly shell: (input: {
-    id?: EventV2.ID
     sessionID: SessionSchema.ID
+    messageID?: SessionMessage.ID
     command: string
-    resume?: boolean
-  }) => Effect.Effect<void, OperationUnavailableError>
+  }) => Effect.Effect<SessionMessage.Shell, NotFoundError | SessionBusyError>
   readonly skill: (input: {
     id?: EventV2.ID
     sessionID: SessionSchema.ID
@@ -191,6 +204,7 @@ const layer = Layer.effect(
     const execution = yield* SessionExecution.Service
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
+    const spawner = yield* ChildProcessSpawner
     const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
     const decode = (row: typeof SessionMessageTable.$inferSelect) =>
@@ -390,9 +404,80 @@ const layer = Layer.effect(
           }),
         ),
       ),
-      shell: Effect.fn("V2Session.shell")(function* () {
-        return yield* new OperationUnavailableError({ operation: "shell" })
-      }),
+      shell: Effect.fn("V2Session.shell")((input) =>
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const active = yield* execution.active
+            if (active.has(input.sessionID)) return yield* new SessionBusyError({ sessionID: input.sessionID })
+            const session = yield* result.get(input.sessionID)
+            const started = yield* DateTime.now
+            const callID = Identifier.create("tool", "ascending")
+            const messageID = input.messageID ?? SessionMessage.ID.create()
+            yield* events.publish(SessionEvent.Shell.Started, {
+              sessionID: input.sessionID,
+              timestamp: started,
+              messageID,
+              callID,
+              command: input.command,
+            })
+            // Run the command synchronously, streaming output like v1 shellImpl
+            // (prompt.ts shellImpl); publish Shell.Ended even on interrupt so the
+            // durable projection records a completed shell message.
+            const sh = Shell.preferred() ?? "/bin/sh"
+            const cwd = session.location.directory
+            const args = Shell.args(sh, input.command, cwd)
+            let output = ""
+            let aborted = false
+            const finish = Effect.gen(function* () {
+              if (aborted) output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
+              const ended = yield* DateTime.now
+              yield* events.publish(SessionEvent.Shell.Ended, {
+                sessionID: input.sessionID,
+                timestamp: ended,
+                callID,
+                output,
+              })
+              return ended
+            })
+            const exit = yield* restore(
+              Effect.scoped(
+                Effect.gen(function* () {
+                  // Spawn directly and accumulate the raw decoded stream (like v1
+                  // shellImpl) so output keeps its newlines; AppProcess.runStream
+                  // splits lines and would drop blank lines and separators.
+                  const handle = yield* spawner.spawn(
+                    ChildProcess.make(sh, args, {
+                      cwd,
+                      extendEnv: true,
+                      env: { TERM: "dumb" },
+                      stdin: "ignore",
+                      forceKillAfter: "3 seconds",
+                    }),
+                  )
+                  yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
+                    Effect.sync(() => {
+                      output += chunk
+                    }),
+                  )
+                  yield* handle.exitCode
+                }),
+              ).pipe(Effect.orDie, Effect.exit),
+            )
+            if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) aborted = true
+            const completed = yield* finish
+            if (Exit.isFailure(exit) && !aborted && !Cause.hasInterruptsOnly(exit.cause))
+              return yield* Effect.failCause(exit.cause)
+            return SessionMessage.Shell.make({
+              id: messageID,
+              type: "shell",
+              callID,
+              command: input.command,
+              output,
+              time: { created: started, completed },
+            })
+          }),
+        ),
+      ),
       skill: Effect.fn("V2Session.skill")(function* () {
         return yield* new OperationUnavailableError({ operation: "skill" })
       }),
@@ -488,5 +573,6 @@ export const node = makeGlobalNode({
     SessionStore.node,
     LocationServiceMap.node,
     SessionProjector.node,
+    CrossSpawnSpawner.node,
   ],
 })
