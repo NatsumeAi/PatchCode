@@ -382,7 +382,10 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
             metadata: event.metadata,
             reason: event.data.reason,
             summary: event.data.text,
-            recent: event.data.recent,
+            ...(event.data.keptFrom === undefined ? {} : { keptFrom: event.data.keptFrom }),
+            ...(event.data.kept === undefined ? {} : { kept: event.data.kept }),
+            ...(event.data.survival === undefined ? {} : { survival: event.data.survival }),
+            ...(event.data.files === undefined ? {} : { files: event.data.files }),
             time: { created: event.data.timestamp },
           }),
         )

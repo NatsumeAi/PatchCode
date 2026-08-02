@@ -11,20 +11,30 @@ type DatabaseService = Database.Interface["db"]
 const decode = Schema.decodeUnknownEffect(SessionMessage.Message)
 
 export const latestCompaction = Effect.fnUntraced(function* (db: DatabaseService, sessionID: SessionSchema.ID) {
-  return yield* db
-    .select({ seq: SessionMessageTable.seq })
+  const row = yield* db
+    .select()
     .from(SessionMessageTable)
     .where(and(eq(SessionMessageTable.session_id, sessionID), eq(SessionMessageTable.type, "compaction")))
     .orderBy(desc(SessionMessageTable.seq))
     .limit(1)
     .get()
     .pipe(Effect.orDie)
+  if (!row) return undefined
+  // keptFrom marks the earliest seq that survives compaction (selected items
+  // and the recent region); the compaction message itself always has a higher
+  // seq, so it stays in scope. `kept` lists the surviving message IDs.
+  const data = row.data as { keptFrom?: number; kept?: readonly string[] }
+  return {
+    seq: row.seq,
+    keptFrom: data.keptFrom,
+    ...(data.kept === undefined ? {} : { kept: data.kept }),
+  }
 })
 
 const messageRows = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
-  compaction: { readonly seq: number } | undefined,
+  compaction: { readonly seq: number; readonly keptFrom?: number; readonly kept?: readonly string[] } | undefined,
   baselineSeq?: number,
 ) {
   const rows = yield* db
@@ -35,7 +45,7 @@ const messageRows = Effect.fnUntraced(function* (
         eq(SessionMessageTable.session_id, sessionID),
         compaction
           ? or(
-              gte(SessionMessageTable.seq, compaction.seq),
+              gte(SessionMessageTable.seq, compaction.keptFrom ?? compaction.seq),
               baselineSeq === undefined
                 ? undefined
                 : and(eq(SessionMessageTable.type, "system"), gt(SessionMessageTable.seq, baselineSeq)),
@@ -49,7 +59,11 @@ const messageRows = Effect.fnUntraced(function* (
     .orderBy(asc(SessionMessageTable.seq))
     .all()
     .pipe(Effect.orDie)
-  return rows
+  // Keep the compaction message and everything after it, plus the explicitly
+  // kept (selected + recent) message IDs from before the compaction.
+  if (!compaction || compaction.kept === undefined) return rows
+  const keptSet = new Set(compaction.kept)
+  return rows.filter((row) => row.seq >= compaction.seq || keptSet.has(row.id))
 })
 
 const decodeMessageRow = (row: typeof SessionMessageTable.$inferSelect) =>

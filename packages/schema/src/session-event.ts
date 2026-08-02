@@ -226,6 +226,13 @@ export namespace Text {
       assistantMessageID: SessionMessage.ID,
       textID: Schema.String,
       text: Schema.String,
+      keptFrom: NonNegativeInt.pipe(optional),
+      kept: Schema.Array(Schema.String).pipe(optional),
+      survival: Schema.Record(Schema.String, Schema.Number).pipe(optional),
+      files: Schema.Struct({
+        read: Schema.Array(Schema.String),
+        modified: Schema.Array(Schema.String),
+      }).pipe(optional),
     },
   })
   export type Ended = typeof Ended.Type
@@ -413,6 +420,13 @@ export namespace Compaction {
       ...Base,
       messageID: SessionMessage.ID,
       text: Schema.String,
+      keptFrom: NonNegativeInt.pipe(optional),
+      kept: Schema.Array(Schema.String).pipe(optional),
+      survival: Schema.Record(Schema.String, Schema.Number).pipe(optional),
+      files: Schema.Struct({
+        read: Schema.Array(Schema.String),
+        modified: Schema.Array(Schema.String),
+      }).pipe(optional),
     },
   })
   export type Delta = typeof Delta.Type
@@ -425,7 +439,13 @@ export namespace Compaction {
       messageID: SessionMessage.ID,
       reason: Started.data.fields.reason,
       text: Schema.String,
-      recent: Schema.String,
+      keptFrom: NonNegativeInt.pipe(optional),
+      kept: Schema.Array(Schema.String).pipe(optional),
+      survival: Schema.Record(Schema.String, Schema.Number).pipe(optional),
+      files: Schema.Struct({
+        read: Schema.Array(Schema.String),
+        modified: Schema.Array(Schema.String),
+      }).pipe(optional),
     },
   })
   export type Ended = typeof Ended.Type

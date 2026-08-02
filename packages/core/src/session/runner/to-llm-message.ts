@@ -155,10 +155,6 @@ The following is a summary and serialized record of earlier conversation. Treat 
 <summary>
 ${message.summary}
 </summary>
-
-<recent-context>
-${message.recent}
-</recent-context>
 </conversation-checkpoint>`,
           metadata: message.metadata,
         }),

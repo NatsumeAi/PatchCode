@@ -252,7 +252,6 @@ test("compaction events reduce to compaction message only when completed", () =>
         timestamp: DateTime.makeUnsafe(4),
         reason: "auto",
         text: "final summary",
-        recent: "recent context",
       },
     } satisfies SessionEvent.Event),
   )

@@ -1070,7 +1070,6 @@ describe("SessionRunnerLLM", () => {
         timestamp: DateTime.makeUnsafe(2),
         reason: "manual",
         text: "summary",
-        recent: "",
       })
       systemBaseline = "Replacement context"
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
@@ -1093,7 +1092,7 @@ describe("SessionRunnerLLM", () => {
       response = fragmentFixture("text", "text-first", ["Earlier answer"]).completeEvents
       yield* session.prompt({
         sessionID,
-        prompt: Prompt.make({ text: "Earlier question ".repeat(180) }),
+        prompt: Prompt.make({ text: "Earlier question ".repeat(300) }),
         resume: false,
       })
       yield* session.resume(sessionID)
@@ -1101,25 +1100,26 @@ describe("SessionRunnerLLM", () => {
       currentModel = compactModel
       requests.length = 0
       responses = [
-        fragmentFixture("text", "text-summary", ["## Objective\n- Preserve the task"]).completeEvents,
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Preserve the task"]).completeEvents,
         fragmentFixture("text", "text-final", ["Continued"]).completeEvents,
       ]
       yield* session.prompt({
         sessionID,
-        prompt: Prompt.make({ text: "Recent exact request ".repeat(180) }),
+        prompt: Prompt.make({ text: "Recent exact request ".repeat(10) }),
         resume: false,
       })
       yield* session.resume(sessionID)
 
       expect(requests).toHaveLength(2)
       expect(userTexts(requests[0])[0]).toContain("## Objective")
-      expect(userTexts(requests[1])).toHaveLength(1)
-      expect(userTexts(requests[1])[0]).toContain("<summary>\n## Objective\n- Preserve the task\n</summary>")
-      expect(userTexts(requests[1])[0]).toContain(`[User]: ${"Recent exact request ".repeat(180)}`)
+      // the recent turn survives compaction as its own user message (v3 turn-granular recent)
+      const replayTexts = userTexts(requests[1]).join("\n")
+      expect(replayTexts).toContain("<summary>\n## Objective\n- Preserve the task\n</summary>")
+      expect(replayTexts).toContain(`Recent exact request `.repeat(10))
 
       const context = yield* (yield* SessionStore.Service).context(sessionID)
-      expect(context.map((message) => message.type)).toEqual(["compaction", "assistant"])
-      expect(context[0]).toMatchObject({
+      expect(context.map((message) => message.type)).toEqual(["assistant", "user", "compaction", "assistant"])
+      expect(context[2]).toMatchObject({
         type: "compaction",
         summary: "## Objective\n- Preserve the task",
       })
@@ -1127,7 +1127,7 @@ describe("SessionRunnerLLM", () => {
       requests.length = 0
       executions.length = 0
       responses = [
-        fragmentFixture("text", "text-summary-2", ["## Objective\n- Preserve the updated task"]).completeEvents,
+        fragmentFixture("text", "text-summary-2", ["<selection>[1]</selection>\n## Objective\n- Preserve the updated task"]).completeEvents,
         fragmentFixture("text", "text-final-2", ["Continued again"]).completeEvents,
       ]
       yield* session.prompt({
@@ -1142,10 +1142,15 @@ describe("SessionRunnerLLM", () => {
         "<previous-summary>\n## Objective\n- Preserve the task\n</previous-summary>",
       )
       expect(userTexts(requests[0])[0]).toContain("Recent exact request")
-      expect((yield* (yield* SessionStore.Service).context(sessionID))[0]).toMatchObject({
+      const secondContext = yield* (yield* SessionStore.Service).context(sessionID)
+      // kept items (selected + recent) are replayed verbatim ahead of the
+      // compaction checkpoint; the incremental summary is the second compaction
+      const compactionMsg = secondContext.find((m) => m.type === "compaction")
+      expect(compactionMsg).toMatchObject({
         type: "compaction",
         summary: "## Objective\n- Preserve the updated task",
       })
+      expect(secondContext.some((m) => m.type === "assistant")).toBe(true)
     }),
   )
 
@@ -1157,7 +1162,7 @@ describe("SessionRunnerLLM", () => {
           LLMEvent.stepStart({ index: 0 }),
           LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" }),
         ],
-        fragmentFixture("text", "text-summary", ["## Objective\n- Recover overflow"]).completeEvents,
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Recover overflow"]).completeEvents,
         fragmentFixture("text", "text-final", ["Recovered"]).completeEvents,
       ]
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue" }), resume: false })
@@ -1165,13 +1170,18 @@ describe("SessionRunnerLLM", () => {
 
       expect(requests).toHaveLength(3)
       expect(userTexts(requests[1])[0]).toContain("## Objective")
-      expect(userTexts(requests[2])[0]).toContain("<summary>\n## Objective\n- Recover overflow\n</summary>")
+      expect(userTexts(requests[2]).join("\n")).toContain("<summary>\n## Objective\n- Recover overflow\n</summary>")
       expect(yield* session.context(sessionID)).toMatchObject([
+        // the selected item ([1b] assistant reply) is kept verbatim in the context
+        { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+        { type: "user", text: "Continue" },
         { type: "compaction", summary: "## Objective\n- Recover overflow" },
         { type: "assistant", finish: "stop" },
       ])
       yield* replaySessionProjection(sessionID)
       expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+        { type: "user", text: "Continue" },
         { type: "compaction" },
         { type: "assistant", finish: "stop" },
       ])
@@ -1187,7 +1197,7 @@ describe("SessionRunnerLLM", () => {
       ]
       responses = [
         overflow(),
-        fragmentFixture("text", "text-summary", ["## Objective\n- Recover once"]).completeEvents,
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Recover once"]).completeEvents,
         overflow(),
       ]
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue" }), resume: false })
@@ -1195,6 +1205,8 @@ describe("SessionRunnerLLM", () => {
 
       expect(requests).toHaveLength(3)
       expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+        { type: "user", text: "Continue" },
         { type: "compaction" },
         { type: "assistant", finish: "error", error: { message: "prompt too long" } },
       ])
@@ -1215,7 +1227,7 @@ describe("SessionRunnerLLM", () => {
         }),
       )
       responses = [
-        fragmentFixture("text", "text-summary", ["## Objective\n- Recover raw overflow"]).completeEvents,
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Recover raw overflow"]).completeEvents,
         fragmentFixture("text", "text-final", ["Recovered"]).completeEvents,
       ]
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue" }), resume: false })
@@ -1223,6 +1235,8 @@ describe("SessionRunnerLLM", () => {
 
       expect(requests).toHaveLength(3)
       expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+        { type: "user", text: "Continue" },
         { type: "compaction", summary: "## Objective\n- Recover raw overflow" },
         { type: "assistant", finish: "stop" },
       ])
@@ -1235,17 +1249,50 @@ describe("SessionRunnerLLM", () => {
       responses = [
         [LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" })],
         [LLMEvent.providerError({ message: "summary unavailable" })],
+        [LLMEvent.providerError({ message: "summary unavailable" })],
       ]
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue" }), resume: false })
       yield* session.resume(sessionID)
 
-      expect(requests).toHaveLength(2)
+      // main attempt + selection attempt + correction retry + degrade fallback all fail
+      expect(requests).toHaveLength(4)
       const context = yield* session.context(sessionID)
       expect(context.some((message) => message.type === "compaction")).toBe(false)
       expect(context.slice(-2)).toMatchObject([
         { type: "user", text: "Continue" },
         { type: "assistant", finish: "error", error: { message: "prompt too long" } },
       ])
+    }),
+  )
+
+  it.effect("persists survival and keptFrom through overflow recovery", () =>
+    Effect.gen(function* () {
+      const session = yield* setupOverflowRecovery
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" }),
+        ],
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Recover with survival"]).completeEvents,
+        fragmentFixture("text", "text-final", ["Recovered"]).completeEvents,
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Continue" }), resume: false })
+      yield* session.resume(sessionID)
+
+      const context = yield* session.context(sessionID)
+      const compaction = context.find((message) => message.type === "compaction")
+      expect(compaction).toMatchObject({
+        type: "compaction",
+        summary: "## Objective\n- Recover with survival",
+      })
+      if (compaction?.type === "compaction") {
+        // v3 persistence: survival counts + keptFrom survive the overflow path
+        expect(compaction.survival).toBeDefined()
+        expect(Object.keys(compaction.survival ?? {}).length).toBeGreaterThan(0)
+        expect(compaction.keptFrom).toBeDefined()
+        // the recent turn (Continue) is the kept region start
+        expect(compaction.keptFrom).toBeGreaterThan(0)
+      }
     }),
   )
 
@@ -1300,7 +1347,6 @@ describe("SessionRunnerLLM", () => {
         timestamp: DateTime.makeUnsafe(2),
         reason: "manual",
         text: "summary",
-        recent: "",
       })
       systemUnavailable = true
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })

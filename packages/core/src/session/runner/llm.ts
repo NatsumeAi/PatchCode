@@ -43,7 +43,6 @@ import { LoopControlHost, type LoopControlHooks } from "./loop-control-host"
 import { IterationBudget } from "../loop-control/iteration-budget"
 import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
-import { ContextEngine } from "./context-engine"
 import { VerifierBiDirectional, type NextTurnSystemContext } from "./verifier-bi-directional"
 import { SessionRuntime, type Instance } from "../runtime"
 
@@ -189,7 +188,6 @@ const layer = Layer.effect(
     interface DrainContext {
       readonly hooks: LoopControlHooks
       readonly timerDaemon: TimerDaemon.Interface
-      readonly contextEngine: ContextEngine.Interface
       readonly budget: IterationBudget.Interface
       readonly terminal: TerminalController.Interface
       readonly verifierBiDirectional: VerifierBiDirectional.Interface
@@ -237,7 +235,6 @@ const layer = Layer.effect(
       return {
         hooks,
         timerDaemon: instance.timerDaemon,
-        contextEngine: instance.contextEngine,
         budget: instance.budget,
         terminal: instance.terminal,
         verifierBiDirectional: instance.verifierBiDirectional,
@@ -315,14 +312,11 @@ const layer = Layer.effect(
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
+      // Proactive compaction by iteration-step budget is disabled (Task 10):
+      // its trigger was step-based, unrelated to token usage. Compaction now
+      // fires only via compactIfNeeded threshold or overflow recovery.
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
-      if (yield* drain.contextEngine.shouldProactiveCompact) {
-        if (yield* compaction.compactAfterOverflow({ sessionID: session.id, entries, model, request })) {
-          yield* drain.contextEngine.compact
-          return yield* Effect.die(continueAfterCompaction(currentStep))
-        }
-      }
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,

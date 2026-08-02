@@ -5,7 +5,7 @@ import { optional } from "./schema"
 import { ProviderMetadata, ToolContent } from "./llm"
 import { Model } from "./model"
 import { FileAttachment, Prompt } from "./prompt"
-import { DateTimeUtcFromMillis, RelativePath, statics } from "./schema"
+import { DateTimeUtcFromMillis, NonNegativeInt, RelativePath, statics } from "./schema"
 import { SessionID } from "./session-id"
 import { ascending } from "./identifier"
 
@@ -193,7 +193,13 @@ export const Compaction = Schema.Struct({
   type: Schema.Literal("compaction"),
   reason: Schema.Literals(["auto", "manual"]),
   summary: Schema.String,
-  recent: Schema.String,
+  keptFrom: NonNegativeInt.pipe(optional),
+  kept: Schema.Array(Schema.String).pipe(optional),
+  survival: Schema.Record(Schema.String, Schema.Number).pipe(optional),
+  files: Schema.Struct({
+    read: Schema.Array(Schema.String),
+    modified: Schema.Array(Schema.String),
+  }).pipe(optional),
   ...Base,
 }).annotate({ identifier: "Session.Message.Compaction" })
 

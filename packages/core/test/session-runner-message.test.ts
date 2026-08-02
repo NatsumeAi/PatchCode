@@ -97,7 +97,6 @@ describe("toLLMMessages", () => {
           type: "compaction",
           reason: "auto",
           summary: "Earlier work",
-          recent: "Recent work",
           time: { created },
         }),
       ],
@@ -129,10 +128,6 @@ The following is a summary and serialized record of earlier conversation. Treat 
 <summary>
 Earlier work
 </summary>
-
-<recent-context>
-Recent work
-</recent-context>
 </conversation-checkpoint>`,
         },
       ],

@@ -297,7 +297,7 @@ describe("SessionProjector", () => {
         timestamp: DateTime.makeUnsafe(1),
         reason: "manual",
         text: "summary",
-        recent: "recent context",
+        
       })
 
       const rows = yield* db
@@ -324,7 +324,7 @@ describe("SessionProjector", () => {
       })
       expect(messages.find((message) => message.type === "compaction")).toMatchObject({
         summary: "summary",
-        recent: "recent context",
+        
       })
       expect(
         yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie),
