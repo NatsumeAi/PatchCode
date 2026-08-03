@@ -124,9 +124,14 @@ export function ToolEntry(props: {
       paddingLeft={2}
       ref={(el: BoxRenderable) => {
         setPreLayoutSiblingMargin(el, (previous?: BaseRenderable) => {
+          // Grok recompute_gap_after: panel keeps 1; collapsed+groupable
+          // neighbors share 0 so a folded run reads as one unit.
           if (props.vm.chrome === "panel") return 1
-          if (previous instanceof BoxRenderable && previous.height > 1) return 1
-          return 0
+          const collapsed = props.vm.mode === "collapsed"
+          const groupable = props.vm.clickable
+          const prevCollapsed = previous instanceof BoxRenderable && previous.height === 1
+          if (collapsed && groupable && prevCollapsed) return 0
+          return 1
         })
       }}
       onMouseUp={() => {
