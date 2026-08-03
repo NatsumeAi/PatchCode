@@ -97,18 +97,25 @@ export function ToolEntry(props: {
   // Single disclosure glyph: `>` collapsed, `v` expanded/truncated.
   const disclosure = createMemo(() => (props.vm.mode === "collapsed" ? disclosureClosed : disclosureOpen))
 
+  // Always strings — OpenTUI TextNode rejects numbers/objects/undefined as children.
+  const str = (value: unknown) => (typeof value === "string" ? value : value == null ? "" : String(value))
+
   const headerVerbAndPrimary = createMemo(() => {
     const h = props.vm.header
     const parts: string[] = []
-    if (h.verb) parts.push(h.verb)
-    if (h.primary) parts.push(h.primary)
+    const verb = str(h.verb)
+    const primary = str(h.primary)
+    if (verb) parts.push(verb)
+    if (primary) parts.push(primary)
     return parts.join(" ")
   })
 
+  const headerDetails = createMemo(() => str(props.vm.header.details))
+
   const headerText = createMemo(() => {
-    const h = props.vm.header
     const parts = [headerVerbAndPrimary()]
-    if (h.details) parts.push(h.details)
+    const details = headerDetails()
+    if (details) parts.push(details)
     return parts.join(" ")
   })
 
@@ -132,18 +139,22 @@ export function ToolEntry(props: {
         if (props.vm.clickable) props.onClick()
       }}
     >
-      {/* Header line: `>` / `v` + verb + primary */}
+      {/* Header line: `>` / `v` + verb + primary [+ dim details as sibling text] */}
+      {/* Never nest <text> inside <text> — OpenTUI TextNode only accepts string/StyledText children. */}
       <box flexDirection="row">
         <text width={BULLET_WIDTH} fg={accentFg()}>
-          {disclosure()}{" "}
+          {str(disclosure()) + " "}
         </text>
         <Show when={!isRunning()} fallback={<Spinner color={fg()}>{headerText()}</Spinner>}>
-          <text flexGrow={1} fg={fg()}>
-            {headerVerbAndPrimary()}
-            <Show when={props.vm.header.details && props.vm.header.dimDetails}>
-              <text fg={theme.textMuted}> {props.vm.header.details}</text>
+          <box flexDirection="row" flexGrow={1}>
+            <text fg={fg()}>{headerVerbAndPrimary()}</text>
+            <Show when={headerDetails() && props.vm.header.dimDetails}>
+              <text fg={theme.textMuted}>{" " + headerDetails()}</text>
             </Show>
-          </text>
+            <Show when={headerDetails() && !props.vm.header.dimDetails}>
+              <text fg={fg()}>{" " + headerDetails()}</text>
+            </Show>
+          </box>
         </Show>
       </box>
 

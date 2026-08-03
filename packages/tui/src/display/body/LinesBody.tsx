@@ -12,7 +12,7 @@ export function LinesBody(props: { body: Extract<BodyModel, { kind: "lines" }> }
     <box gap={0}>
       <For each={lines()}>
         {(line) => (
-          <text fg={theme.text}>{line}</text>
+          <text fg={theme.text}>{typeof line === "string" ? line : String(line ?? "")}</text>
         )}
       </For>
       <Show when={overflow()}>
