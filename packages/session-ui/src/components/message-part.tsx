@@ -66,6 +66,7 @@ import { useLocation } from "@solidjs/router"
 import { attached, inline, kind, typeLabel } from "./message-file"
 import { readPartText } from "./message-part-text"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
+import { kernelDefaultOpen } from "../display/bind-tool-view"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -730,14 +731,9 @@ export function renderable(part: PartType, showReasoningSummaries = true) {
   return !!PART_MAPPING[part.type]
 }
 
-function toolDefaultOpen(tool: string, shell = false, edit = false) {
-  if (tool === "bash" || tool === "shell") return shell
-  if (tool === "edit" || tool === "write" || tool === "patch" || tool === "apply_patch") return edit
-}
-
 export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
-  return toolDefaultOpen(part.tool, shell, edit)
+  return kernelDefaultOpen(part as ToolPart, { shellPref: shell || undefined, editPref: edit || undefined })
 }
 
 export function AssistantParts(props: {
