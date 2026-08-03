@@ -1,4 +1,4 @@
-import { createMemo, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { BoxRenderable, type BaseRenderable, type RGBA } from "@opentui/core"
 import type { ToolViewModel, BodyModel, PartStatus } from "@opencode-ai/session-display"
 import { useTheme } from "../context/theme"
@@ -12,6 +12,7 @@ import { PatchBody } from "./body/PatchBody"
 import { TextBody } from "./body/TextBody"
 import { setPreLayoutSiblingMargin } from "../util/layout"
 import { accentBar, diamondFilled } from "./glyphs"
+import { blendColor, waveBrightness } from "./accent-wave"
 
 const BULLET_WIDTH = 2
 
@@ -73,6 +74,26 @@ export function ToolEntry(props: {
     statusColor(props.vm.header.status, props.vm.header.accent, props.vm.header.muted, theme),
   )
 
+  // Grok accent wave: running rows pulse the rail/bullet toward background.
+  const [waveTick, setWaveTick] = createSignal(0)
+  createEffect(() => {
+    if (!isRunning()) {
+      setWaveTick(0)
+      return
+    }
+    let tick = 0
+    const timer = setInterval(() => {
+      tick += 1
+      setWaveTick(tick)
+    }, 50)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const accentFg = createMemo(() => {
+    if (!isRunning()) return fg()
+    return blendColor(theme.background, fg(), waveBrightness(waveTick(), 0))
+  })
+
   const headerVerbAndPrimary = createMemo(() => {
     const h = props.vm.header
     const parts: string[] = []
@@ -104,10 +125,10 @@ export function ToolEntry(props: {
     >
       {/* Header line */}
       <box flexDirection="row">
-        <text width={1} fg={fg()}>
+        <text width={1} fg={accentFg()}>
           {accentBar}
         </text>
-        <text width={BULLET_WIDTH} fg={fg()}>
+        <text width={BULLET_WIDTH} fg={accentFg()}>
           {diamondFilled}
         </text>
         <Show when={!isRunning()} fallback={<Spinner color={fg()}>{headerText()}</Spinner>}>
