@@ -11,6 +11,27 @@ import { useBindings, useOpencodeModeStack } from "../../keymap"
 
 const QUESTION_MODE = "question"
 
+/** One reply path: session runner tools use QuestionV2 only. */
+function replyQuestion(
+  sdk: ReturnType<typeof useSDK>,
+  request: QuestionRequest,
+  answers: QuestionAnswer[],
+  _directory?: string,
+) {
+  return sdk.client.v2.session.question.reply({
+    sessionID: request.sessionID,
+    requestID: request.id,
+    questionV2Reply: { answers },
+  })
+}
+
+function rejectQuestion(sdk: ReturnType<typeof useSDK>, request: QuestionRequest, _directory?: string) {
+  return sdk.client.v2.session.question.reject({
+    sessionID: request.sessionID,
+    requestID: request.id,
+  })
+}
+
 export function QuestionPrompt(props: { request: QuestionRequest; directory?: string }) {
   const sdk = useSDK()
   const { theme } = useTheme()
@@ -47,18 +68,11 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
 
   function submit() {
     const answers = questions().map((_, i) => store.answers[i] ?? [])
-    void sdk.client.question.reply({
-      requestID: props.request.id,
-      directory: props.directory,
-      answers,
-    })
+    void replyQuestion(sdk, props.request, answers, props.directory)
   }
 
   function reject() {
-    void sdk.client.question.reject({
-      requestID: props.request.id,
-      directory: props.directory,
-    })
+    void rejectQuestion(sdk, props.request, props.directory)
   }
 
   function pick(answer: string, custom: boolean = false) {
@@ -71,11 +85,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
       setStore("custom", inputs)
     }
     if (single()) {
-      void sdk.client.question.reply({
-        requestID: props.request.id,
-        directory: props.directory,
-        answers: [[answer]],
-      })
+      void replyQuestion(sdk, props.request, [[answer]], props.directory)
       return
     }
     setStore("tab", store.tab + 1)

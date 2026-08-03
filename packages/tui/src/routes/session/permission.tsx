@@ -19,6 +19,21 @@ import { usePathFormatter } from "../../context/path-format"
 
 type PermissionStage = "permission" | "always" | "reject"
 
+/** One reply path: session runner tools use PermissionV2 only. */
+function replyPermission(
+  sdk: ReturnType<typeof useSDK>,
+  request: PermissionRequest,
+  reply: "once" | "always" | "reject",
+  opts: { directory?: string; workspace?: string; message?: string },
+) {
+  return sdk.client.v2.session.permission.reply({
+    sessionID: request.sessionID,
+    requestID: request.id,
+    reply,
+    ...(opts.message ? { message: opts.message } : {}),
+  })
+}
+
 function EditBody(props: { request: PermissionRequest }) {
   const themeState = useTheme()
   const theme = themeState.theme
@@ -165,9 +180,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           onSelect={(option) => {
             setStore("stage", "permission")
             if (option === "cancel") return
-            void sdk.client.permission.reply({
-              reply: "always",
-              requestID: props.request.id,
+            void replyPermission(sdk, props.request, "always", {
               directory: props.directory,
               workspace: project.workspace.current(),
             })
@@ -177,12 +190,10 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
       <Match when={store.stage === "reject"}>
         <RejectPrompt
           onConfirm={(message) => {
-            void sdk.client.permission.reply({
-              reply: "reject",
-              requestID: props.request.id,
+            void replyPermission(sdk, props.request, "reject", {
               directory: props.directory,
-              message: message || undefined,
               workspace: project.workspace.current(),
+              message: message || undefined,
             })
           }}
           onCancel={() => {
@@ -415,17 +426,13 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                     setStore("stage", "reject")
                     return
                   }
-                  void sdk.client.permission.reply({
-                    reply: "reject",
-                    requestID: props.request.id,
+                  void replyPermission(sdk, props.request, "reject", {
                     directory: props.directory,
                     workspace: project.workspace.current(),
                   })
                   return
                 }
-                void sdk.client.permission.reply({
-                  reply: "once",
-                  requestID: props.request.id,
+                void replyPermission(sdk, props.request, "once", {
                   directory: props.directory,
                   workspace: project.workspace.current(),
                 })
