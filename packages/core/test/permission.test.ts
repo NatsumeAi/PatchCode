@@ -194,7 +194,7 @@ describe("PermissionV2", () => {
     }),
   )
 
-  it.effect("denies omitted-agent permissions when no primary default agent exists", () =>
+  it.effect("allows omitted-agent permissions when no primary default agent exists", () =>
     Effect.gen(function* () {
       yield* setup()
       const { db } = yield* Database.Service
@@ -211,7 +211,7 @@ describe("PermissionV2", () => {
       })
 
       const service = yield* PermissionV2.Service
-      expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
+      expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "allow" })
       expect(yield* service.list()).toEqual([])
     }),
   )
