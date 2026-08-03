@@ -54,9 +54,9 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     compaction: info.compaction && {
       auto: info.compaction.auto,
       prune: info.compaction.prune,
-      keep: {
-        tokens: info.compaction.preserve_recent_tokens,
-      },
+      // v1 preserve_recent_tokens has no v2 equivalent (v2 keep.recent is a
+      // window ratio); it is intentionally not migrated.
+      keep: {},
       buffer: info.compaction.reserved,
     },
     skills: info.skills && [...(info.skills.paths ?? []), ...(info.skills.urls ?? [])],

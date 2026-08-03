@@ -221,7 +221,7 @@ const config = Layer.succeed(
           info: new Config.Info({
             compaction: new ConfigCompaction.Info({
               buffer: 3_000,
-              keep: new ConfigCompaction.Keep({ tokens: 1_000 }),
+              keep: new ConfigCompaction.Keep({}),
             }),
           }),
         }),

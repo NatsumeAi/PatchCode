@@ -242,3 +242,54 @@ test("zero selection is a valid outcome keeping only the recent region", async (
   const kept = ended!.data.kept as string[]
   expect(kept).toEqual(["msg_3"])
 })
+
+test("correction rounds use the selection-only prompt without re-summarizing", async () => {
+  const bigEntries4 = [
+    user(1, "x".repeat(50000)),
+    user(2, "y".repeat(50000)),
+    user(3, "z".repeat(1000)),
+  ]
+  const requests: { system: string; maxTokens?: number }[] = []
+  const published: { type: string; data: Record<string, unknown> }[] = []
+  const events = {
+    publish: (definition: { type: string }, data: Record<string, unknown>) =>
+      Effect.sync(() => {
+        published.push({ type: definition.type, data })
+        return { durable: { aggregateID: "ses_test", seq: published.length, version: 1 } }
+      }),
+  } as never
+  let calls = 0
+  const llm = {
+    stream: (request: { system?: { text?: string }[]; generation?: { maxTokens?: number } }) => {
+      calls += 1
+      requests.push({
+        system: (request.system?.[0]?.text ?? "").slice(0, 60),
+        maxTokens: request.generation?.maxTokens,
+      })
+      const out =
+        calls === 1
+          ? "<selection>[1a,99]</selection>\nfirst summary text"
+          : "<selection>[1a]</selection>\nignored second summary"
+      return Stream.succeed(LLMEvent.textDelta({ id: "blk_1", text: out }))
+    },
+  }
+  const compaction = SessionCompaction.make({ events, llm, config: [] })
+  const ok = await Effect.gen(function* () {
+    return yield* compaction.compactAfterOverflow({
+      sessionID: "ses_test" as SessionSchema.ID,
+      entries: bigEntries4,
+      model,
+      request: { model, messages: [] } as never,
+    })
+  }).pipe(Effect.runPromise)
+  expect(ok).toBe(true)
+  expect(requests).toHaveLength(2)
+  // first round: full summarization system prompt; correction round: selection-only
+  expect(requests[0]!.system).toContain("context summarizer")
+  expect(requests[1]!.system).toContain("previously selected items")
+  // correction round gets a small token budget (selection list only)
+  expect(requests[1]!.maxTokens).toBeLessThanOrEqual(256)
+  const ended = published.find((p) => p.type === "session.next.compaction.ended")
+  // cached first-round summary is persisted, not the correction round's text
+  expect(String(ended!.data.text)).toContain("first summary text")
+})

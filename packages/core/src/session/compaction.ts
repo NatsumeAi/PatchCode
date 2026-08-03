@@ -159,6 +159,19 @@ export const formatNumberedItems = (
  * System prompt for the summarization request. Instructs structured output
  * (a summary plus a <selection> tag) rather than conversation.
  */
+/**
+ * System prompt for correction rounds: the summary is already cached (D15);
+ * the model only re-issues a corrected <selection> list.
+ */
+export const SELECTION_ONLY_SYSTEM_PROMPT = `You previously selected items from a numbered conversation. Your <selection> tag was rejected for the reasons in <correction>. Output ONLY a new <selection> tag listing corrected item numbers (for example <selection>[3,7]</selection>, or <selection>[]</selection> if nothing is worth keeping). Do not output a summary or any other text.`
+
+const correctionPromptFor = (errors: readonly string[], numbered: string) =>
+  [
+    "The conversation is unchanged. Output only a new <selection> tag with corrected item numbers, within the stated budget.",
+    numbered ? `<numbered-context>\n${numbered}\n</numbered-context>` : "",
+    `<correction>\n${errors.join("\n")}\n</correction>`,
+  ].filter(Boolean).join("\n\n")
+
 export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarizer for an agentic coding session.
 Do not converse, ask questions, or offer help. Read the numbered conversation items and the full history inside <conversation>, then output exactly:
 
@@ -554,7 +567,7 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
 
     let calls = 0
     let errors: string[] = []
-    const summarize = (promptText: string) =>
+    const summarize = (promptText: string, selectionOnly = false) =>
       Effect.gen(function* () {
         calls += 1
         if (calls > MAX_SUMMARIZE_CALLS) return undefined
@@ -564,10 +577,10 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
           .stream(
             LLM.request({
               model: input.model,
-              system: [SystemPart.make(SUMMARIZATION_SYSTEM_PROMPT)],
+              system: [SystemPart.make(selectionOnly ? SELECTION_ONLY_SYSTEM_PROMPT : SUMMARIZATION_SYSTEM_PROMPT)],
               messages: [Message.user(promptText)],
               tools: [],
-              generation: { maxTokens: summaryOutput },
+              generation: { maxTokens: selectionOnly ? Math.min(summaryOutput, 256) : summaryOutput },
               cache: "none",
             }),
           )
@@ -605,11 +618,8 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     let degraded = false
     const selectionRounds = config.selectEnabled ? 1 + config.selectRetry : 0
     for (let round = 0; round < selectionRounds; round++) {
-      const promptText =
-        round === 0
-          ? basePrompt
-          : `${basePrompt}\n\n<correction>\n${errors.join("\n")}\n</correction>`
-      const output = yield* summarize(promptText)
+      const promptText = round === 0 ? basePrompt : correctionPromptFor(errors, numbered)
+      const output = yield* summarize(promptText, round > 0)
       if (output === undefined) {
         // One summary-failure retry uses the same prompt; a second failure
         // falls back to the Pi-style degrade below.

@@ -338,7 +338,7 @@ describe("Config", () => {
                 compaction: {
                   auto: true,
                   prune: false,
-                  keep: { tokens: 2000 },
+                  keep: { recent: 0.2 },
                   buffer: 10000,
                 },
                 skills: ["./skills", "~/shared-skills", "https://example.com/.well-known/skills/"],
@@ -424,7 +424,7 @@ describe("Config", () => {
             expect(documents[0]?.info.compaction).toEqual({
               auto: true,
               prune: false,
-              keep: { tokens: 2000 },
+              keep: { recent: 0.2 },
               buffer: 10000,
             })
             expect(documents[0]?.info.skills).toEqual([
@@ -640,7 +640,7 @@ describe("Config", () => {
             expect(documents[0]?.info.compaction).toEqual({
               auto: true,
               prune: undefined,
-              keep: { tokens: 2000 },
+              keep: {},
               buffer: 10000,
             })
             expect(documents[0]?.info.mcp).toMatchObject({
