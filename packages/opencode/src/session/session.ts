@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
+import { asc } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { like } from "drizzle-orm"
 import { sql } from "drizzle-orm"
@@ -26,7 +27,7 @@ import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
-import { PartTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { PartTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { MessageV2 } from "./message-v2"
 import type { InstanceContext } from "../project/instance-context"
@@ -699,6 +700,9 @@ const layer: Layer.Layer<
         path: sessionPath(ctx.worktree, ctx.directory),
         workspaceID: original.workspaceID,
         title,
+        // Preserve agent/model so the forked session continues the same path.
+        agent: original.agent,
+        model: original.model,
         metadata: structuredClone(original.metadata),
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
@@ -730,6 +734,40 @@ const layer: Layer.Layer<
           yield* updatePart(p)
         }
       }
+
+      // V2 runner context reads SessionMessageTable only (SessionHistory.load).
+      // The loop above only projects MessageTable/PartTable, so without this
+      // clone the forked session shows history in TUI but the model has no memory.
+      const v2Rows = yield* db
+        .select()
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.session_id, input.sessionID))
+        .orderBy(asc(SessionMessageTable.seq))
+        .all()
+        .pipe(Effect.orDie)
+
+      let seq = 0
+      for (const row of v2Rows) {
+        if (input.messageID && String(row.id) >= String(input.messageID)) break
+        const mapped = idMap.get(String(row.id))
+        const newID = mapped ?? MessageID.ascending()
+        if (!mapped) idMap.set(String(row.id), newID)
+
+        // data is the JSON body without id/type columns (those are table columns).
+        yield* db
+          .insert(SessionMessageTable)
+          .values({
+            id: SessionMessage.ID.make(String(newID)),
+            session_id: session.id,
+            type: row.type,
+            seq: seq++,
+            time_created: row.time_created,
+            data: row.data,
+          })
+          .run()
+          .pipe(Effect.orDie)
+      }
+
       return session
     })
 

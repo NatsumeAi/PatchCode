@@ -523,6 +523,8 @@ const layer = Layer.effect(
                 s.defs[key] = result.defs!
                 if (result.instructions) s.instructions[key] = result.instructions
                 watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                // Notify V2 dynamic-tools bridge so MCP tools register on connect.
+                yield* events.publish(ToolsChanged, { server: key }).pipe(Effect.ignore)
               }
             }),
           { concurrency: "unbounded" },

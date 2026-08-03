@@ -1,5 +1,4 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -23,28 +22,41 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
 
-    const state = yield* InstanceState.make(
-      Effect.fn("SessionStatus.state")(() => Effect.succeed(new Map<SessionID, Info>())),
-    )
+    // Process-global map keyed by sessionID. Do NOT use InstanceState here:
+    // SessionRunner publishes session.status from a location layer without
+    // InstanceRef; InstanceState.get would Die("InstanceRef not provided") and
+    // abort the entire V2 drain.
+    const data = new Map<SessionID, Info>()
+
+    const applyLocal = (sessionID: SessionID, status: Info) => {
+      if (status.type === "idle") data.delete(sessionID)
+      else data.set(sessionID, status)
+    }
+
+    // Core SessionRunner publishes session.status on drain busy/idle. Mirror into
+    // this map so GET /session/status stays accurate for TUI bootstrap.
+    const unsubscribe = yield* events.listen((event) => {
+      if (event.type !== "session.status") return Effect.void
+      const props = event.data as { sessionID: SessionID; status: Info }
+      applyLocal(props.sessionID, props.status)
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsubscribe)
 
     const get = Effect.fn("SessionStatus.get")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
       return data.get(sessionID) ?? { type: "idle" as const }
     })
 
     const list = Effect.fn("SessionStatus.list")(function* () {
-      return new Map(yield* InstanceState.get(state))
+      return new Map(data)
     })
 
     const set = Effect.fn("SessionStatus.set")(function* (sessionID: SessionID, status: Info) {
-      const data = yield* InstanceState.get(state)
       yield* events.publish(Event.Status, { sessionID, status })
       if (status.type === "idle") {
         yield* events.publish(Event.Idle, { sessionID })
-        data.delete(sessionID)
-        return
       }
-      data.set(sessionID, status)
+      applyLocal(sessionID, status)
     })
 
     return Service.of({ get, list, set })

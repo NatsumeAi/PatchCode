@@ -1,5 +1,4 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
-import { Agent } from "@/agent/agent"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
@@ -8,12 +7,10 @@ import { Command } from "@/command"
 import { Permission } from "@/permission"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
-import { SessionCompaction } from "@/session/compaction"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
-import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
@@ -54,9 +51,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const shareSvc = yield* SessionShare.Service
     const promptSvc = yield* SessionPrompt.Service
     const revertSvc = yield* SessionRevert.Service
-    const compactSvc = yield* SessionCompaction.Service
-    const runState = yield* SessionRunState.Service
-    const agentSvc = yield* Agent.Service
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
@@ -234,8 +228,45 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* promptSvc.cancel(ctx.params.sessionID)
+      // One path: only the session drain is interruptible for agent work.
+      yield* v2Svc.interrupt(ctx.params.sessionID)
       return true
+    })
+
+    const commandSvc = yield* Command.Service
+
+    /** Expand a slash-command template the same way SessionPrompt.command does (args + $ARGUMENTS). */
+    const expandCommandTemplate = Effect.fn("SessionHttpApi.expandCommandTemplate")(function* (input: {
+      command: string
+      arguments: string
+    }) {
+      const cmd = yield* commandSvc.get(input.command)
+      if (!cmd) return undefined as string | undefined
+      const argsRegex = /"[^"]+"|'[^']+'|\S+/g
+      const quoteTrimRegex = /^["']|["']$/g
+      const placeholderRegex = /\$\d+/g
+      const raw = input.arguments.match(argsRegex) ?? []
+      const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
+      const templateCommand = yield* Effect.promise(async () => cmd.template)
+      const placeholders = templateCommand.match(placeholderRegex) ?? []
+      let last = 0
+      for (const item of placeholders) {
+        const value = Number(item.slice(1))
+        if (value > last) last = value
+      }
+      const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
+        const position = Number(index)
+        const argIndex = position - 1
+        if (argIndex >= args.length) return ""
+        if (position === last) return args.slice(argIndex).join(" ")
+        return args[argIndex]
+      })
+      const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
+      let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
+      if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
+        template = template + "\n\n" + input.arguments
+      }
+      return template.trim()
     })
 
     const init = Effect.fn("SessionHttpApi.init")(function* (ctx: {
@@ -243,15 +274,31 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof InitPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc
-        .command({
+      // One path: expand template → same prompt/drain entry as normal chat.
+      const text = yield* expandCommandTemplate({ command: Command.Default.INIT, arguments: "" })
+      if (text === undefined) return yield* new HttpApiError.BadRequest({})
+      yield* switchTo(ctx.params.sessionID, {
+        messageID: ctx.payload.messageID,
+        model: { providerID: ctx.payload.providerID, modelID: ctx.payload.modelID },
+        parts: [{ type: "text", text }],
+      } as typeof PromptPayload.Type)
+      const messageID = yield* Effect.try({
+        try: () => SessionMessage.ID.make(ctx.payload.messageID as string),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      yield* v2Svc
+        .prompt({
           sessionID: ctx.params.sessionID,
-          messageID: ctx.payload.messageID,
-          model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
-          command: Command.Default.INIT,
-          arguments: "",
+          id: messageID,
+          prompt: { text },
         })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof SessionV2.NotFoundError
+              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+              : new HttpApiError.BadRequest({}),
+          ),
+        )
       return true
     })
 
@@ -279,20 +326,25 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof SummarizePayload.Type
     }) {
       yield* revertSvc.cleanup(yield* requireSession(ctx.params.sessionID))
-      const messages = yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
-      const defaultAgent = yield* agentSvc.defaultAgent()
-      const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
-
-      yield* compactSvc.create({
-        sessionID: ctx.params.sessionID,
-        agent: currentAgent,
-        model: {
-          providerID: ctx.payload.providerID,
-          modelID: ctx.payload.modelID,
-        },
-        auto: ctx.payload.auto ?? false,
-      })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+      // V2 primary path: switch model and run one explicit compaction so the
+      // runner's SessionCompaction emits a durable Compaction.Ended checkpoint
+      // (summary + selection + keptFrom). No parallel summary prompt: the
+      // compaction flow owns the summarization turn.
+      yield* v2Svc
+        .switchModel({
+          sessionID: ctx.params.sessionID,
+          model: { id: ctx.payload.modelID, providerID: ctx.payload.providerID },
+        })
+        .pipe(Effect.catch(() => Effect.void))
+      yield* v2Svc
+        .compact({ sessionID: ctx.params.sessionID })
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof SessionV2.NotFoundError
+              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+              : new HttpApiError.BadRequest({}),
+          ),
+        )
       return true
     })
 
@@ -424,9 +476,84 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof CommandPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* promptSvc
-        .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      // /loop is its own single path (loop-control + synthetic messages), not the agent drain.
+      if (ctx.payload.command === "loop") {
+        return yield* promptSvc
+          .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
+          .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      }
+      // One path for slash commands: expand template → same prompt/drain entry as chat.
+      const text = yield* expandCommandTemplate({
+        command: ctx.payload.command,
+        arguments: ctx.payload.arguments ?? "",
+      })
+      if (text === undefined) {
+        yield* events.publish(Session.Event.Error, {
+          sessionID: ctx.params.sessionID,
+          error: new NamedError.Unknown({
+            message: `Command not found: "${ctx.payload.command}"`,
+          }).toObject(),
+        })
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const model =
+        ctx.payload.model === undefined
+          ? undefined
+          : (() => {
+              const [providerID, ...rest] = ctx.payload.model.split("/")
+              const modelID = rest.join("/")
+              return providerID && modelID ? { providerID: providerID as never, modelID: modelID as never } : undefined
+            })()
+      yield* switchTo(ctx.params.sessionID, {
+        ...(ctx.payload.messageID ? { messageID: ctx.payload.messageID } : {}),
+        ...(ctx.payload.agent ? { agent: ctx.payload.agent } : {}),
+        ...(model ? { model } : {}),
+        parts: [{ type: "text", text }],
+      } as typeof PromptPayload.Type)
+      const id =
+        ctx.payload.messageID === undefined
+          ? undefined
+          : yield* Effect.try({
+              try: () => SessionMessage.ID.make(ctx.payload.messageID as string),
+              catch: () => new HttpApiError.BadRequest({}),
+            })
+      yield* v2Svc
+        .prompt({
+          sessionID: ctx.params.sessionID,
+          ...(id ? { id } : {}),
+          prompt: { text },
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof SessionV2.NotFoundError
+              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+              : new HttpApiError.BadRequest({}),
+          ),
+        )
+      // API contract still expects SessionV1.WithParts; return a lightweight user stub.
+      const now = Date.now()
+      const messageID = (ctx.payload.messageID ?? SessionMessage.ID.create()) as MessageID
+      return {
+        info: {
+          id: messageID,
+          sessionID: ctx.params.sessionID,
+          role: "user" as const,
+          time: { created: now },
+          agent: ctx.payload.agent ?? "build",
+          model: model
+            ? { providerID: String(model.providerID), modelID: String(model.modelID) }
+            : { providerID: "unknown", modelID: "unknown" },
+        },
+        parts: [
+          {
+            id: PartID.ascending(),
+            messageID,
+            sessionID: ctx.params.sessionID,
+            type: "text" as const,
+            text,
+          },
+        ],
+      } as SessionV1.WithParts
     })
 
     const shell = Effect.fn("SessionHttpApi.shell")(function* (ctx: {
@@ -489,11 +616,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
+    const assertNotBusy = Effect.fn("SessionHttpApi.assertNotBusy")(function* (sessionID: SessionID) {
+      // One busy source: session drain (execution.active).
+      const active = yield* v2Svc.active
+      if (active.has(sessionID)) {
+        yield* SessionError.mapBusy(Effect.fail(new Session.BusyError({ sessionID })))
+      }
+    })
+
     const deleteMessage = Effect.fn("SessionHttpApi.deleteMessage")(function* (ctx: {
       params: { sessionID: SessionID; messageID: MessageID }
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* SessionError.mapBusy(runState.assertNotBusy(ctx.params.sessionID))
+      yield* assertNotBusy(ctx.params.sessionID)
+      // Publishes message.removed → projector deletes MessageTable + SessionMessageTable.
       yield* session.removeMessage(ctx.params)
       return true
     })
@@ -502,6 +638,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID; messageID: MessageID; partID: PartID }
     }) {
       yield* requireSession(ctx.params.sessionID)
+      // Busy check is best-effort; deletePart endpoint has no SessionBusyError channel.
+      yield* assertNotBusy(ctx.params.sessionID).pipe(Effect.catch(() => Effect.void))
       yield* session.removePart(ctx.params)
       return true
     })
