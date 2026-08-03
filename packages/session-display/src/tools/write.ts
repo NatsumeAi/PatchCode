@@ -2,17 +2,9 @@ import type { ToolPart } from "@opencode-ai/sdk/v2"
 import type { DisplayContext, ToolDescriptor } from "../registry"
 import type { BodyModel, DisplayMode, DisplayPolicy, HeaderModel } from "../mode"
 import type { DisplayConfig } from "../config"
-
-function str(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined
-}
-
-function input(part: ToolPart): Record<string, unknown> {
-  return part.state.input ?? {}
-}
+import { inputOf, str, toolOutputText, toolPath } from "./shared"
 
 function policy(cfg: DisplayConfig): DisplayPolicy {
-  // §4: write with content → finished expanded (same as edit)
   if (cfg.collapsedEditBlocks) {
     return { streaming: "collapsed", finished: "collapsed", error: "collapsed", foldable: true }
   }
@@ -20,13 +12,12 @@ function policy(cfg: DisplayConfig): DisplayPolicy {
 }
 
 function header(part: ToolPart, ctx: DisplayContext): HeaderModel {
-  const inp = input(part)
-  const filePath = str(inp.filePath) ?? ""
+  const path = toolPath(inputOf(part))
   return {
     verb: "Write",
     icon: "\u2190",
     family: "write",
-    primary: filePath ? ctx.formatPath(filePath) : "",
+    primary: path ? ctx.formatPath(path) : "",
     details: "",
     muted: false,
     status: part.state.status,
@@ -34,20 +25,22 @@ function header(part: ToolPart, ctx: DisplayContext): HeaderModel {
   }
 }
 
-function hasContent(part: ToolPart): boolean {
-  const content = str(input(part).content)
-  return content != null && content.length > 0
-}
-
 function body(part: ToolPart, mode: DisplayMode, ctx: DisplayContext): BodyModel {
   if (mode === "collapsed") return { kind: "none" }
-  const content = str(input(part).content)
-  const filePath = str(input(part).filePath) ?? ""
-  if (content) return { kind: "code", content, path: filePath, maxLines: ctx.config.diffMaxLines }
+
+  const inp = inputOf(part)
+  const content = str(inp.content)
+  const path = toolPath(inp)
+  if (content) return { kind: "code", content, path, maxLines: ctx.config.diffMaxLines }
+
+  const output = toolOutputText(part)
+  if (output.trim()) return { kind: "text", text: output, maxLines: ctx.config.diffMaxLines }
+
   if (part.state.status === "error") {
     const errorText = (part.state as { error?: string }).error ?? ""
     if (errorText) return { kind: "text", text: errorText }
   }
+
   return { kind: "none" }
 }
 

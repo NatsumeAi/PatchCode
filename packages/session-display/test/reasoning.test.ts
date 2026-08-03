@@ -15,10 +15,10 @@ function makeReasoning(text: string, end?: number): ReasoningPart {
 }
 
 describe("§8.2 reasoning snapshots", () => {
-  test("streaming new user → truncated", () => {
+  test("streaming new user → expanded (live thinking visible)", () => {
     const part = makeReasoning("Thinking about the problem...")
     const mode = resolveReasoningMode(part, null, null, DEFAULT_CONFIG)
-    expect(mode).toBe("truncated")
+    expect(mode).toBe("expanded")
   })
 
   test("done new user → collapsed", () => {

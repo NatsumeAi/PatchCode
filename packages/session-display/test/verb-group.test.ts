@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { DisplayMode, PartStatus } from "../src/mode"
 import {
+  buildGroupedItems,
   classifyVerbRuns,
   eagerFoldKind,
   nounLabel,
@@ -52,11 +53,51 @@ describe("classifyVerbRuns", () => {
     expect(runs[0]!.memberIds).toEqual(["a", "b", "c"])
   })
 
-  test("opened member breaks the run", () => {
+  test("opened member is transparent — run stays intact (Grok Transparent)", () => {
     const runs = classifyVerbRuns([p("a", "read", "collapsed"), p("b", "read", "expanded"), p("c", "read", "collapsed")])
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.memberIds).toEqual(["a", "c"])
+  })
+
+  test("normalizeToolName path: Read / bash aliases", () => {
+    expect(eagerFoldKind("Read")).toBe("file")
+    expect(eagerFoldKind("task")).toBe("subagent")
+    // bash is label-only (command) — never eager-fold
+    expect(eagerFoldKind("bash")).toBeNull()
+  })
+
+  test("buildGroupedItems hides members under a multi-run header", () => {
+    const parts = [
+      { id: "a", type: "tool" },
+      { id: "b", type: "tool" },
+      { id: "t", type: "text" },
+    ]
+    const runs = classifyVerbRuns([p("a", "read", "collapsed"), p("b", "read", "collapsed")])
+    const items = buildGroupedItems(parts, runs, new Set())
+    expect(items.map((i) => i.kind)).toEqual(["header", "part"])
+    expect(items[0]).toMatchObject({ kind: "header" })
+    expect(items[1]).toMatchObject({ kind: "part", part: { id: "t" } })
+  })
+
+  test("non-tool break between same-kind tools → two runs (Grok Break)", () => {
+    const runs = classifyVerbRuns([
+      p("a", "read", "collapsed"),
+      { id: "t", tool: "", status: "completed", mode: "collapsed" },
+      p("c", "read", "collapsed"),
+    ])
     expect(runs).toHaveLength(2)
     expect(runs[0]!.memberIds).toEqual(["a"])
     expect(runs[1]!.memberIds).toEqual(["c"])
+  })
+
+  test("two consecutive reads group even when a third bash breaks after", () => {
+    const runs = classifyVerbRuns([
+      p("a", "read", "collapsed"),
+      p("b", "read", "collapsed"),
+      p("c", "bash", "collapsed"),
+    ])
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.memberIds).toEqual(["a", "b"])
   })
 
   test("different kinds do not merge", () => {

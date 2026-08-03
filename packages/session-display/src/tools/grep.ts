@@ -2,39 +2,30 @@ import type { ToolPart } from "@opencode-ai/sdk/v2"
 import type { DisplayContext, ToolDescriptor } from "../registry"
 import type { BodyModel, DisplayMode, DisplayPolicy, HeaderModel } from "../mode"
 import type { DisplayConfig } from "../config"
-
-function str(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined
-}
-
-function num(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined
-}
-
-function input(part: ToolPart): Record<string, unknown> {
-  return part.state.input ?? {}
-}
-
-function metadata(part: ToolPart): Record<string, unknown> {
-  if (part.state.status === "pending") return {}
-  return (part.state as { metadata?: Record<string, unknown> }).metadata ?? {}
-}
+import { inputOf, matchCountFromMeta, metadataOf, readBodyFromMeta, str, toolOutputText } from "./shared"
 
 function policy(_cfg: DisplayConfig): DisplayPolicy {
-  return { streaming: "collapsed", finished: "collapsed", error: "collapsed", foldable: false }
+  return {
+    streaming: "collapsed",
+    finished: "collapsed",
+    error: "collapsed",
+    foldable: true,
+    foldCycle: "two",
+  }
 }
 
 function header(part: ToolPart, _ctx: DisplayContext): HeaderModel {
-  const inp = input(part)
-  const meta = metadata(part)
+  const inp = inputOf(part)
+  const meta = metadataOf(part)
   const pattern = str(inp.pattern) ?? ""
-  const matches = num(meta.matches)
+  const output = toolOutputText(part)
+  const matches = matchCountFromMeta(meta, output)
   const details = matches != null ? `(${matches} ${matches === 1 ? "match" : "matches"})` : ""
   return {
     verb: "Grep",
     icon: "\u2731",
     family: "search",
-    primary: `"${pattern}"`,
+    primary: pattern ? `"${pattern}"` : "",
     details,
     muted: false,
     status: part.state.status,
@@ -44,10 +35,19 @@ function header(part: ToolPart, _ctx: DisplayContext): HeaderModel {
 
 function body(part: ToolPart, mode: DisplayMode, _ctx: DisplayContext): BodyModel {
   if (mode === "collapsed") return { kind: "none" }
-  const output = part.state.status === "completed" ? part.state.output : ""
-  if (!output.trim()) return { kind: "none" }
-  const lines = output.trim().split("\n")
-  return { kind: "lines", lines, maxLines: 50 }
+
+  const output = toolOutputText(part)
+  if (output.trim()) {
+    return { kind: "lines", lines: output.trim().split("\n"), maxLines: 50 }
+  }
+
+  // When array structured was wrapped as { value: Match[] }
+  const fromMeta = readBodyFromMeta(metadataOf(part))
+  if (fromMeta?.kind === "lines") {
+    return { kind: "lines", lines: fromMeta.lines, maxLines: 50 }
+  }
+
+  return { kind: "none" }
 }
 
 export const grepDescriptor: ToolDescriptor = {

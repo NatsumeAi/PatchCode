@@ -14,6 +14,7 @@ function input(part: ToolPart): Record<string, unknown> {
 
 function metadata(part: ToolPart): Record<string, unknown> {
   if (part.state.status === "pending") return {}
+  // running may carry progress metadata.output; completed/error too
   return (part.state as { metadata?: Record<string, unknown> }).metadata ?? {}
 }
 
@@ -65,6 +66,13 @@ function body(part: ToolPart, mode: DisplayMode, ctx: DisplayContext): BodyModel
     const lines = output.trim().split("\n").filter((l) => l.length > 0)
     if (lines.length === 0) return { kind: "none" }
     return { kind: "lines", lines }
+  }
+
+  // Running with progress: expanded shows live tail
+  if ((part.state.status === "running" || part.state.status === "pending") && mode !== "collapsed") {
+    const lines = output.trim().split("\n").filter((l) => l.length > 0)
+    if (lines.length === 0) return { kind: "none" }
+    return { kind: "lines", lines, maxLines: 30 }
   }
 
   // error / logicalError → truncated tail

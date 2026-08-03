@@ -31,7 +31,9 @@ export const DEFAULT_CONFIG: DisplayConfig = {
   genericToolOutput: false,
   tools: {},
   reasoning: {
-    streaming: "truncated",
+    // In-progress thinking is fully visible; finished thoughts fold to a header.
+    // (Product: expand while streaming → auto-collapse when done.)
+    streaming: "expanded",
     finished: "collapsed",
     truncatedLines: 3,
   },

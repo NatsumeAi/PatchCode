@@ -2,22 +2,22 @@ import type { ToolPart } from "@opencode-ai/sdk/v2"
 import type { DisplayContext, ToolDescriptor } from "../registry"
 import type { BodyModel, DisplayMode, DisplayPolicy, HeaderModel } from "../mode"
 import type { DisplayConfig } from "../config"
-
-function str(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined
-}
-
-function input(part: ToolPart): Record<string, unknown> {
-  return part.state.input ?? {}
-}
+import { inputOf, metadataOf, str, toolOutputText } from "./shared"
 
 function policy(_cfg: DisplayConfig): DisplayPolicy {
-  return { streaming: "collapsed", finished: "collapsed", error: "collapsed", foldable: false }
+  return {
+    streaming: "collapsed",
+    finished: "collapsed",
+    error: "collapsed",
+    foldable: true,
+    foldCycle: "two",
+  }
 }
 
 function header(part: ToolPart, _ctx: DisplayContext): HeaderModel {
-  const inp = input(part)
-  const name = str(inp.name) ?? "skill"
+  const inp = inputOf(part)
+  const meta = metadataOf(part)
+  const name = str(inp.name) ?? str(meta.name) ?? "skill"
   return {
     verb: "Skill",
     icon: "\u2192",
@@ -30,7 +30,13 @@ function header(part: ToolPart, _ctx: DisplayContext): HeaderModel {
   }
 }
 
-function body(_part: ToolPart, _mode: DisplayMode, _ctx: DisplayContext): BodyModel {
+function body(part: ToolPart, mode: DisplayMode, _ctx: DisplayContext): BodyModel {
+  if (mode === "collapsed") return { kind: "none" }
+  const output = toolOutputText(part)
+  if (output.trim()) return { kind: "text", text: output, maxLines: 40 }
+  const meta = metadataOf(part)
+  const fromMeta = str(meta.output)
+  if (fromMeta?.trim()) return { kind: "text", text: fromMeta, maxLines: 40 }
   return { kind: "none" }
 }
 

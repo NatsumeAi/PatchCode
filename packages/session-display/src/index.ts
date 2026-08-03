@@ -17,7 +17,14 @@ export { nextFoldMode } from "./fold"
 
 // Verb-group
 export type { VerbGroupKind, VerbRun, VerbRunMemberInput } from "./verb-group"
-export { classifyVerbRuns, eagerFoldKind, nounLabel, verbGroupHeaderLabel, verbLabel } from "./verb-group"
+export {
+  buildGroupedItems,
+  classifyVerbRuns,
+  eagerFoldKind,
+  nounLabel,
+  verbGroupHeaderLabel,
+  verbLabel,
+} from "./verb-group"
 
 // Config
 export type { DisplayConfig } from "./config"
@@ -42,7 +49,6 @@ export { resolveReasoningMode, buildReasoningViewModel, reasoningSummary } from 
 
 // Descriptors (side-effect: registers all)
 export { readDescriptor } from "./tools/read"
-export { listDescriptor } from "./tools/list"
 export { globDescriptor } from "./tools/glob"
 export { grepDescriptor } from "./tools/grep"
 export { webfetchDescriptor, websearchDescriptor } from "./tools/web"
@@ -51,7 +57,6 @@ export { editDescriptor } from "./tools/edit"
 export { writeDescriptor } from "./tools/write"
 export { patchDescriptor } from "./tools/patch"
 export { taskDescriptor } from "./tools/task"
-export { executeDescriptor } from "./tools/execute"
 export { todoDescriptor } from "./tools/todo"
 export { questionDescriptor } from "./tools/question"
 export { skillDescriptor } from "./tools/skill"
@@ -60,7 +65,6 @@ export { genericDescriptor } from "./tools/generic"
 // Register all descriptors on import
 import { registerDescriptor } from "./registry"
 import { readDescriptor } from "./tools/read"
-import { listDescriptor } from "./tools/list"
 import { globDescriptor } from "./tools/glob"
 import { grepDescriptor } from "./tools/grep"
 import { webfetchDescriptor, websearchDescriptor } from "./tools/web"
@@ -69,13 +73,11 @@ import { editDescriptor } from "./tools/edit"
 import { writeDescriptor } from "./tools/write"
 import { patchDescriptor } from "./tools/patch"
 import { taskDescriptor } from "./tools/task"
-import { executeDescriptor } from "./tools/execute"
 import { todoDescriptor } from "./tools/todo"
 import { questionDescriptor } from "./tools/question"
 import { skillDescriptor } from "./tools/skill"
 
 registerDescriptor(readDescriptor)
-registerDescriptor(listDescriptor)
 registerDescriptor(globDescriptor)
 registerDescriptor(grepDescriptor)
 registerDescriptor(webfetchDescriptor)
@@ -85,7 +87,6 @@ registerDescriptor(editDescriptor)
 registerDescriptor(writeDescriptor)
 registerDescriptor(patchDescriptor)
 registerDescriptor(taskDescriptor)
-registerDescriptor(executeDescriptor)
 registerDescriptor(todoDescriptor)
 registerDescriptor(questionDescriptor)
 registerDescriptor(skillDescriptor)

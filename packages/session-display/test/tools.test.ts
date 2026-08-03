@@ -28,7 +28,7 @@ describe("§8.2 tool snapshots", () => {
   test("read completed → collapsed, body none", () => {
     const part = makePart("read", {
       status: "completed",
-      input: { filePath: "/home/user/project/src/foo.ts" },
+      input: { path: "/home/user/project/src/foo.ts" },
       output: "file content here",
       title: "Read src/foo.ts",
       metadata: {},
@@ -279,24 +279,26 @@ describe("§4 content-dependence + pin + accent (audit fixtures)", () => {
     expect(vm.mode).toBe("collapsed")
   })
 
-  test("read completed + pin expanded → clickable, loaded list body", () => {
+  test("read completed + pin expanded → clickable, output body", () => {
     const part = makePart("read", {
       status: "completed",
-      input: { filePath: "/home/user/project/src/foo.ts" },
-      output: "content",
+      input: { path: "/home/user/project/src/foo.ts" },
+      output: "line1\nline2",
       title: "Read src/foo.ts",
-      metadata: { loaded: ["/home/user/project/src/a.ts", "/home/user/project/src/b.ts"] },
+      metadata: { output: "line1\nline2" },
       time: { start: 1000, end: 2000 },
     })
     const vm = buildToolViewModel(part, ctx, "expanded")
     expect(vm.clickable).toBe(true)
-    expect(vm.body.kind).toBe("lines")
+    expect(vm.header.primary).toBe("src/foo.ts")
+    expect(vm.body.kind).toBe("text")
+    if (vm.body.kind === "text") expect(vm.body.text).toContain("line1")
   })
 
   test("userPin expanded on empty-body tool stays expanded (I4)", () => {
     const part = makePart("edit", {
       status: "completed",
-      input: { filePath: "/home/user/project/src/foo.ts" },
+      input: { path: "/home/user/project/src/foo.ts" },
       output: "",
       title: "Edit src/foo.ts",
       metadata: {},
@@ -306,3 +308,193 @@ describe("§4 content-dependence + pin + accent (audit fixtures)", () => {
     expect(vm.mode).toBe("expanded")
   })
 })
+
+describe("runtime tool shapes (path + structured from tool.success)", () => {
+  test("read with path + structured content expands to text body", () => {
+    const part = makePart("read", {
+      status: "completed",
+      input: { path: "src/foo.ts" },
+      output: "",
+      title: "read",
+      metadata: {
+        type: "text-page",
+        content: "export const x = 1\nexport const y = 2",
+        encoding: "utf8",
+        mime: "text/plain",
+        offset: 1,
+        truncated: false,
+        output: "",
+      },
+      time: { start: 1000, end: 2000 },
+    })
+    const collapsed = buildToolViewModel(part, ctx, null)
+    expect(collapsed.mode).toBe("collapsed")
+    expect(collapsed.header.primary).toBe("src/foo.ts")
+
+    const expanded = buildToolViewModel(part, ctx, "expanded")
+    expect(expanded.body.kind).toBe("text")
+    if (expanded.body.kind === "text") {
+      expect(expanded.body.text).toContain("export const x = 1")
+    }
+  })
+
+  test("edit with path + files[].patch expands to diff body", () => {
+    const patch = "--- a/src/bar.ts\n+++ b/src/bar.ts\n@@ -1 +1 @@\n-old\n+new"
+    const part = makePart("edit", {
+      status: "completed",
+      input: { path: "/home/user/project/src/bar.ts", oldString: "old", newString: "new" },
+      output: "Edited file successfully",
+      title: "edit",
+      metadata: {
+        files: [{ file: "/home/user/project/src/bar.ts", patch, additions: 1, deletions: 1, status: "modified" }],
+        replacements: 1,
+        output: "Edited file successfully",
+      },
+      time: { start: 1000, end: 2000 },
+    })
+    const vm = buildToolViewModel(part, ctx, null)
+    expect(vm.mode).toBe("expanded")
+    expect(vm.header.primary).toBe("src/bar.ts")
+    expect(vm.body.kind).toBe("diff")
+    if (vm.body.kind === "diff") {
+      expect(vm.body.diff).toContain("+new")
+      expect(vm.body.path).toBe("/home/user/project/src/bar.ts")
+    }
+  })
+
+  test("grep is foldable and expands to match lines", () => {
+    const output = "Found 2 matches\nsrc/a.ts:\n  Line 1: foo\nsrc/b.ts:\n  Line 3: foo"
+    const part = makePart("grep", {
+      status: "completed",
+      input: { pattern: "foo" },
+      output,
+      title: "grep",
+      metadata: { output },
+      time: { start: 1000, end: 2000 },
+    })
+    const collapsed = buildToolViewModel(part, ctx, null)
+    expect(collapsed.mode).toBe("collapsed")
+    expect(collapsed.clickable).toBe(true)
+    expect(collapsed.header.details).toBe("(2 matches)")
+
+    const expanded = buildToolViewModel(part, ctx, "expanded")
+    expect(expanded.body.kind).toBe("lines")
+    if (expanded.body.kind === "lines") {
+      expect(expanded.body.lines[0]).toContain("Found 2 matches")
+    }
+  })
+
+  test("write with path + content expands to code body", () => {
+    const part = makePart("write", {
+      status: "completed",
+      input: { path: "/home/user/project/src/new.ts", content: "export const x = 1" },
+      output: "Created file successfully",
+      title: "write",
+      metadata: { output: "Created file successfully" },
+      time: { start: 1000, end: 2000 },
+    })
+    const vm = buildToolViewModel(part, ctx, null)
+    expect(vm.mode).toBe("expanded")
+    expect(vm.header.primary).toBe("src/new.ts")
+    expect(vm.body.kind).toBe("code")
+  })
+
+  test("read pin cycle truncated still shows body", () => {
+    const part = makePart("read", {
+      status: "completed",
+      input: { path: "src/foo.ts" },
+      output: "",
+      title: "read",
+      metadata: {
+        content: "a\nb\nc\nd\ne\nf\ng\nh\ni",
+        encoding: "utf8",
+        output: "",
+      },
+      time: { start: 1000, end: 2000 },
+    })
+    const truncated = buildToolViewModel(part, ctx, "truncated")
+    expect(truncated.body.kind).toBe("text")
+    if (truncated.body.kind === "text") expect(truncated.body.maxLines).toBe(8)
+  })
+
+  test("apply_patch with FileDiff.Info files expands to patch body", () => {
+    const patch = "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-x\n+y"
+    const part = makePart("apply_patch", {
+      status: "completed",
+      input: { patchText: "*** Begin Patch" },
+      output: "Applied patch sequentially:\nM src/a.ts",
+      title: "apply_patch",
+      metadata: {
+        files: [
+          { file: "/home/user/project/src/a.ts", patch, additions: 1, deletions: 1, status: "modified" },
+          {
+            file: "/home/user/project/src/b.ts",
+            patch: "--- a\n+++ b\n@@ -1 +1 @@\n-a\n+b",
+            additions: 1,
+            deletions: 1,
+            status: "modified",
+          },
+        ],
+        applied: [],
+        output: "Applied patch sequentially:\nM src/a.ts",
+      },
+      time: { start: 1000, end: 2000 },
+    })
+    const vm = buildToolViewModel(part, ctx, null)
+    expect(vm.mode).toBe("expanded")
+    expect(vm.header.primary).toBe("2 files")
+    expect(vm.body.kind).toBe("patch")
+    if (vm.body.kind === "patch") {
+      expect(vm.body.files).toHaveLength(2)
+      expect(vm.body.files[0]!.path).toContain("a.ts")
+      expect(vm.body.files[0]!.diff).toContain("+y")
+    }
+  })
+
+  test("skill foldable with structured output", () => {
+    const part = makePart("skill", {
+      status: "completed",
+      input: { name: "pdf" },
+      output: "Skill content here",
+      title: "skill",
+      metadata: { name: "pdf", directory: "/skills/pdf", output: "Skill content here" },
+      time: { start: 1000, end: 2000 },
+    })
+    const collapsed = buildToolViewModel(part, ctx, null)
+    expect(collapsed.clickable).toBe(true)
+    const expanded = buildToolViewModel(part, ctx, "expanded")
+    expect(expanded.body.kind).toBe("text")
+  })
+
+  test("websearch details from input.numResults and foldable body", () => {
+    const part = makePart("websearch", {
+      status: "completed",
+      input: { query: "opencode", numResults: 5 },
+      output: "result text",
+      title: "websearch",
+      metadata: { provider: "exa", text: "result text", output: "result text" },
+      time: { start: 1000, end: 2000 },
+    })
+    const vm = buildToolViewModel(part, ctx, null)
+    expect(vm.header.details).toBe("(5 results)")
+    expect(vm.clickable).toBe(true)
+    const open = buildToolViewModel(part, ctx, "expanded")
+    expect(open.body.kind).toBe("text")
+  })
+
+  test("task metadata carries sessionID for navigation contract", () => {
+    const part = makePart("task", {
+      status: "completed",
+      input: { description: "fix stuff", prompt: "go", subagent_type: "explore" },
+      output: "done",
+      title: "task",
+      metadata: { title: "fix stuff", output: "done", sessionID: "ses_child", task_id: "ses_child", background: false },
+      time: { start: 1000, end: 2000 },
+    })
+    const vm = buildToolViewModel(part, ctx, "expanded")
+    expect(vm.body.kind).toBe("lines")
+    // Display does not navigate; contract is metadata field name for TUI click
+    expect((part.state as { metadata?: { sessionID?: string } }).metadata?.sessionID).toBe("ses_child")
+  })
+})
+

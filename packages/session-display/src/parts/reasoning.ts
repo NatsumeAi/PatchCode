@@ -26,10 +26,15 @@ export function reasoningSummary(text: string): { title: string | null; body: st
 }
 
 /**
- * Resolve reasoning display mode per §3.7:
- * - New user (storedMode=null): streaming→truncated, done→collapsed
- * - kv "hide": always collapsed (header visible, body on pin/click only)
+ * Resolve reasoning display mode per product UX:
+ * - Streaming (no end): always expanded (unless pin/hide) so live thinking is visible
+ * - Done: collapsed unless pin / kv show / UI hold-open (adapter)
+ * - kv "hide": always collapsed
  * - kv "show": always expanded
+ * - pin always wins when set
+ *
+ * Note: SSE flushes start+delta+end in one Solid batch (~16ms). Adapters should
+ * hold expanded briefly after end so users actually see the content before collapse.
  */
 export function resolveReasoningMode(
   part: ReasoningPart,
@@ -44,8 +49,9 @@ export function resolveReasoningMode(
   if (storedMode === "hide") return "collapsed"
   if (storedMode === "show") return "expanded"
 
-  // New user path (no kv)
-  if (!isDone) return cfg.reasoning.streaming
+  // Default lifecycle: expand while thinking → collapse when finished.
+  // Always expanded while streaming (ignore cfg.streaming=collapsed).
+  if (!isDone) return "expanded"
   return cfg.reasoning.finished
 }
 
