@@ -55,6 +55,8 @@ export interface HeaderModel {
   primary: string
   details: string
   muted: boolean
+  /** Filled by build layer from config; optional so descriptors stay minimal. */
+  dimDetails?: boolean
   status: PartStatus
   accent: ToolFamily | "error" | "muted"
 }
