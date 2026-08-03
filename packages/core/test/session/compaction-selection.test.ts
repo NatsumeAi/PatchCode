@@ -35,10 +35,18 @@ describe("SessionCompaction.parseSelection", () => {
     if (result.ok) expect(result.selected).toEqual(["1", "2", "4"])
   })
 
-  test("rejects missing or empty tags", () => {
+  test("rejects missing tags but accepts empty selections (P0-1/N1)", () => {
     expect(SessionCompaction.parseSelection("no tag here").ok).toBe(false)
-    expect(SessionCompaction.parseSelection("<selection></selection>").ok).toBe(false)
-    expect(SessionCompaction.parseSelection("<selection>[]</selection>").ok).toBe(false)
+    // empty and whitespace-only tags are zero selections, not failures (N1)
+    const bare = SessionCompaction.parseSelection("<selection></selection>")
+    expect(bare.ok).toBe(true)
+    if (bare.ok) expect(bare.selected).toEqual([])
+    const blank = SessionCompaction.parseSelection("<selection>   </selection>")
+    expect(blank.ok).toBe(true)
+    // <selection>[]</selection> is the canonical zero-selection outcome
+    const empty = SessionCompaction.parseSelection("<selection>[]</selection>")
+    expect(empty.ok).toBe(true)
+    if (empty.ok) expect(empty.selected).toEqual([])
   })
 
   test("rejects non-array content", () => {

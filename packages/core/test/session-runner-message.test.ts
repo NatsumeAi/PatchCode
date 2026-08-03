@@ -103,23 +103,11 @@ describe("toLLMMessages", () => {
       model,
     )
 
-    expect(messages.map((message) => message.role)).toEqual(["system", "user", "user", "user", "user"])
-    expect(messages[0]).toEqual(Message.system("Updated context\n\nOther context"))
-    expect(messages[1]).toEqual(
-      Message.make({
-        id: id("user"),
-        role: "user",
-        content: [
-          { type: "text", text: "Inspect this image" },
-          { type: "media", mediaType: "image/png", data: "data:image/png;base64,aGVsbG8=", filename: "hello.png" },
-        ],
-        metadata: { agents: [{ name: "build" }] },
-      }),
-    )
-    expect(messages.slice(2).map((message) => message.content)).toEqual([
-      [{ type: "text", text: "Synthetic context" }],
-      [{ type: "text", text: "Shell command: pwd\n\n/project" }],
-      [
+    // the compaction checkpoint is hoisted to the front (design §6)
+    expect(messages.map((message) => message.role)).toEqual(["user", "system", "user", "user", "user"])
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      content: [
         {
           type: "text",
           text: `<conversation-checkpoint>
@@ -131,6 +119,22 @@ Earlier work
 </conversation-checkpoint>`,
         },
       ],
+    })
+    expect(messages[1]).toEqual(Message.system("Updated context\n\nOther context"))
+    expect(messages[2]).toEqual(
+      Message.make({
+        id: id("user"),
+        role: "user",
+        content: [
+          { type: "text", text: "Inspect this image" },
+          { type: "media", mediaType: "image/png", data: "data:image/png;base64,aGVsbG8=", filename: "hello.png" },
+        ],
+        metadata: { agents: [{ name: "build" }] },
+      }),
+    )
+    expect(messages.slice(3).map((message) => message.content)).toEqual([
+      [{ type: "text", text: "Synthetic context" }],
+      [{ type: "text", text: "Shell command: pwd\n\n/project" }],
     ])
   })
 

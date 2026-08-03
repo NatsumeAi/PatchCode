@@ -97,7 +97,7 @@ describe("SessionCompaction configuration (Task 10)", () => {
 
   test("select.retry=0 gives one attempt then degrades", async () => {
     const { compaction, callCount } = makeHarness(
-      ["<selection>[1,99]</selection>\nbad"],
+      ["<selection>[1,99]</selection>\nbad", "degraded summary"],
       configWith({ select: { retry: 0 } }),
     )
     const ok = await run(compaction)

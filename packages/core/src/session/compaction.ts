@@ -10,9 +10,7 @@ import { SessionSchema } from "./schema"
 import { Token } from "../util/token"
 
 const DEFAULT_BUFFER = 20_000
-const DEFAULT_KEEP_TOKENS = 8_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
-const SUMMARY_OUTPUT_TOKENS = 4_096
 const SUMMARY_BUDGET_L = 20_000
 const SUMMARY_BUDGET_K = 272_000
 
@@ -65,7 +63,6 @@ type Entry = {
 type Settings = {
   readonly auto: boolean
   readonly buffer?: number
-  readonly tokens: number
   readonly selectEnabled: boolean
   readonly selectBudget: number
   readonly selectRetry: number
@@ -173,7 +170,6 @@ const settings = (documents: readonly Config.Entry[]) => {
     (result, current) => ({
       auto: current.auto ?? result.auto,
       buffer: current.buffer ?? result.buffer,
-      tokens: current.keep?.tokens ?? result.tokens,
       selectEnabled: current.select?.enabled ?? result.selectEnabled,
       selectBudget: current.select?.budget ?? result.selectBudget,
       selectRetry: current.select?.retry ?? result.selectRetry,
@@ -185,7 +181,6 @@ const settings = (documents: readonly Config.Entry[]) => {
     {
       auto: true,
       buffer: undefined,
-      tokens: DEFAULT_KEEP_TOKENS,
       selectEnabled: true,
       selectBudget: SELECTION_RATIO,
       selectRetry: 1,
@@ -372,12 +367,14 @@ export const parseSelection = (
       .split(",")
       .map((part) => part.trim())
       .filter((part) => part.length > 0)
-    if (parts.length === 0) return { ok: false, errors: ["empty <selection>"] }
+    // An empty or whitespace-only tag is a zero selection, not a failure (N1).
+    if (parts.length === 0) return { ok: true, selected: [] }
     return { ok: true, selected: parts }
   }
   if (!Array.isArray(parsed)) return { ok: false, errors: ["<selection> is not an array"] }
   const selected = parsed.map((item) => String(item))
-  if (selected.length === 0) return { ok: false, errors: ["empty <selection>"] }
+  // An empty selection is valid (design §5.3: nothing worth keeping verbatim);
+  // the pure-summary path is a legitimate outcome, not a parse failure.
   return { ok: true, selected }
 }
 
@@ -393,6 +390,7 @@ export const validateSelection = (input: {
       readonly errors: readonly string[]
       readonly overBudget?: boolean
       readonly selectedTokens?: number
+      readonly selected?: readonly string[]
     } => {
   const errors: string[] = []
   const unknown = input.selected.filter((label) => !input.items.some((item) => item.label === label))
@@ -403,7 +401,7 @@ export const validateSelection = (input: {
     .reduce((sum, item) => sum + item.tokens, 0)
   if (tokens > input.limit * 1.5) {
     errors.push(`selection exceeds 1.5x budget: ${tokens} > ${input.limit * 1.5} (limit ${input.limit})`)
-    return { ok: false, errors, overBudget: true, selectedTokens: tokens }
+    return { ok: false, errors, overBudget: true, selectedTokens: tokens, selected: input.selected }
   }
   // Selections up to 1.5x the limit are accepted (correction loop skips them);
   // only genuine violations (unknown numbers, item cap, >1.5x budget) fail.
@@ -415,6 +413,7 @@ export const validateSelection = (input: {
 export const buildPrompt = (input: {
   readonly previousSummary?: string
   readonly numberedItems?: string
+  readonly selectionGuidance?: string
   readonly context: readonly string[]
 }) => {
   // Stable prefix first (instruction + template), then the incremental
@@ -437,7 +436,10 @@ export const buildPrompt = (input: {
   }
   parts.push(SUMMARY_TEMPLATE)
   parts.push(`<conversation>\n${input.context.filter(Boolean).join("\n\n")}\n</conversation>`)
-  if (input.numberedItems) parts.push(`<numbered-context>\n${input.numberedItems}\n</numbered-context>`)
+  if (input.numberedItems) {
+    if (input.selectionGuidance) parts.push(input.selectionGuidance)
+    parts.push(`<numbered-context>\n${input.numberedItems}\n</numbered-context>`)
+  }
   return parts.join("\n\n")
 }
 
@@ -478,10 +480,20 @@ export const make = (dependencies: Dependencies) => {
     const recent = renderTurns(selected.recent)
     if (head.length === 0 && previousCompaction?.type !== "compaction") return false
     const numbered = formatNumberedItems(selected.items, context, previousSurvival)
-    const fullHistory = [head, recent].filter(Boolean)
+    const selectionGuidance =
+      selected.items.length === 0
+        ? undefined
+        : `Selection budget: at most ${selectionLimit} tokens (${((selectionLimit / context) * 100).toFixed(0)}% of the ${context} token window), max ${maxItems} items.
+Choose items that are hard to compress (large code blocks, exact formats) or whose loss would drop critical information (user preferences, constraints, decision rationales, exact error strings, file paths, long task descriptions).
+Items marked ×N have survived N previous compactions — keep them if they are still important, or let them go when the summary already covers them.
+If nothing is worth keeping verbatim, output <selection>[]</selection>.`
+    const fullHistory = [head].filter(Boolean)
     const summaryOutput = summaryBudget(context, config.summaryL, config.summaryK)
-    const basePrompt = buildPrompt({ previousSummary, numberedItems: numbered, context: fullHistory })
-    if (Token.estimate(basePrompt) > context - summaryOutput) return false
+    const basePrompt = buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: fullHistory })
+    // Total-budget approximation: summary output + system prompt + the full
+    // selection prompt must fit the window (design §3 budget table).
+    if (Token.estimate(SUMMARIZATION_SYSTEM_PROMPT) + Token.estimate(basePrompt) + summaryOutput > context)
+      return false
 
     let calls = 0
     let errors: string[] = []
@@ -522,11 +534,17 @@ export const make = (dependencies: Dependencies) => {
       reason: "auto",
     })
 
-    // Correction loop: 1 initial attempt + select.retry corrections, then
-    // greedy truncation, then the Pi-style fallback (recent + full summary).
-    // When select is disabled the loop is skipped entirely.
+    // Correction loop: 1 initial attempt + select.retry corrections. The first
+    // attempt caches the summary (design D15: reselection never redoes the
+    // summary); correction rounds only re-request the <selection> list. Then
+    // greedy truncation for selections still over 1.5x, then the Pi-style
+    // fallback (recent + full summary). When select is disabled the loop is
+    // skipped entirely.
     let summary = ""
+    let cachedSummary: string | undefined
     let selectedLabels: readonly string[] = []
+    let selectionValid = false
+    let lastFailure: "none" | "format" | "invalid" | "overBudget" = "none"
     let degraded = false
     const selectionRounds = config.selectEnabled ? 1 + config.selectRetry : 0
     for (let round = 0; round < selectionRounds; round++) {
@@ -543,7 +561,9 @@ export const make = (dependencies: Dependencies) => {
         break
       }
       const parsed = parseSelection(output)
+      if (cachedSummary === undefined && parsed.ok) cachedSummary = stripSelection(output)
       if (!parsed.ok) {
+        lastFailure = "format"
         errors = [...parsed.errors]
         continue
       }
@@ -554,30 +574,48 @@ export const make = (dependencies: Dependencies) => {
         maxItems,
       })
       if (validated.ok) {
+        // Up to 1.5x the limit is fully kept (D9 first branch); never truncate.
+        // An empty selection is a legitimate zero-selection outcome (P0-1).
+        selectionValid = true
         selectedLabels = validated.selected
-        summary = stripSelection(output)
         break
       }
+      if (validated.overBudget) {
+        // Remember the attempt so a second over-budget round can be greedily
+        // packed instead of degrading; keep the error for the correction prompt.
+        lastFailure = "overBudget"
+        selectedLabels = validated.selected ?? []
+        errors = [...validated.errors]
+        continue
+      }
+      lastFailure = "invalid"
       errors = [...validated.errors]
     }
-    if (summary === "" && selectedLabels.length === 0 && !degraded) degraded = true
+    if (cachedSummary === undefined) degraded = true
 
     if (!degraded && selectedLabels.length > 0) {
-      // Greedy truncation when the accepted selection still exceeds the limit.
+      // Greedy truncation only when the final selection still exceeds 1.5x:
+      // pack largest-first (D9: keep the most important items).
       const chosen = selected.items.filter((item) => selectedLabels.includes(item.label))
       let chosenTokens = chosen.reduce((sum, item) => sum + item.tokens, 0)
-      if (chosenTokens > selectionLimit) {
-        const byTokens = [...chosen].sort((a, b) => b.tokens - a.tokens)
-        for (const item of byTokens) {
-          if (chosenTokens <= selectionLimit) break
-          selectedLabels = selectedLabels.filter((label) => label !== item.label)
-          chosenTokens -= item.tokens
+      if (chosenTokens > selectionLimit * 1.5) {
+        const keep: string[] = []
+        let sum = 0
+        for (const item of [...chosen].sort((a, b) => b.tokens - a.tokens)) {
+          if (sum + item.tokens <= selectionLimit) {
+            keep.push(item.label)
+            sum += item.tokens
+          }
         }
+        selectedLabels = keep
       }
     }
 
-    if (degraded || summary === "") {
+    if (degraded || (!selectionValid && lastFailure !== "overBudget")) {
       // Pi-style fallback: summarize the full head without numbered selection.
+      // Triggered by consecutive format/unknown-number failures (D10) or summary
+      // failures. Over-budget selections are NOT degraded (they go through
+      // greedy packing), and a valid zero-selection is not degraded either.
       const degradePrompt = buildPrompt({
         previousSummary,
         context: [head].filter(Boolean),
@@ -588,6 +626,8 @@ export const make = (dependencies: Dependencies) => {
       // degraded summary stays clean even when the model emits an empty one.
       summary = stripSelection(output)
       selectedLabels = []
+    } else {
+      summary = cachedSummary ?? ""
     }
 
     if (summary.trim() === "") return false

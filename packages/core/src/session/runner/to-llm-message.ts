@@ -162,6 +162,15 @@ ${message.summary}
   }
 }
 
-/** Translate projected V2 Session history into canonical @opencode-ai/llm context. */
-export const toLLMMessages = (messages: readonly SessionMessage.Message[], model: Model) =>
-  messages.flatMap((message) => toLLMMessage(message, model))
+/**
+ * Translate projected V2 Session history into canonical @opencode-ai/llm context.
+ *
+ * The compaction checkpoint is hoisted to the front (design §6: summary first,
+ * then the kept selected/recent messages in original order) so the model reads
+ * the historical summary before the verbatim kept turns.
+ */
+export const toLLMMessages = (messages: readonly SessionMessage.Message[], model: Model) => {
+  const checkpoints = messages.filter((message) => message.type === "compaction")
+  const rest = messages.filter((message) => message.type !== "compaction")
+  return [...checkpoints.flatMap((message) => toLLMMessage(message, model)), ...rest.flatMap((message) => toLLMMessage(message, model))]
+}

@@ -119,8 +119,8 @@ describe("SessionCompaction.compactAfterOverflow correction loop", () => {
     expect(ok).toBe(true)
     expect(calls).toBe(2)
     const ended = published.find((p) => p.type === "session.next.compaction.ended")
-    expect(String(ended!.data.text)).toContain("summary v2")
-    // the correction feedback must be present in the second prompt
+    // D15: the summary is cached from the first attempt and never redone
+    expect(String(ended!.data.text)).toContain("summary v1")
   })
 
   test("two bad selections degrade to the Pi-style full summary", async () => {
@@ -153,4 +153,92 @@ describe("SessionCompaction.compactAfterOverflow correction loop", () => {
     expect(calls).toBeLessThanOrEqual(4)
     expect(published.some((p) => p.type === "session.next.compaction.ended")).toBe(false)
   })
+})
+
+test("greedy truncation packs largest-first after repeated over-budget selections", async () => {
+  // limit = 10% of 100k = 10000; make items heavy so any selection is over 1.5x
+  const bigEntries2 = [
+    user(1, "a".repeat(39000)), // ~9.75k tokens each — over-budget together, packable singly
+    user(2, "b".repeat(39000)),
+    user(3, "c".repeat(39000)),
+    user(4, "d".repeat(1000)), // small recent
+  ]
+  const harness = () => {
+    const published: { type: string; data: Record<string, unknown> }[] = []
+    let calls = 0
+    const events = {
+      publish: (definition: { type: string }, data: Record<string, unknown>) =>
+        Effect.sync(() => {
+          published.push({ type: definition.type, data })
+          return { durable: { aggregateID: "ses_test", seq: published.length, version: 1 } }
+        }),
+    } as never
+    const llm = {
+      stream: () => {
+        // both selection attempts select everything (over budget); summary text stable
+        const out = calls < 2 ? "<selection>[1a,2a,3a]</selection>\nstable summary" : undefined
+        calls += 1
+        if (out === undefined) return Stream.empty
+        return Stream.succeed(LLMEvent.textDelta({ id: "blk_1", text: out }))
+      },
+    }
+    const compaction = SessionCompaction.make({ events, llm, config: [] })
+    return { compaction, published, callCount: () => calls }
+  }
+  const { compaction, published, callCount } = harness()
+  const ok = await Effect.gen(function* () {
+    return yield* compaction.compactAfterOverflow({
+      sessionID: "ses_test" as SessionSchema.ID,
+      entries: bigEntries2,
+      model,
+      request: { model, messages: [] } as never,
+    })
+  }).pipe(Effect.runPromise)
+  expect(ok).toBe(true)
+  // 2 selection attempts (both over 1.5x) → greedy pack, no degrade call
+  expect(callCount()).toBe(2)
+  const ended = published.find((p) => p.type === "session.next.compaction.ended")
+  const kept = ended!.data.kept as string[]
+  // D9: pack largest-first — the largest subturn that fits is kept
+  expect(kept).toContain("msg_1")
+})
+
+test("zero selection is a valid outcome keeping only the recent region", async () => {
+  const bigEntries3 = [
+    user(1, "a".repeat(50000)),
+    user(2, "b".repeat(50000)),
+    user(3, "c".repeat(1000)), // recent
+  ]
+  const published: { type: string; data: Record<string, unknown> }[] = []
+  const events = {
+    publish: (definition: { type: string }, data: Record<string, unknown>) =>
+      Effect.sync(() => {
+        published.push({ type: definition.type, data })
+        return { durable: { aggregateID: "ses_test", seq: published.length, version: 1 } }
+      }),
+  } as never
+  let calls = 0
+  const llm = {
+    stream: () => {
+      calls += 1
+      // the model decides nothing is worth keeping verbatim
+      return Stream.succeed(LLMEvent.textDelta({ id: "blk_1", text: "<selection>[]</selection>\npure summary" }))
+    },
+  }
+  const compaction = SessionCompaction.make({ events, llm, config: [] })
+  const ok = await Effect.gen(function* () {
+    return yield* compaction.compactAfterOverflow({
+      sessionID: "ses_test" as SessionSchema.ID,
+      entries: bigEntries3,
+      model,
+      request: { model, messages: [] } as never,
+    })
+  }).pipe(Effect.runPromise)
+  expect(ok).toBe(true)
+  expect(calls).toBe(1)
+  const ended = published.find((p) => p.type === "session.next.compaction.ended")
+  expect(String(ended!.data.text)).toContain("pure summary")
+  // kept = recent region only (msg_3); head items are not kept
+  const kept = ended!.data.kept as string[]
+  expect(kept).toEqual(["msg_3"])
 })

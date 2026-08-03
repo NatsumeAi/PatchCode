@@ -72,7 +72,6 @@ const compactionEntry = (): Entry => ({
     type: "compaction",
     reason: "auto",
     summary: "previous summary",
-    recent: "previous recent",
     time: { created: TS + 5 },
   } as unknown as SessionMessage.Compaction,
 })
