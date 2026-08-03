@@ -4,6 +4,52 @@ import { getDescriptor } from "./registry"
 import { genericDescriptor } from "./tools/generic"
 import { chromeFor, resolveMode, type DisplayMode, type ToolViewModel } from "./mode"
 import type { DisplayContext } from "./registry"
+import { toText } from "./header-utils"
+
+/** Force every header/body field to a string so opentui text nodes never see dirty values. */
+function sanitizeHeader(header: ToolViewModel["header"]): ToolViewModel["header"] {
+  return {
+    ...header,
+    verb: toText(header.verb),
+    icon: toText(header.icon),
+    primary: toText(header.primary),
+    details: toText(header.details),
+  }
+}
+
+function sanitizeBody(body: ToolViewModel["body"]): ToolViewModel["body"] {
+  switch (body.kind) {
+    case "none":
+      return body
+    case "text":
+      return { ...body, text: toText(body.text) }
+    case "diff":
+      return { ...body, diff: toText(body.diff), path: toText(body.path) }
+    case "code":
+      return { ...body, content: toText(body.content), path: toText(body.path) }
+    case "patch":
+      return {
+        ...body,
+        files: body.files.map((file) => ({
+          path: toText(file.path),
+          diff: toText(file.diff),
+          type: toText(file.type),
+        })),
+      }
+    case "todos":
+      return {
+        ...body,
+        items: body.items.map((item) => ({ status: toText(item.status), content: toText(item.content) })),
+      }
+    case "qa":
+      return {
+        ...body,
+        items: body.items.map((item) => ({ question: toText(item.question), answer: toText(item.answer) })),
+      }
+    case "lines":
+      return { ...body, lines: body.lines.map((line) => toText(line)) }
+  }
+}
 
 export function buildToolViewModel(
   part: ToolPart,
@@ -36,8 +82,8 @@ export function buildToolViewModel(
 
   return {
     mode,
-    header: { ...header, muted, dimDetails: ctx.config.dimDetails },
-    body,
+    header: sanitizeHeader({ ...header, muted, dimDetails: ctx.config.dimDetails }),
+    body: sanitizeBody(body),
     userPinned: pin != null,
     clickable: policy.foldable,
     chrome: chromeFor(mode),

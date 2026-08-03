@@ -175,3 +175,81 @@ describe("ReasoningEntry render safety", () => {
     expect(app).toBeDefined()
   })
 })
+
+describe("dirty data safety (non-string fields never reach text nodes)", () => {
+  function rvm(overrides: Partial<ReasoningViewModel> = {}): ReasoningViewModel {
+    return {
+      mode: "collapsed",
+      title: null,
+      body: "thinking…",
+      durationMs: null,
+      userPinned: false,
+      status: "done",
+      clickable: true,
+      ...overrides,
+    }
+  }
+
+  test("object details and primary render without crash", async () => {
+    await renderTool({
+      mode: "expanded",
+      header: {
+        ...vm().header,
+        // @ts-expect-error dirty data simulation
+        primary: { path: "src/foo.ts" },
+        // @ts-expect-error dirty data simulation
+        details: ["one", "two"],
+      },
+      body: { kind: "text", text: "ok" },
+    })
+    expect(true).toBe(true)
+  })
+
+  test("object lines entries render without crash", async () => {
+    await renderTool({
+      mode: "expanded",
+      body: {
+        kind: "lines",
+        // @ts-expect-error dirty data simulation
+        lines: ["clean", { raw: "dirty" }, 42, null, undefined],
+      },
+    })
+    expect(true).toBe(true)
+  })
+
+  test("object todo content renders without crash", async () => {
+    await renderTool({
+      mode: "expanded",
+      body: {
+        kind: "todos",
+        // @ts-expect-error dirty data simulation
+        items: [{ status: "pending", content: { nested: "x" } }],
+      },
+    })
+    expect(true).toBe(true)
+  })
+
+  test("object reasoning text renders without crash", async () => {
+    const app = await testRender(() => (
+      <TuiPathsProvider value={{ cwd: "/tmp", home: "/tmp", state: "/tmp/state", worktree: "/tmp" }}>
+        <KVProvider>
+          <TuiConfigProvider config={config}>
+            <ThemeProvider mode="dark">
+              <ReasoningEntry
+                vm={rvm({
+                  mode: "expanded",
+                  // @ts-expect-error dirty data simulation
+                  body: { nested: true },
+                  title: null,
+                })}
+                onClick={() => {}}
+                conceal={false}
+              />
+            </ThemeProvider>
+          </TuiConfigProvider>
+        </KVProvider>
+      </TuiPathsProvider>
+    ))
+    expect(app).toBeDefined()
+  })
+})

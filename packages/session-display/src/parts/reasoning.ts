@@ -1,7 +1,7 @@
 import type { ReasoningPart } from "@opencode-ai/sdk/v2"
 import type { DisplayConfig } from "../config"
 import type { DisplayMode } from "../mode"
-import { toEpochMs } from "../header-utils"
+import { toEpochMs, toText } from "../header-utils"
 
 export interface ReasoningViewModel {
   mode: DisplayMode
@@ -62,12 +62,12 @@ export function buildReasoningViewModel(
   const isDone = endMs != null
   const durationMs =
     isDone && startMs != null && endMs != null && endMs >= startMs ? endMs - startMs : null
-  const summary = reasoningSummary(part.text.replace("[REDACTED]", "").trim())
+  const summary = reasoningSummary(toText(part.text).replace("[REDACTED]", "").trim())
   const body = summary.body
 
   return {
     mode,
-    title: summary.title,
+    title: summary.title === null ? null : toText(summary.title),
     body,
     durationMs,
     userPinned: pin != null,

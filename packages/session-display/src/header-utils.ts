@@ -47,3 +47,21 @@ export function filename(filePath: string): string {
   if (idx === -1) return filePath
   return filePath.slice(idx + 1)
 }
+
+/**
+ * Coerce any value to a display string. opentui text nodes only accept
+ * strings; dirty part data (objects, arrays, numbers from provider/tool
+ * output) must never reach a <text> children expression.
+ */
+export function toText(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value === null || value === undefined) return ""
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
