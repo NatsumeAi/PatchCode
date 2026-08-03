@@ -6,9 +6,18 @@ describe("mergeConfig display flags", () => {
     expect(DEFAULT_CONFIG.dimDetails).toBe(true)
   })
 
+  test("groupToolVerbs defaults true (Grok default, approved in Phase D review)", () => {
+    expect(DEFAULT_CONFIG.groupToolVerbs).toBe(true)
+  })
+
   test("mergeConfig accepts dimDetails", () => {
     const cfg = mergeConfig(DEFAULT_CONFIG, { dimDetails: false })
     expect(cfg.dimDetails).toBe(false)
+  })
+
+  test("mergeConfig accepts groupToolVerbs override", () => {
+    const cfg = mergeConfig(DEFAULT_CONFIG, { groupToolVerbs: false })
+    expect(cfg.groupToolVerbs).toBe(false)
   })
 
   test("unknown keys ignored", () => {

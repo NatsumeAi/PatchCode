@@ -1,8 +1,14 @@
-# Grok Verb-Group Aggregation — Design Spec (Review Gated)
+# Grok Verb-Group Aggregation — Design Spec
 
-> **Status: DESIGN ONLY — NOT IMPLEMENTED.** Requires a separate review before
-> implementation. Source of truth: verified Grok `xai-grok-pager` code.
+> **Status: IMPLEMENTED (2026-08-03, approved by user).** Design preserved as
+> the reference for the implementation. Implementation:
+> - `packages/session-display/src/verb-group.ts` — `classifyVerbRuns`/`verbGroupHeaderLabel`/verb+noun
+> - `packages/session-display/test/verb-group.test.ts` — 15 tests
+> - `packages/tui/src/display/VerbGroupHeader.tsx` — header row (rail+bullet+disclosure)
+> - `packages/tui/src/routes/session/index.tsx` — AssistantMessage grouping
+> - `groupToolVerbs` default flipped to `true` (Grok default)
 >
+> Source of truth: verified Grok `xai-grok-pager` code.
 > Reference paths (verified 2026-08-03):
 > - `crates/codegen/xai-grok-pager/src/scrollback/blocks/tool/mod.rs:83-151` — `VerbGroupKind` + verb/noun
 > - `crates/codegen/xai-grok-pager/src/scrollback/state/verb_group.rs:29-260` — `RunStep`/`run_step`/`scan_run_forward`/`verb_group_header_label`

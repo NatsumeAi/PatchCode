@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG: DisplayConfig = {
   collapsedEditBlocks: false,
   mutedCollapsed: true,
   dimDetails: true,
-  groupToolVerbs: false,
+  groupToolVerbs: true,
   diffMaxLines: 500,
   shellErrorTruncatedLines: 8,
   reasoningTruncatedLines: 3,

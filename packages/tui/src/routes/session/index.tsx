@@ -1703,6 +1703,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   }))
 
   const runs = createMemo<VerbRun[]>(() => {
+    if (!displayCtx().config.groupToolVerbs) return []
     const inputs = props.parts
       .filter((p): p is ToolPart => p.type === "tool")
       .map((part) => {
