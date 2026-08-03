@@ -193,6 +193,7 @@ const context = createContext<{
   sync: ReturnType<typeof useSync>
   tui: ReturnType<typeof useTuiConfig>
   selectedPartId: () => string | null
+  selectPart: (partId: string) => void
 }>()
 
 function use() {
@@ -248,6 +249,7 @@ export function Session() {
     selection.setList(entries)
   })
   const selectedPartId = () => selection.selectedId()
+  const selectPart = (partId: string) => selection.selectById(partId)
   const selectableEntries = () =>
     messages().flatMap((message) =>
       (sync.data.part[message.id] ?? [])
@@ -1348,6 +1350,7 @@ export function Session() {
           sync,
           tui: tuiConfig,
           selectedPartId,
+          selectPart,
         }}
       >
         <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -1853,7 +1856,12 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
       if (sessionID) navigate({ type: "session", sessionID })
       return
     }
-    if (vm().clickable) togglePin(props.part.id, vm().mode)
+    if (!vm().clickable) return
+    const cycle =
+      (getDescriptor(normalizeToolName(props.part.tool))?.policy(DEFAULT_CONFIG) as { foldCycle?: "two" | "three" })
+        ?.foldCycle ?? "two"
+    setPin(props.part.id, nextFoldMode(cycle, vm().mode, vm().header.status === "running"))
+    ctx.selectPart(props.part.id)
   }
 
   return (

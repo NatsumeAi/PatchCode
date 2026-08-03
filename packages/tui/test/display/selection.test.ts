@@ -53,6 +53,20 @@ describe("createEntrySelection", () => {
       s.setList([{ partId: "a", kind: "tool" }])
       expect(s.selectedIndex()).toBe(0)
     }))
+
+  test("selectById selects matching entry", () =>
+    createRoot(() => {
+      const s = createEntrySelection()
+      s.setList([
+        { partId: "a", kind: "tool" },
+        { partId: "b", kind: "tool" },
+        { partId: "c", kind: "tool" },
+      ])
+      s.selectById("b")
+      expect(s.selectedId()).toBe("b")
+      s.selectById("missing")
+      expect(s.selectedId()).toBe("b")
+    }))
 })
 
 describe("pin-store applyToAll / allExpanded", () => {
