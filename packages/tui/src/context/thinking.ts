@@ -33,7 +33,9 @@ export function useThinkingMode() {
   // The KVProvider only renders children once kv.ready, so reads here are safe.
   const hadStored = kv.get("thinking_mode") !== undefined
   const legacy = kv.get("thinking_visibility")
-  const [stored, setStored] = kv.signal<ThinkingMode>("thinking_mode", "hide")
+  // §9/D5: Do NOT seed a default for new users. undefined = "kernel decides".
+  // Existing users who already have a kv value keep it untouched.
+  const [stored, setStored] = kv.signal<ThinkingMode | undefined>("thinking_mode", undefined)
 
   // The kv signal exposes its setter typed as `Setter<T>` which carries Solid's
   // overload set; passing an updater fn through a property access loses the
@@ -41,13 +43,13 @@ export function useThinkingMode() {
   // Wrap it in a sane shape so consumers can just call `set(next)` or pass
   // an updater.
   const set = (next: ThinkingMode | ((prev: ThinkingMode) => ThinkingMode)) => {
-    if (typeof next === "function") setStored(next as Setter<ThinkingMode>)
-    else setStored(() => next)
+    if (typeof next === "function") setStored(next as Setter<ThinkingMode | undefined>)
+    else setStored((() => next) as unknown as Setter<ThinkingMode | undefined>)
   }
 
   // Preserve previous experience for users who had explicitly toggled the
   // legacy `thinking_visibility` boolean. First-time users (no legacy key)
-  // get the new "hide" default (collapsed thinking).
+  // get undefined → kernel decides (§3.7 new-user path).
   if (!hadStored) {
     if (legacy === true) set("show")
     else if (legacy === false) set("hide")
@@ -55,13 +57,25 @@ export function useThinkingMode() {
 
   if ((stored() as string) === "minimal") set("hide")
 
+  // Backward-compatible mode accessor for existing UI that reads thinkingMode().
+  // Falls back to "hide" when undefined so pre-kernel code paths still work.
   const mode = createMemo<ThinkingMode>(() => {
     const value = stored()
     return isThinkingMode(value) ? value : "hide"
   })
 
+  // §3.7/§9: Expose stored mode for the display kernel.
+  // null = new user (no explicit kv) → kernel applies truncated→collapsed default.
+  // "hide"/"show" = user has explicit preference → kernel respects it.
+  const storedMode = createMemo<ThinkingMode | null>(() => {
+    const value = stored()
+    if (isThinkingMode(value)) return value
+    return null
+  })
+
   return {
     mode,
+    storedMode,
     set,
   }
 }
