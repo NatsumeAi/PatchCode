@@ -68,3 +68,23 @@ test("sessionMessageToLegacy converts assistant content parts", () => {
   expect(legacy!.parts.find((p) => p.type === "text")?.text).toBe("DSV4-OK")
   expect(legacy!.parts[1].id).toBe(textPartID("msg_a", "t0"))
 })
+
+test("user files without name fall back to URI basename so TUI never renders undefined", () => {
+  const meta = sessionMeta(undefined)
+  const result = sessionMessageToLegacy(
+    "ses_1",
+    {
+      id: "msg_u",
+      type: "user",
+      text: "look",
+      files: [{ uri: "/tmp/a.png", mime: "image/png" }],
+      time: { created: 1000 },
+    },
+    meta,
+  )
+  expect(result).toBeDefined()
+  const file = result!.parts.find((part) => part.type === "file")
+  expect(file).toBeDefined()
+  expect(file!.type).toBe("file")
+  expect((file as { filename?: string }).filename).toBe("a.png")
+})

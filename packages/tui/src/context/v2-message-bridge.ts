@@ -215,7 +215,7 @@ export function sessionMessageToLegacy(
         type: "file",
         url: file.uri,
         mime: file.mime ?? "application/octet-stream",
-        ...(file.name === undefined ? {} : { filename: file.name }),
+        filename: file.name ?? file.uri.split("/").at(-1) ?? file.uri,
       })
     }
     for (const [index, agent] of (message.agents ?? []).entries()) {

@@ -1629,7 +1629,10 @@ function UserMessage(props: {
                         <span style={{ bg: theme.secondary, fg: theme.background }}>
                           {directory ? " Directory " : " File "}
                         </span>
-                        <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> {file.filename} </span>
+                        <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}>
+                          {" "}
+                          {file.filename ?? file.url}{" "}
+                        </span>
                       </text>
                     )
                   }}
