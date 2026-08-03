@@ -184,7 +184,9 @@ describe("createCompatibleApi", () => {
     expect(url.searchParams.get("limit")).toBe("20")
   })
 
-  test("routes V1 permission replies through the requested directory", async () => {
+  test("prefers V2 session permission reply even when protocol probes as v1", async () => {
+    // Hybrid servers advertise /global/health (v1) but run V2 tools that publish
+    // permission.v2.asked — reply must hit QuestionV2/PermissionV2 endpoints.
     const { api, requests } = setup("v1")
     await api.permission.reply({
       sessionID: "ses_1",
@@ -193,8 +195,54 @@ describe("createCompatibleApi", () => {
       location: { directory: "/other" },
     })
 
-    expect(new URL(requests[0]!.url).pathname).toBe("/session/ses_1/permissions/permission_1")
-    expect(new URL(requests[0]!.url).searchParams.get("directory")).toBe("/other")
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/permission/permission_1/reply")
+  })
+
+  test("falls back to legacy permission reply when V2 endpoint fails", async () => {
+    const requests: Request[] = []
+    const fetcher = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const request = new Request(input, init)
+        requests.push(request)
+        const path = new URL(request.url).pathname
+        if (path.includes("/api/session/") && path.includes("/permission/")) {
+          return new Response(undefined, { status: 404 })
+        }
+        return new Response(undefined, { status: 204 })
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    )
+    const server = { url: "http://localhost:4096" }
+    const api = createCompatibleApi({
+      protocol: Promise.resolve("v1"),
+      current: createApiForServer({ server, fetch: fetcher }),
+      legacy: (directory) => createSdkForServer({ server, fetch: fetcher, directory, throwOnError: true }),
+      directory: "/repo",
+    })
+
+    await api.permission.reply({
+      sessionID: "ses_1",
+      requestID: "permission_1",
+      reply: "once",
+      location: { directory: "/other" },
+    })
+
+    expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
+      "/api/session/ses_1/permission/permission_1/reply",
+      "/session/ses_1/permissions/permission_1",
+    ])
+    expect(new URL(requests[1]!.url).searchParams.get("directory")).toBe("/other")
+  })
+
+  test("prefers V2 session question reply even when protocol probes as v1", async () => {
+    const { api, requests } = setup("v1")
+    await api.question.reply({
+      sessionID: "ses_1",
+      requestID: "que_1",
+      answers: [["yes"]],
+    })
+
+    expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/question/que_1/reply")
   })
 
   test("disposes the V1 instance after connecting a provider", async () => {

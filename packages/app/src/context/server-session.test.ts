@@ -178,12 +178,13 @@ describe("server session", () => {
     apply({
       id: "evt_step",
       created: 2,
-      type: "session.step.started",
+      type: "session.next.step.started",
       durable: { aggregateID: "child", seq: 1, version: 1 },
       location: { directory: "/repo" },
       data: {
         sessionID: "child",
         assistantMessageID: "msg_2_assistant",
+        timestamp: 2,
         agent: "build",
         model: { id: "model", providerID: "provider" },
       },
@@ -191,17 +192,17 @@ describe("server session", () => {
     apply({
       id: "evt_text_start",
       created: 3,
-      type: "session.text.started",
+      type: "session.next.text.started",
       durable: { aggregateID: "child", seq: 2, version: 1 },
       location: { directory: "/repo" },
-      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", ordinal: 0 },
+      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", timestamp: 3, textID: "t_0" },
     })
     apply({
       id: "evt_text_delta",
       created: 4,
-      type: "session.text.delta",
+      type: "session.next.text.delta",
       location: { directory: "/repo" },
-      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", ordinal: 0, delta: "world" },
+      data: { sessionID: "child", assistantMessageID: "msg_2_assistant", timestamp: 4, textID: "t_0", delta: "world" },
     })
 
     expect(ctx.store.data.session_message.child?.at(-1)).toMatchObject({

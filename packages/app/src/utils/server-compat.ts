@@ -494,24 +494,44 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     permission: {
       ...input.current.permission,
       async reply(value: Parameters<ServerApi["permission"]["reply"]>[0] & { location?: { directory?: string } }) {
-        await legacy(value.location).permission.respond({
-          sessionID: value.sessionID,
-          permissionID: value.requestID,
-          response: value.reply,
-          directory: directory(value.location),
-        })
+        // Same hybrid case as question: prefer V2 session permission reply when
+        // the request originated from permission.v2.asked (V2 tools).
+        try {
+          await input.current.permission.reply(value)
+          return
+        } catch {
+          await legacy(value.location).permission.respond({
+            sessionID: value.sessionID,
+            permissionID: value.requestID,
+            response: value.reply,
+            directory: directory(value.location),
+          })
+        }
       },
     },
     question: {
       ...input.current.question,
       async reply(value: Parameters<ServerApi["question"]["reply"]>[0]) {
-        await legacy().question.reply({
-          requestID: value.requestID,
-          answers: value.answers.map((answer) => [...answer]),
-        })
+        // Hybrid servers probe as protocol "v1" via /global/health, but the V2
+        // session runner publishes question.v2.asked through QuestionV2. Prefer
+        // the V2 session-scoped reply; fall back to legacy for pure V1 servers.
+        try {
+          await input.current.question.reply(value)
+          return
+        } catch {
+          await legacy().question.reply({
+            requestID: value.requestID,
+            answers: value.answers.map((answer) => [...answer]),
+          })
+        }
       },
       async reject(value: Parameters<ServerApi["question"]["reject"]>[0]) {
-        await legacy().question.reject({ requestID: value.requestID })
+        try {
+          await input.current.question.reject(value)
+          return
+        } catch {
+          await legacy().question.reject({ requestID: value.requestID })
+        }
       },
     },
   }

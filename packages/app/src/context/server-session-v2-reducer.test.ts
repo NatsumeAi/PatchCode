@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import type { OpenCodeEvent, SessionMessageInfo } from "@opencode-ai/client/promise"
-import { createV2SessionReducer } from "./server-session-v2-reducer"
+import type { SessionMessageInfo } from "@opencode-ai/client/promise"
+import { createV2SessionReducer, type V2SessionEvent } from "./server-session-v2-reducer"
 
-const event = (input: object) => input as OpenCodeEvent
-const base = { created: 1, location: { directory: "/repo" }, durable: { aggregateID: "ses_1", seq: 1, version: 1 } }
+const event = (input: object) => input as V2SessionEvent
+const ts = 1000
+const base = { created: ts, location: { directory: "/repo" }, durable: { aggregateID: "ses_1", seq: 1, version: 1 } }
 
 describe("v2 session reducer", () => {
-  test("projects promoted input and streaming assistant content", () => {
+  test("projects prompted input and streaming assistant content", () => {
     const reducer = createV2SessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
@@ -17,27 +18,18 @@ describe("v2 session reducer", () => {
 
     apply({
       ...base,
-      id: "evt_admitted",
-      type: "session.input.admitted",
-      data: {
-        sessionID: "ses_1",
-        inputID: "msg_user",
-        input: { type: "user", delivery: "steer", data: { text: "hello" } },
-      },
-    })
-    apply({
-      ...base,
-      id: "evt_promoted",
-      type: "session.input.promoted",
-      data: { sessionID: "ses_1", inputID: "msg_user" },
+      id: "evt_prompted",
+      type: "session.next.prompted",
+      data: { sessionID: "ses_1", messageID: "msg_user", timestamp: ts, prompt: { text: "hello" } },
     })
     apply({
       ...base,
       id: "evt_step",
-      type: "session.step.started",
+      type: "session.next.step.started",
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
+        timestamp: ts,
         agent: "build",
         model: { id: "model", providerID: "provider" },
       },
@@ -45,27 +37,27 @@ describe("v2 session reducer", () => {
     apply({
       ...base,
       id: "evt_text_start",
-      type: "session.text.started",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0 },
+      type: "session.next.text.started",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", timestamp: ts, textID: "t_0" },
     })
     apply({
       ...base,
       id: "evt_text_delta",
-      type: "session.text.delta",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0, delta: "hel" },
+      type: "session.next.text.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", timestamp: ts, textID: "t_0", delta: "hel" },
     })
     apply({
       ...base,
       id: "evt_text_end",
-      type: "session.text.ended",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", ordinal: 0, text: "hello" },
+      type: "session.next.text.ended",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", timestamp: ts, textID: "t_0", text: "hello" },
     })
 
     expect(messages[0]).toMatchObject({ id: "msg_user", type: "user", text: "hello" })
     expect(messages[1]).toMatchObject({
       id: "msg_assistant",
       type: "assistant",
-      content: [{ type: "text", text: "hello" }],
+      content: [{ type: "text", id: "t_0", text: "hello" }],
     })
   })
 
@@ -80,10 +72,11 @@ describe("v2 session reducer", () => {
     apply({
       ...base,
       id: "evt_step",
-      type: "session.step.started",
+      type: "session.next.step.started",
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
+        timestamp: ts,
         agent: "build",
         model: { id: "model", providerID: "provider" },
       },
@@ -91,66 +84,133 @@ describe("v2 session reducer", () => {
     apply({
       ...base,
       id: "evt_tool_start",
-      type: "session.tool.input.started",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", name: "bash" },
+      type: "session.next.tool.input.started",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", timestamp: ts, callID: "call_1", name: "bash" },
     })
     apply({
       ...base,
       id: "evt_tool_delta",
-      type: "session.tool.input.delta",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", delta: "{}" },
+      type: "session.next.tool.input.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", timestamp: ts, callID: "call_1", delta: "{}" },
     })
     apply({
       ...base,
       id: "evt_tool_called",
-      type: "session.tool.called",
-      data: { sessionID: "ses_1", assistantMessageID: "msg_assistant", callID: "call_1", input: {}, executed: true },
+      type: "session.next.tool.called",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        timestamp: ts,
+        callID: "call_1",
+        tool: "bash",
+        input: {},
+        provider: { executed: true },
+      },
     })
     apply({
       ...base,
       id: "evt_tool_success",
-      type: "session.tool.success",
+      type: "session.next.tool.success",
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
+        timestamp: ts,
         callID: "call_1",
-        metadata: {},
         content: [{ type: "text", text: "done" }],
-        executed: true,
+        provider: { executed: true },
       },
     })
     apply({
       ...base,
       id: "evt_retry",
-      type: "session.retry.scheduled",
+      type: "session.next.retried",
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
+        timestamp: ts,
         attempt: 2,
-        at: 10,
-        error: { type: "ProviderError", message: "retry" },
+        error: { type: "unknown", message: "retry" },
       },
     })
-    apply({ ...base, id: "evt_done", type: "session.execution.succeeded", data: { sessionID: "ses_1" } })
+    apply({
+      ...base,
+      id: "evt_ended",
+      type: "session.next.step.ended",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        timestamp: ts,
+        finish: "stop",
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    })
 
     expect(messages[0]).toMatchObject({
       type: "assistant",
-      retry: undefined,
       content: [{ type: "tool", id: "call_1", state: { status: "completed", content: [{ text: "done" }] } }],
+      finish: "stop",
     })
   })
 
-  test("requests hydration when promotion admission was missed", () => {
-    const result = createV2SessionReducer().reduce(
+  test("projects prompted user message with files", () => {
+    const reducer = createV2SessionReducer()
+    const result = reducer.reduce(
       [],
       event({
         ...base,
-        id: "evt_promoted",
-        type: "session.input.promoted",
-        data: { sessionID: "ses_1", inputID: "msg_user" },
+        id: "evt_prompted",
+        type: "session.next.prompted",
+        data: {
+          sessionID: "ses_1",
+          messageID: "msg_user",
+          timestamp: ts,
+          prompt: { text: "look", files: [{ uri: "file:///a.png", mime: "image/png", name: "a.png" }] },
+        },
       }),
     )
 
-    expect(result).toMatchObject({ sessionID: "ses_1", missing: "msg_user", touched: [] })
+    expect(result).toMatchObject({
+      sessionID: "ses_1",
+      touched: ["msg_user"],
+      messages: [
+        {
+          id: "msg_user",
+          type: "user",
+          text: "look",
+          files: [{ uri: "file:///a.png", mime: "image/png", name: "a.png" }],
+        },
+      ],
+    })
+  })
+
+  test("compaction started and ended fold into one checkpoint", () => {
+    const reducer = createV2SessionReducer()
+    let messages: SessionMessageInfo[] = []
+    const apply = (input: object) => {
+      const result = reducer.reduce(messages, event(input))
+      if (result) messages = result.messages
+    }
+
+    apply({
+      ...base,
+      id: "evt_c_start",
+      type: "session.next.compaction.started",
+      data: { sessionID: "ses_1", messageID: "msg_compact", timestamp: ts, reason: "manual" },
+    })
+    apply({
+      ...base,
+      id: "evt_c_end",
+      type: "session.next.compaction.ended",
+      data: { sessionID: "ses_1", messageID: "msg_compact", timestamp: ts, reason: "manual", text: "summary" },
+    })
+
+    expect(messages[0]).toMatchObject({
+      id: "msg_compact",
+      type: "compaction",
+      status: "completed",
+      reason: "manual",
+      summary: "summary",
+    })
   })
 })
