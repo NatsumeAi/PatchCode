@@ -29,6 +29,7 @@ import { SessionCompaction } from "../compaction"
 import { SessionEvent } from "../event"
 import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
+import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
@@ -39,12 +40,19 @@ import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
+import { SessionV1 } from "../../v1/session"
+import { FSUtil } from "../../fs-util"
+import { SessionTable } from "../sql"
+import { eq } from "drizzle-orm"
+import { InstallationVersion } from "../../installation/version"
+import { WorkspaceV2 } from "../../workspace"
 import { LoopControlHost, type LoopControlHooks } from "./loop-control-host"
 import { IterationBudget } from "../loop-control/iteration-budget"
 import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
 import { VerifierBiDirectional, type NextTurnSystemContext } from "./verifier-bi-directional"
 import { SessionRuntime, type Instance } from "../runtime"
+import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -66,10 +74,10 @@ import { SessionRuntime, type Instance } from "../runtime"
  * - One provider turn
  *   - [x] Translate every projected V2 Session message variant into canonical
  *     `@opencode-ai/llm` messages.
- *   - [ ] Resolve policy-filtered built-in, MCP, plugin, and structured-output tool definitions.
+ *   - [x] Resolve policy-filtered built-in, MCP, plugin, and structured-output tool definitions.
  *   - [x] Stream exactly one `llm.stream(request)` provider turn.
  *   - [x] Persist assistant text and usage events incrementally as they arrive.
- *   - [ ] Persist snapshots, patches, and retry notices incrementally as they arrive.
+ *   - [x] Persist snapshots and file patches (step start/end + session summary diffs).
  *   - [x] Persist reasoning, provider errors, and tool-call events incrementally as they arrive.
  *
  * - Tool settlement and continuation
@@ -86,7 +94,8 @@ import { SessionRuntime, type Instance } from "../runtime"
  * - Post-run maintenance
  *   - [ ] Settle final status and expose durable output events to replayable consumers.
  *   - [ ] Coalesce streamed deltas and add covering projected-history indexes.
- *   - [ ] Update title, summaries, compaction state, and cleanup in bounded background work.
+ *   - [x] Update title (first user turn) and session summary diffs after steps.
+ *   - [ ] Compaction state and cleanup in bounded background work.
  *
  * Use `llm.stream(request)` for each provider turn. Keep tool execution and continuation here.
  * Durable continuation recovery remains a separate future slice with an explicit retry policy.
@@ -95,6 +104,102 @@ import { SessionRuntime, type Instance } from "../runtime"
  * provider turn. Registry definitions are advertised, local tool calls are settled durably, and an
  * explicit loop starts the next provider turn after local settlement. Configured agent step limits bound the loop.
  */
+
+/**
+ * Compute USD cost for a turn's usage against the model catalog price list.
+ * Matches the legacy Session.getUsage shape: input is already non-cached,
+ * output excludes reasoning, cache read/write billed separately per 1M tokens;
+ * the active tier is the largest context tier the total context exceeds.
+ * Reasoning tokens are charged at the output rate (legacy temporary strategy).
+ */
+const costOf = (
+  tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } },
+  model: ModelV2.Info | undefined,
+) => {
+  if (!model || model.cost === undefined || model.cost.length === 0) return 0
+  const contextTokens = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write
+  const tier = model.cost
+    .filter((cost) => cost.tier?.type === "context" && contextTokens > cost.tier.size)
+    .sort((a, b) => b.tier!.size - a.tier!.size)[0]
+  const cost = tier ?? model.cost.at(-1)
+  if (!cost) return 0
+  return (
+    (tokens.input * cost.input) / 1_000_000 +
+    (tokens.output * cost.output) / 1_000_000 +
+    (tokens.reasoning * cost.output) / 1_000_000 +
+    (tokens.cache.read * cost.cache.read) / 1_000_000 +
+    (tokens.cache.write * cost.cache.write) / 1_000_000
+  )
+}
+
+/**
+ * Inline local media attachments as data URIs before provider-history lowering.
+ * data:/http(s): URIs already carry bytes or a reachable URL; file:// and bare
+ * paths are read from disk. Unreadable files keep their original URI so the
+ * provider still receives the path (best-effort, matches TODO in to-llm-message).
+ */
+const mediaMaterializer = (fs: FSUtil.Interface) =>
+  Effect.fn("SessionRunner.materializeMedia")(function* (messages: readonly SessionMessage.Message[]) {
+    const inline = (uri: string, mime: string): Effect.Effect<{ uri: string; mime: string }, never, FSUtil.Service> => {
+      if (uri.startsWith("data:") || uri.startsWith("http:") || uri.startsWith("https:"))
+        return Effect.succeed({ uri, mime })
+      const path = uri.startsWith("file://") ? decodeURIComponent(uri.slice("file://".length)) : uri
+      return fs
+        .readFile(path)
+        .pipe(
+          Effect.map((bytes) => ({ uri: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`, mime })),
+          Effect.catch(() => Effect.succeed({ uri, mime })),
+        )
+    }
+
+    return yield* Effect.forEach(Array.from(messages), (message): Effect.Effect<SessionMessage.Message, never, FSUtil.Service> => {
+      if (message.type === "user") {
+        const files = message.files
+        if (files === undefined || files.length === 0) return Effect.succeed(message)
+        return Effect.gen(function* () {
+          const materialized = yield* Effect.forEach(Array.from(files), (file) =>
+            inline(file.uri, file.mime).pipe(Effect.map(({ uri, mime }) => ({ ...file, uri, mime }))),
+          )
+          return { ...message, files: materialized }
+        })
+      }
+      if (message.type === "assistant") {
+        const touched = message.content.some(
+          (item) => item.type === "tool" && "content" in item.state && item.state.content.some((p) => p.type === "file"),
+        )
+        if (!touched) return Effect.succeed(message)
+        return Effect.gen(function* () {
+          const content = yield* Effect.forEach(
+            Array.from(message.content),
+            (item): Effect.Effect<SessionMessage.AssistantContent, never, FSUtil.Service> => {
+              if (item.type !== "tool") return Effect.succeed(item)
+              const state = item.state
+              if (!("content" in state)) return Effect.succeed(item)
+              const files = state.content.filter((part) => part.type === "file")
+              if (files.length === 0) return Effect.succeed(item)
+              return Effect.gen(function* () {
+                const materialized = yield* Effect.forEach(Array.from(files), (file) =>
+                  inline(file.uri, file.mime).pipe(Effect.map(({ uri, mime }) => ({ ...file, uri, mime }))),
+                )
+                const map = new Map(files.map((file, index) => [file.uri, materialized[index]]))
+                return {
+                  ...item,
+                  state: {
+                    ...state,
+                    content: state.content.map((part) =>
+                      part.type === "file" && map.get(part.uri) ? (map.get(part.uri) as typeof part) : part,
+                    ),
+                  },
+                }
+              })
+            },
+          )
+          return { ...message, content }
+        })
+      }
+      return Effect.succeed(message)
+    })
+  })
 
 const layer = Layer.effect(
   Service,
@@ -112,12 +217,173 @@ const layer = Layer.effect(
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
     const runtime = yield* SessionRuntime.Service
+    const fs = yield* FSUtil.Service
     const db = (yield* Database.Service).db
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
+    const materializeMedia = mediaMaterializer(fs)
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)
       if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
       return session
+    })
+
+    const isDefaultTitle = (title: string) =>
+      /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(title)
+
+    const loadSessionRow = Effect.fn("SessionRunner.loadSessionRow")(function* (sessionID: SessionSchema.ID) {
+      return yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
+    })
+
+    const publishSessionUpdated = Effect.fn("SessionRunner.publishSessionUpdated")(function* (
+      sessionID: SessionSchema.ID,
+      patch: {
+        title?: string
+        summary?: {
+          additions?: number
+          deletions?: number
+          files?: number
+          diffs?: Snapshot.LegacyFileDiff[]
+        }
+      },
+    ) {
+      const row = yield* loadSessionRow(sessionID)
+      if (!row) return
+      const now = Date.now()
+      const summary = patch.summary
+        ? {
+            additions: patch.summary.additions ?? row.summary_additions ?? 0,
+            deletions: patch.summary.deletions ?? row.summary_deletions ?? 0,
+            files: patch.summary.files ?? row.summary_files ?? 0,
+            diffs: patch.summary.diffs ?? row.summary_diffs ?? [],
+          }
+        : row.summary_diffs || row.summary_files
+          ? {
+              additions: row.summary_additions ?? 0,
+              deletions: row.summary_deletions ?? 0,
+              files: row.summary_files ?? 0,
+              diffs: row.summary_diffs ?? [],
+            }
+          : undefined
+      const info = SessionV1.SessionInfo.make({
+        id: row.id,
+        slug: row.slug,
+        version: row.version || InstallationVersion,
+        projectID: row.project_id,
+        directory: row.directory,
+        path: row.path ?? undefined,
+        workspaceID: row.workspace_id ? WorkspaceV2.ID.make(row.workspace_id) : undefined,
+        parentID: row.parent_id ?? undefined,
+        title: patch.title ?? row.title,
+        agent: row.agent ?? undefined,
+        model: row.model
+          ? {
+              id: ModelV2.ID.make(row.model.id),
+              providerID: ProviderV2.ID.make(row.model.providerID),
+              variant: row.model.variant,
+            }
+          : undefined,
+        cost: row.cost,
+        tokens: {
+          input: row.tokens_input,
+          output: row.tokens_output,
+          reasoning: row.tokens_reasoning,
+          cache: { read: row.tokens_cache_read, write: row.tokens_cache_write },
+        },
+        summary,
+        time: {
+          created: row.time_created,
+          updated: now,
+          compacting: row.time_compacting ?? undefined,
+          archived: row.time_archived ?? undefined,
+        },
+        permission: row.permission ?? undefined,
+        metadata: row.metadata ?? undefined,
+        share: row.share_url ? { url: row.share_url } : undefined,
+        // Brands differ across V1/V2 message IDs; preserve payload for projector.
+        revert: row.revert
+          ? ({
+              messageID: row.revert.messageID,
+              partID: row.revert.partID,
+              snapshot: row.revert.snapshot,
+              diff: row.revert.diff,
+            } as unknown as SessionV1.SessionInfo["revert"])
+          : undefined,
+      })
+      yield* events.publish(SessionV1.Event.Updated, { sessionID, info })
+    })
+
+    const ensureTitle = Effect.fn("SessionRunner.ensureTitle")(function* (sessionID: SessionSchema.ID) {
+      const session = yield* getSession(sessionID)
+      if (session.parentID) return
+      if (!isDefaultTitle(session.title)) return
+
+      const context = yield* store.context(sessionID)
+      const users = context.filter((m) => m.type === "user")
+      if (users.length !== 1) return
+      const firstUser = users[0]
+      if (firstUser.type !== "user") return
+      const userText = firstUser.text?.trim()
+      if (!userText) return
+
+      const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
+      const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined as undefined)))
+      if (!model) return
+
+      const system = titleAgent?.system
+        ? [SystemPart.make(titleAgent.system)]
+        : [SystemPart.make("Generate a brief thread title. Output ONLY the title on one line.")]
+      const request = LLM.request({
+        model,
+        system,
+        messages: [Message.user(`Generate a title for this conversation:\n${userText}`)],
+        tools: [],
+      })
+      const text = yield* llm.stream(request).pipe(
+        Stream.filter(LLMEvent.is.textDelta),
+        Stream.map((e) => e.text),
+        Stream.mkString,
+        Effect.catch(() => Effect.succeed("")),
+      )
+      const cleaned = text
+        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0)
+      if (!cleaned) return
+      const title = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
+      yield* publishSessionUpdated(sessionID, { title }).pipe(
+        Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })),
+      )
+    })
+
+    const persistStepDiffs = Effect.fn("SessionRunner.persistStepDiffs")(function* (
+      sessionID: SessionSchema.ID,
+      startSnapshot: Snapshot.ID | undefined,
+      endSnapshot: Snapshot.ID | undefined,
+      files: readonly string[] | undefined,
+    ) {
+      if (!startSnapshot || !endSnapshot) return
+      const diffs = yield* snapshots
+        .diff({ from: startSnapshot, to: endSnapshot })
+        .pipe(Effect.catch(() => Effect.succeed([] as const)))
+      if (!diffs.length && !files?.length) return
+      const legacy: Snapshot.LegacyFileDiff[] = diffs.map((d) => ({
+        file: String(d.path),
+        patch: d.patch,
+        additions: d.additions,
+        deletions: d.deletions,
+        status: d.status,
+      }))
+      const additions = legacy.reduce((sum, d) => sum + d.additions, 0)
+      const deletions = legacy.reduce((sum, d) => sum + d.deletions, 0)
+      yield* publishSessionUpdated(sessionID, {
+        summary: {
+          additions,
+          deletions,
+          files: files?.length ?? legacy.length,
+          diffs: legacy,
+        },
+      }).pipe(Effect.catchCause((cause) => Effect.logWarning("failed to persist step diffs", { cause })))
     })
 
     const getContext = Effect.fn("SessionRunner.getContext")(function* (sessionID: SessionSchema.ID) {
@@ -272,6 +538,7 @@ const layer = Layer.effect(
       const system =
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
       const model = yield* models.resolve(session)
+      const modelInfo = yield* models.resolveInfo(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
       // Drain any verifier rejection feedback captured for this session since
       // the previous turn — DoneDecisionLoop injects reason + evidence into
       // the session-bound VerifierBiDirectional channel after a rejected
@@ -298,7 +565,9 @@ const layer = Layer.effect(
       )
       if (admission === "exhausted") return { needsContinuation: false, step: currentStep }
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
-      const context = entries.map((entry) => entry.message)
+      const context = yield* materializeMedia(entries.map((entry) => entry.message)).pipe(
+        Effect.provideService(FSUtil.Service, fs),
+      )
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info?.permissions)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
@@ -455,12 +724,14 @@ const layer = Layer.effect(
                 timestamp: yield* DateTime.now,
                 assistantMessageID: yield* publisher.startAssistant(),
                 finish: stepSettlement.finish,
-                cost: 0,
+                cost: costOf(stepSettlement.tokens, modelInfo),
                 tokens: stepSettlement.tokens,
                 snapshot: endSnapshot,
                 files,
               }),
             )
+            // Persist unified diffs onto session.summary for TUI diff panel (V1 parity).
+            yield* persistStepDiffs(session.id, startSnapshot, endSnapshot, files).pipe(Effect.ignore, Effect.forkScoped)
           }
           if (publisher.hasProviderError())
             yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
@@ -546,31 +817,65 @@ const layer = Layer.effect(
       const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
       const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
       if (!input.force && !hasSteer && !hasQueue) return
-      yield* failInterruptedTools(input.sessionID)
-      const drain = yield* buildDrainContext(input.sessionID)
-      let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
-      let shouldRun = input.force || hasSteer || hasQueue
-      while (shouldRun) {
-        let needsContinuation = true
-        let step = 1
-        while (needsContinuation) {
-          const result = yield* runTurn(input.sessionID, promotion, step, drain)
-          needsContinuation = result.needsContinuation
-          step = result.step + 1
-          promotion = "steer"
-          if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+
+      // Drive the same session.status events the TUI/App already consume (spinner,
+      // interrupt enablement). Previously only the legacy prompt/processor path
+      // called SessionStatus.set, so V2 drains left the UI stuck on idle.
+      yield* events.publish(SessionStatusEvent.Status, {
+        sessionID: input.sessionID,
+        status: { type: "busy" },
+      })
+
+      yield* Effect.gen(function* () {
+        yield* failInterruptedTools(input.sessionID)
+        // First real user turn: generate a session title in the background.
+        yield* ensureTitle(input.sessionID).pipe(Effect.ignore, Effect.forkScoped)
+        const drain = yield* buildDrainContext(input.sessionID)
+        let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
+        let shouldRun = input.force || hasSteer || hasQueue
+        while (shouldRun) {
+          let needsContinuation = true
+          let step = 1
+          while (needsContinuation) {
+            const result = yield* runTurn(input.sessionID, promotion, step, drain)
+            needsContinuation = result.needsContinuation
+            step = result.step + 1
+            promotion = "steer"
+            if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          }
+          // Turn boundary: a terminal request (verifier approval, abort, timeout,
+          // budget exhaustion, unrecoverable failure) is authoritative — stop
+          // promoting queued inputs once the controller is no longer continuing.
+          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
+          shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
+          promotion = shouldRun ? "queue" : undefined
         }
-        // Turn boundary: a terminal request (verifier approval, abort, timeout,
-        // budget exhaustion, unrecoverable failure) is authoritative — stop
-        // promoting queued inputs once the controller is no longer continuing.
-        if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
-        shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
-        promotion = shouldRun ? "queue" : undefined
-      }
+      }).pipe(
+        Effect.ensuring(
+          events
+            .publish(SessionStatusEvent.Status, {
+              sessionID: input.sessionID,
+              status: { type: "idle" },
+            })
+            .pipe(Effect.catchCause(() => Effect.void)),
+        ),
+      )
     }, Effect.scoped)
+
+    const compact = Effect.fn("SessionRunner.compact")(function* (sessionID: SessionSchema.ID) {
+      const session = yield* getSession(sessionID)
+      const agent = yield* agents.select(session.agent)
+      const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
+      const model = yield* models.resolve(session)
+      const baselineSeq = initialized?.baselineSeq ?? 0
+      const entries = yield* SessionHistory.entriesForRunner(db, session.id, baselineSeq)
+      const request = LLM.request({ model, system: [], messages: [], tools: [] })
+      yield* compaction.compactAfterOverflow({ sessionID: session.id, entries, model, request })
+    })
 
     return Service.of({
       run,
+      compact,
     })
   }),
 )
@@ -586,6 +891,7 @@ export const node = makeLocationNode({
     SessionRunnerModel.node,
     SessionStore.node,
     Location.node,
+    FSUtil.node,
     SystemContextRegistry.node,
     SkillGuidance.node,
     ReferenceGuidance.node,

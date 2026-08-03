@@ -109,7 +109,7 @@ function applyUsage(
     .pipe(Effect.orDie)
 }
 
-function run(db: DatabaseService, event: SessionEvent.Event) {
+function run(db: DatabaseService, events: EventV2.Interface, event: SessionEvent.Event) {
   return Effect.gen(function* () {
     const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type })
@@ -117,19 +117,22 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
       if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
       const encoded = encodeMessage(message)
       const { id, type, ...data } = encoded
-      return db
-        .update(SessionMessageTable)
-        .set({ type, time_created: DateTime.toEpochMillis(message.time.created), data })
-        .where(
-          and(
-            eq(SessionMessageTable.id, SessionMessage.ID.make(id)),
-            eq(SessionMessageTable.session_id, event.data.sessionID),
-          ),
-        )
-        .run()
-        .pipe(Effect.orDie)
+      return Effect.gen(function* () {
+        yield* db
+          .update(SessionMessageTable)
+          .set({ type, time_created: DateTime.toEpochMillis(message.time.created), data })
+          .where(
+            and(
+              eq(SessionMessageTable.id, SessionMessage.ID.make(id)),
+              eq(SessionMessageTable.session_id, event.data.sessionID),
+            ),
+          )
+          .run()
+          .pipe(Effect.orDie)
+        yield* dualWriteLegacy(db, events, event.data.sessionID, message)
+      })
     }
-    const appendMessage = (message: SessionMessage.Message) => insertMessage(db, event, message)
+    const appendMessage = (message: SessionMessage.Message) => insertMessage(db, events, event, message)
     const adapter: SessionMessageUpdater.Adapter = {
       getCurrentAssistant() {
         return Effect.gen(function* () {
@@ -190,22 +193,411 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
   })
 }
 
-function insertMessage(db: DatabaseService, event: SessionEvent.Event, message: SessionMessage.Message) {
+type LegacySession = {
+  directory: string
+  agent?: string | null
+  model?: { id: string; providerID: string; variant?: string } | null
+}
+
+/**
+ * Mirror V2 SessionMessage rows into the legacy MessageTable + PartTable shape
+ * so TUI `GET /session/:id/message` (MessageV2.page → MessageTable) can display
+ * messages written by the V2 runner. Without this, SessionMessageTable fills
+ * but the TUI list stays empty.
+ */
+function legacyMirror(
+  sessionID: SessionEvent.Event["data"]["sessionID"],
+  message: SessionMessage.Message,
+  session: LegacySession,
+  parentID?: string,
+):
+  | {
+      message: {
+        id: string
+        session_id: typeof sessionID
+        time_created: number
+        data: Record<string, unknown>
+      }
+      parts: Array<{
+        id: string
+        message_id: string
+        session_id: typeof sessionID
+        data: Record<string, unknown>
+      }>
+    }
+  | undefined {
+  const timeCreated = DateTime.toEpochMillis(message.time.created)
+  const messageID = message.id
+  const fallbackModel = {
+    providerID: session.model?.providerID ?? "opencode",
+    modelID: session.model?.id ?? "unknown",
+    ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
+  }
+  const fallbackAgent = session.agent || "build"
+  const path = { cwd: session.directory, root: session.directory }
+
+  if (message.type === "user") {
+    return {
+      message: {
+        id: messageID,
+        session_id: sessionID,
+        time_created: timeCreated,
+        data: {
+          role: "user" as const,
+          time: { created: timeCreated },
+          agent: fallbackAgent,
+          model: fallbackModel,
+          summary: { diffs: [] },
+        },
+      },
+      parts: [
+        {
+          id: `prt_${messageID}_text`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: { type: "text" as const, text: message.text },
+        },
+      ],
+    }
+  }
+
+  if (message.type === "shell") {
+    const completed =
+      message.time.completed === undefined ? undefined : DateTime.toEpochMillis(message.time.completed)
+    const body = ["$ " + message.command, message.output].filter(Boolean).join("\n")
+    return {
+      message: {
+        id: messageID,
+        session_id: sessionID,
+        time_created: timeCreated,
+        data: {
+          role: "assistant" as const,
+          parentID: parentID ?? messageID,
+          agent: fallbackAgent,
+          mode: fallbackAgent,
+          modelID: fallbackModel.modelID,
+          providerID: fallbackModel.providerID,
+          path,
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: {
+            created: timeCreated,
+            ...(completed === undefined ? {} : { completed }),
+          },
+          finish: "stop",
+        },
+      },
+      parts: [
+        {
+          id: `prt_${messageID}_shell`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: {
+            type: "tool" as const,
+            tool: "bash",
+            callID: message.callID,
+            state: {
+              status: "completed" as const,
+              input: { command: message.command },
+              output: message.output ?? "",
+              title: "bash",
+              metadata: { output: message.output ?? "" },
+              time: {
+                start: timeCreated,
+                end: completed ?? timeCreated,
+              },
+            },
+          },
+        },
+        {
+          id: `prt_${messageID}_text`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: { type: "text" as const, text: body },
+        },
+      ],
+    }
+  }
+
+  if (message.type === "assistant") {
+    const completed =
+      message.time.completed === undefined ? undefined : DateTime.toEpochMillis(message.time.completed)
+    const tokens = message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+    return {
+      message: {
+        id: messageID,
+        session_id: sessionID,
+        time_created: timeCreated,
+        data: {
+          role: "assistant" as const,
+          // v1 Assistant requires parentID; fall back to self only when no prior user exists
+          parentID: parentID ?? messageID,
+          agent: message.agent || fallbackAgent,
+          mode: message.agent || fallbackAgent,
+          modelID: message.model.id,
+          providerID: message.model.providerID,
+          path,
+          cost: message.cost ?? 0,
+          tokens: {
+            total: tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write,
+            input: tokens.input,
+            output: tokens.output,
+            reasoning: tokens.reasoning,
+            cache: tokens.cache,
+          },
+          time: {
+            created: timeCreated,
+            ...(completed === undefined ? {} : { completed }),
+          },
+          ...(message.finish === undefined ? {} : { finish: message.finish }),
+          ...(message.model.variant === undefined ? {} : { variant: message.model.variant }),
+          ...(message.error === undefined ? {} : { error: { name: "UnknownError", data: message.error } }),
+        },
+      },
+      parts: message.content.map((part) => {
+        const id = `prt_${messageID}_${part.id}`
+        if (part.type === "text") {
+          return {
+            id,
+            message_id: messageID,
+            session_id: sessionID,
+            data: { type: "text" as const, text: part.text },
+          }
+        }
+        if (part.type === "reasoning") {
+          const start = part.time?.created === undefined ? undefined : DateTime.toEpochMillis(part.time.created)
+          const end =
+            part.time?.completed === undefined ? undefined : DateTime.toEpochMillis(part.time.completed)
+          return {
+            id,
+            message_id: messageID,
+            session_id: sessionID,
+            data: {
+              type: "reasoning" as const,
+              text: part.text,
+              ...(start === undefined
+                ? {}
+                : { time: { start, ...(end === undefined ? {} : { end }) } }),
+            },
+          }
+        }
+        const tool = part
+        const state = tool.state
+        const start = DateTime.toEpochMillis(tool.time.created)
+        const end = DateTime.toEpochMillis(tool.time.completed ?? tool.time.created)
+        const rawInput = state.input ?? {}
+        // V1 tool parts expect Record input; V2 pending carries a JSON string.
+        const asObject = (value: unknown): Record<string, unknown> => {
+          if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
+          if (typeof value === "string" && value.length > 0) return { value }
+          return {}
+        }
+        const input = asObject(rawInput)
+        const outputText = () => {
+          if (!("content" in state) || !Array.isArray(state.content)) return ""
+          return state.content
+            .map((item: { type?: string; text?: string }) => (item.type === "text" ? item.text ?? "" : ""))
+            .filter(Boolean)
+            .join("\n")
+        }
+        const out = outputText()
+        const structured =
+          "structured" in state && state.structured && typeof state.structured === "object"
+            ? (state.structured as Record<string, unknown>)
+            : {}
+        // Shell display reads metadata.output; generic/task read state.output.
+        const toolState =
+          state.status === "completed"
+            ? {
+                status: "completed" as const,
+                input,
+                output: out,
+                title: tool.name,
+                metadata: { ...structured, output: out },
+                time: { start, end },
+              }
+            : state.status === "error"
+              ? {
+                  status: "error" as const,
+                  input,
+                  error: state.error?.message ?? "tool error",
+                  metadata: { ...structured, ...(out ? { output: out } : {}) },
+                  time: { start, end },
+                }
+              : {
+                  status: "running" as const,
+                  input,
+                  time: { start },
+                }
+        return {
+          id,
+          message_id: messageID,
+          session_id: sessionID,
+          data: {
+            type: "tool" as const,
+            tool: tool.name,
+            callID: tool.id,
+            state: toolState,
+          },
+        }
+      }),
+    }
+  }
+
+  if (message.type === "synthetic" || message.type === "system") {
+    return {
+      message: {
+        id: messageID,
+        session_id: sessionID,
+        time_created: timeCreated,
+        data: {
+          role: "user" as const,
+          time: { created: timeCreated },
+          agent: fallbackAgent,
+          model: fallbackModel,
+          summary: { diffs: [] },
+        },
+      },
+      parts: [
+        {
+          id: `prt_${messageID}_text`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: {
+            type: "text" as const,
+            text: message.text,
+            ...(message.type === "synthetic" ? { synthetic: true } : {}),
+          },
+        },
+      ],
+    }
+  }
+
+  return undefined
+}
+
+function dualWriteLegacy(
+  db: DatabaseService,
+  events: EventV2.Interface,
+  sessionID: SessionEvent.Event["data"]["sessionID"],
+  message: SessionMessage.Message,
+) {
+  return Effect.gen(function* () {
+    const session = yield* db
+      .select({
+        directory: SessionTable.directory,
+        agent: SessionTable.agent,
+        model: SessionTable.model,
+      })
+      .from(SessionTable)
+      .where(eq(SessionTable.id, sessionID))
+      .get()
+      .pipe(Effect.orDie)
+    if (!session) return
+
+    let parentID: string | undefined
+    if (message.type === "assistant" || message.type === "shell") {
+      const parent = yield* db
+        .select({ id: MessageTable.id })
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, sessionID))
+        .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+        .limit(20)
+        .all()
+        .pipe(Effect.orDie)
+      // Prefer the latest prior user message as parentID
+      for (const row of parent) {
+        if (String(row.id) === String(message.id)) continue
+        const full = yield* db
+          .select()
+          .from(MessageTable)
+          .where(eq(MessageTable.id, row.id))
+          .get()
+          .pipe(Effect.orDie)
+        const role = (full?.data as { role?: string } | undefined)?.role
+        if (role === "user") {
+          parentID = String(row.id)
+          break
+        }
+      }
+    }
+
+    const mirror = legacyMirror(sessionID, message, session, parentID)
+    if (!mirror) return
+
+    // Brand IDs (Session.Message.ID vs MessageID) differ at the type level but are
+    // the same msg_… strings at rest. Cast at the storage boundary so dual-write
+    // cannot fail the durable V2 projection on type mismatch.
+    const messageRow = {
+      id: mirror.message.id as (typeof MessageTable.$inferInsert)["id"],
+      session_id: mirror.message.session_id as (typeof MessageTable.$inferInsert)["session_id"],
+      time_created: mirror.message.time_created,
+      data: mirror.message.data as (typeof MessageTable.$inferInsert)["data"],
+    }
+
+    yield* db
+      .insert(MessageTable)
+      .values(messageRow)
+      .onConflictDoUpdate({
+        target: MessageTable.id,
+        set: { data: messageRow.data, time_created: messageRow.time_created },
+      })
+      .run()
+      .pipe(Effect.orDie)
+    yield* db
+      .delete(PartTable)
+      .where(eq(PartTable.message_id, messageRow.id))
+      .run()
+      .pipe(Effect.orDie)
+    const now = Date.now()
+    for (const part of mirror.parts) {
+      yield* db
+        .insert(PartTable)
+        .values({
+          id: part.id as (typeof PartTable.$inferInsert)["id"],
+          message_id: messageRow.id,
+          session_id: messageRow.session_id,
+          time_created: now,
+          data: part.data as (typeof PartTable.$inferInsert)["data"],
+        })
+        .run()
+        .pipe(Effect.orDie)
+    }
+
+    // NOTE: do NOT publish SessionV1.Event.MessageUpdated here — it is durable
+    // and steals event seq (UNIQUE constraint) / needs InstanceRef. Live TUI
+    // paint for V2 is handled by session.next.* → sync store bridge.
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError("legacy dual-write failed", { sessionID, messageID: message.id, cause }).pipe(Effect.asVoid),
+    ),
+  )
+}
+
+function insertMessage(
+  db: DatabaseService,
+  events: EventV2.Interface,
+  event: SessionEvent.Event,
+  message: SessionMessage.Message,
+) {
   if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
   const encoded = encodeMessage(message)
   const { id, type, ...data } = encoded
-  return db
-    .insert(SessionMessageTable)
-    .values({
-      id: SessionMessage.ID.make(id),
-      session_id: event.data.sessionID,
-      type,
-      seq: event.durable.seq,
-      time_created: DateTime.toEpochMillis(message.time.created),
-      data,
-    })
-    .run()
-    .pipe(Effect.orDie)
+  return Effect.gen(function* () {
+    yield* db
+      .insert(SessionMessageTable)
+      .values({
+        id: SessionMessage.ID.make(id),
+        session_id: event.data.sessionID,
+        type,
+        seq: event.durable!.seq,
+        time_created: DateTime.toEpochMillis(message.time.created),
+        data,
+      })
+      .run()
+      .pipe(Effect.orDie)
+    yield* dualWriteLegacy(db, events, event.data.sessionID, message)
+  })
 }
 
 const layer = Layer.effectDiscard(
@@ -285,9 +677,37 @@ const layer = Layer.effectDiscard(
           const previous = usage(row.data)
           if (previous) yield* applyUsage(db, event.data.sessionID, previous, -1)
         }
+        // Drop V1 parts + message so dual-read history does not resurrect them.
+        yield* db
+          .delete(PartTable)
+          .where(and(eq(PartTable.message_id, event.data.messageID), eq(PartTable.session_id, event.data.sessionID)))
+          .run()
+          .pipe(Effect.orDie)
         yield* db
           .delete(MessageTable)
           .where(and(eq(MessageTable.id, event.data.messageID), eq(MessageTable.session_id, event.data.sessionID)))
+          .run()
+          .pipe(Effect.orDie)
+        // V2 durable table is append-only for live events; hard-delete the row so
+        // session.next / v2.session.messages fallback cannot revive deleted messages.
+        yield* db
+          .delete(SessionMessageTable)
+          .where(
+            and(
+              eq(SessionMessageTable.id, SessionMessage.ID.make(String(event.data.messageID))),
+              eq(SessionMessageTable.session_id, event.data.sessionID),
+            ),
+          )
+          .run()
+          .pipe(Effect.orDie)
+        yield* db
+          .delete(SessionInputTable)
+          .where(
+            and(
+              eq(SessionInputTable.id, SessionMessage.ID.make(String(event.data.messageID))),
+              eq(SessionInputTable.session_id, event.data.sessionID),
+            ),
+          )
           .run()
           .pipe(Effect.orDie)
       }),
@@ -334,7 +754,7 @@ const layer = Layer.effectDiscard(
         .set({ agent: event.data.agent, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
-        .pipe(Effect.orDie, Effect.andThen(run(db, event))),
+        .pipe(Effect.orDie, Effect.andThen(run(db, events, event))),
     )
     yield* events.project(SessionEvent.ModelSwitched, (event) =>
       Effect.gen(function* () {
@@ -344,7 +764,7 @@ const layer = Layer.effectDiscard(
           .where(eq(SessionTable.id, event.data.sessionID))
           .run()
           .pipe(Effect.orDie)
-        yield* run(db, event)
+        yield* run(db, events, event)
       }),
     )
     yield* events.project(SessionEvent.Prompted, (event) =>
@@ -358,7 +778,7 @@ const layer = Layer.effectDiscard(
           timeCreated: event.data.timestamp,
           promotedSeq: event.durable.seq,
         })
-        yield* run(db, event)
+        yield* run(db, events, event)
       }),
     )
     yield* events.project(SessionEvent.PromptAdmitted, (event) =>
@@ -374,25 +794,25 @@ const layer = Layer.effectDiscard(
         })
       }),
     )
-    yield* events.project(SessionEvent.ContextUpdated, (event) => run(db, event))
-    yield* events.project(SessionEvent.Synthetic, (event) => run(db, event))
-    yield* events.project(SessionEvent.Shell.Started, (event) => run(db, event))
-    yield* events.project(SessionEvent.Shell.Ended, (event) => run(db, event))
-    yield* events.project(SessionEvent.Step.Started, (event) => run(db, event))
-    yield* events.project(SessionEvent.Step.Ended, (event) => run(db, event))
-    yield* events.project(SessionEvent.Step.Failed, (event) => run(db, event))
-    yield* events.project(SessionEvent.Text.Started, (event) => run(db, event))
-    yield* events.project(SessionEvent.Text.Ended, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Input.Started, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Input.Ended, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Called, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Progress, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Success, (event) => run(db, event))
-    yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, event))
-    yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, event))
-    yield* events.project(SessionEvent.Reasoning.Ended, (event) => run(db, event))
-    // yield* events.project(SessionEvent.Retried, (event) => run(db, event))
-    yield* events.project(SessionEvent.Compaction.Ended, (event) => run(db, event))
+    yield* events.project(SessionEvent.ContextUpdated, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Synthetic, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Shell.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Shell.Ended, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Step.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Step.Ended, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Step.Failed, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Text.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Text.Ended, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Input.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Input.Ended, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Called, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Progress, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Success, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Reasoning.Ended, (event) => run(db, events, event))
+    // yield* events.project(SessionEvent.Retried, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Compaction.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.RevertEvent.Staged, (event) =>
       db
         .update(SessionTable)
@@ -415,7 +835,7 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.RevertEvent.Committed, (event) =>
       Effect.gen(function* () {
         const boundary = yield* db
-          .select({ seq: SessionMessageTable.seq })
+          .select({ seq: SessionMessageTable.seq, time: SessionMessageTable.time_created })
           .from(SessionMessageTable)
           .where(
             and(
@@ -443,6 +863,48 @@ const layer = Layer.effectDiscard(
           )
           .run()
           .pipe(Effect.orDie)
+        // Drop the legacy MessageTable/PartTable tail too (dual-read history),
+        // so V2 revert does not leave ghost messages in the TUI's V1 store.
+        const legacy = yield* db
+          .select({ id: MessageTable.id })
+          .from(MessageTable)
+          .where(
+            and(
+              eq(MessageTable.session_id, event.data.sessionID),
+              or(
+                gt(MessageTable.time_created, boundary.time),
+                and(
+                  eq(MessageTable.time_created, boundary.time),
+                  // Brand IDs are the same msg_… strings at rest (see dual-write).
+                  gt(MessageTable.id, String(event.data.messageID) as (typeof MessageTable.$inferSelect)["id"]),
+                ),
+              ),
+            ),
+          )
+          .all()
+          .pipe(Effect.orDie)
+        for (const row of legacy) {
+          const previous = yield* db
+            .select()
+            .from(PartTable)
+            .where(and(eq(PartTable.message_id, row.id), eq(PartTable.session_id, event.data.sessionID)))
+            .all()
+            .pipe(Effect.orDie)
+          for (const part of previous) {
+            const usageValue = usage(part.data)
+            if (usageValue) yield* applyUsage(db, event.data.sessionID, usageValue, -1)
+          }
+          yield* db
+            .delete(PartTable)
+            .where(and(eq(PartTable.message_id, row.id), eq(PartTable.session_id, event.data.sessionID)))
+            .run()
+            .pipe(Effect.orDie)
+          yield* db
+            .delete(MessageTable)
+            .where(and(eq(MessageTable.id, row.id), eq(MessageTable.session_id, event.data.sessionID)))
+            .run()
+            .pipe(Effect.orDie)
+        }
         yield* db
           .update(SessionTable)
           .set({ revert: null, time_updated: DateTime.toEpochMillis(event.data.timestamp) })

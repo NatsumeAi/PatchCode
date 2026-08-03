@@ -86,6 +86,10 @@ type CreateInput = {
   agent?: AgentV2.ID
   model?: ModelV2.Ref
   location: Location.Ref
+  /** Parent session for subagent/task children. */
+  parentID?: SessionSchema.ID
+  /** Optional title; defaults to "New session - <iso>" (or child prefix when parentID is set). */
+  title?: string
 }
 
 type CompactInput = {
@@ -182,7 +186,7 @@ export interface Interface {
     skill: string
     resume?: boolean
   }) => Effect.Effect<void, OperationUnavailableError>
-  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
+  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
   readonly wait: (id: SessionSchema.ID) => Effect.Effect<void, NotFoundError | OperationUnavailableError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
@@ -237,6 +241,9 @@ const layer = Layer.effect(
           .run()
           .pipe(Effect.orDie)
         const now = Date.now()
+        const defaultTitle = input.parentID
+          ? `Child session - ${new Date(now).toISOString()}`
+          : `New session - ${new Date(now).toISOString()}`
         const info = SessionV1.SessionInfo.make({
           id: sessionID,
           slug: Slug.create(),
@@ -245,7 +252,8 @@ const layer = Layer.effect(
           directory: input.location.directory,
           path: path.relative(project.directory, input.location.directory).replaceAll("\\", "/"),
           workspaceID: input.location.workspaceID ? WorkspaceV2.ID.make(input.location.workspaceID) : undefined,
-          title: `New session - ${new Date(now).toISOString()}`,
+          parentID: input.parentID,
+          title: input.title ?? defaultTitle,
           agent: input.agent,
           model: input.model
             ? {
@@ -511,8 +519,10 @@ const layer = Layer.effect(
         })
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
-        yield* result.get(input.sessionID)
-        return yield* new OperationUnavailableError({ operation: "compact" })
+        const session = yield* result.get(input.sessionID)
+        yield* SessionRunner.Service.use((runner) => runner.compact(input.sessionID)).pipe(
+          Effect.provide(locations.get(session.location)),
+        )
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
