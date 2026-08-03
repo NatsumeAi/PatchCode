@@ -1,4 +1,4 @@
-import type { DisplayMode } from "./mode"
+import type { DisplayMode, FoldCycle } from "./mode"
 
 /**
  * Grok fold state machine (verified `blocks/tool/read.rs` for 3-state,
