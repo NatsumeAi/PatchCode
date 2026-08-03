@@ -88,14 +88,18 @@ import { LocationProvider } from "../../context/location"
 import {
   buildToolViewModel,
   buildReasoningViewModel,
+  classifyVerbRuns,
   DEFAULT_CONFIG,
   getDescriptor,
   nextFoldMode,
   normalizeToolName,
+  verbGroupHeaderLabel,
   type DisplayContext,
+  type VerbRun,
 } from "@opencode-ai/session-display"
 import { ToolEntry } from "../../display/ToolEntry"
 import { ReasoningEntry } from "../../display/ReasoningEntry"
+import { VerbGroupHeader } from "../../display/VerbGroupHeader"
 import { getPin, togglePin, pinVersion, setPin, applyToAll, allExpanded } from "../../display/pin-store"
 import { createEntrySelection } from "../../display/selection"
 
@@ -1687,20 +1691,93 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const childShortcut = useCommandShortcut("session.child.first")
   const backgroundShortcut = useCommandShortcut("session.background")
 
+  // Verb-group aggregation (Grok): consecutive collapsed same-kind tools fold
+  // into one header row. Expanded groups keep header + members.
+  const [expandedRuns, setExpandedRuns] = createSignal<Set<string>>(new Set())
+  const pathFormatter = usePathFormatter()
+  const displayCtx = createMemo<DisplayContext>(() => ({
+    cwd: pathFormatter.path(),
+    width: ctx.width,
+    config: { ...DEFAULT_CONFIG, genericToolOutput: ctx.showGenericToolOutput() },
+    formatPath: (p: string) => pathFormatter.format(p),
+  }))
+
+  const runs = createMemo<VerbRun[]>(() => {
+    const inputs = props.parts
+      .filter((p): p is ToolPart => p.type === "tool")
+      .map((part) => {
+        const vm = buildToolViewModel(part, displayCtx(), getPin(part.id))
+        return { id: part.id, tool: part.tool, status: part.state.status, mode: vm.mode }
+      })
+    return classifyVerbRuns(inputs)
+  })
+
+  const runByMemberId = createMemo(() => {
+    const map = new Map<string, VerbRun>()
+    for (const run of runs()) {
+      for (const id of run.memberIds) map.set(id, run)
+    }
+    return map
+  })
+
+  const runKey = (run: VerbRun) => `${run.kind}:${run.memberIds[0]}`
+
+  const toggleRun = (run: VerbRun) => {
+    const key = runKey(run)
+    setExpandedRuns((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const runExpanded = (run: VerbRun) => expandedRuns().has(runKey(run))
+
+  const groupedParts = createMemo(() => {
+    type Item = { kind: "header"; run: VerbRun } | { kind: "part"; part: Part; last: boolean }
+    const items: Item[] = []
+    const seenMembers = new Set<string>()
+    for (let i = 0; i < props.parts.length; i++) {
+      const part = props.parts[i]!
+      const last = i === props.parts.length - 1
+      const run = part.type === "tool" ? runByMemberId().get(part.id) : undefined
+      if (run && !seenMembers.has(part.id)) {
+        const expanded = runExpanded(run)
+        items.push({ kind: "header", run })
+        if (!expanded) {
+          for (const id of run.memberIds) seenMembers.add(id)
+        }
+        continue
+      }
+      items.push({ kind: "part", part, last })
+    }
+    return { items }
+  })
+
   return (
     <>
-      <For each={props.parts}>
-        {(part, index) => {
-          const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
-          return (
-            <Show when={component()}>
-              <Dynamic
-                last={index() === props.parts.length - 1}
-                component={component()}
-                part={part as any}
-                message={props.message}
+      <For each={groupedParts().items}>
+        {(item) => {
+          if (item.kind === "header") {
+            return (
+              <VerbGroupHeader
+                run={item.run}
+                label={verbGroupHeaderLabel(item.run)}
+                expanded={runExpanded(item.run)}
+                onToggle={() => toggleRun(item.run)}
               />
-            </Show>
+            )
+          }
+          const component = PART_MAPPING[item.part.type as keyof typeof PART_MAPPING]
+          if (!component) return null
+          return (
+            <Dynamic
+              last={item.last}
+              component={component}
+              part={item.part as any}
+              message={props.message}
+            />
           )
         }}
       </For>

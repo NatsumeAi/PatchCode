@@ -15,6 +15,10 @@ export { resolveMode, chromeFor } from "./mode"
 // Fold
 export { nextFoldMode } from "./fold"
 
+// Verb-group
+export type { VerbGroupKind, VerbRun, VerbRunMemberInput } from "./verb-group"
+export { classifyVerbRuns, eagerFoldKind, nounLabel, verbGroupHeaderLabel, verbLabel } from "./verb-group"
+
 // Config
 export type { DisplayConfig } from "./config"
 export { DEFAULT_CONFIG, mergeConfig } from "./config"

@@ -1,0 +1,76 @@
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { BoxRenderable, type BaseRenderable, type RGBA } from "@opentui/core"
+import type { VerbRun } from "@opencode-ai/session-display"
+import { useTheme } from "../context/theme"
+import { setPreLayoutSiblingMargin } from "../util/layout"
+import { accentBar, disclosureClosed, disclosureOpen, diamondFilled } from "./glyphs"
+import { blendColor, waveBrightness } from "./accent-wave"
+
+const BULLET_WIDTH = 2
+
+/** Status-driven color shared with ToolEntry (Grok colors by status). */
+function runColor(run: VerbRun, selected: boolean, theme: ReturnType<typeof useTheme>["theme"]): RGBA {
+  if (selected) return theme.text
+  if (run.running) return theme.warning
+  if (run.failed) return theme.error
+  return theme.textMuted
+}
+
+export function VerbGroupHeader(props: {
+  run: VerbRun
+  label: string
+  expanded: boolean
+  onToggle: () => void
+  selected?: boolean
+}) {
+  const { theme } = useTheme()
+
+  const isRunning = () => props.run.running
+  const [waveTick, setWaveTick] = createSignal(0)
+  createEffect(() => {
+    if (!isRunning()) {
+      setWaveTick(0)
+      return
+    }
+    let tick = 0
+    const timer = setInterval(() => {
+      tick += 1
+      setWaveTick(tick)
+    }, 50)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const fg = createMemo(() => runColor(props.run, props.selected ?? false, theme))
+  const accentFg = createMemo(() => {
+    if (!isRunning()) return fg()
+    return blendColor(theme.background, fg(), waveBrightness(waveTick(), 0))
+  })
+
+  return (
+    <box
+      paddingLeft={2}
+      ref={(el: BoxRenderable) => {
+        setPreLayoutSiblingMargin(el, (previous?: BaseRenderable) => {
+          if (previous instanceof BoxRenderable && previous.height > 1) return 1
+          return 1
+        })
+      }}
+      onMouseUp={() => props.onToggle()}
+    >
+      <box flexDirection="row">
+        <text width={1} fg={accentFg()}>
+          {accentBar}
+        </text>
+        <text width={BULLET_WIDTH} fg={accentFg()}>
+          {diamondFilled}
+        </text>
+        <text flexGrow={1} fg={fg()}>
+          {props.expanded ? disclosureOpen : disclosureClosed} {props.label}
+        </text>
+        <Show when={props.run.failed}>
+          <text fg={theme.error}> · failed</text>
+        </Show>
+      </box>
+    </box>
+  )
+}
