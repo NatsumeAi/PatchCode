@@ -23,6 +23,45 @@ export const summaryBudget = (contextWindow: number, l = SUMMARY_BUDGET_L, k = S
   const window = Math.max(0, contextWindow)
   return Math.max(1, Math.floor((l * window) / (window + k)))
 }
+
+/**
+ * Residual token budget for selected (verbatim) items under the total
+ * post-compaction constraint (plan Task 6 / P1-4 full form):
+ *
+ *   summary + selected + recent + system/tools ≤ contextWindow − buffer
+ *
+ * Returns the max tokens available for `selected`. Recent is never shrunk here
+ * (priority: keep recent, shrink selected when over).
+ */
+export const selectedBudgetCap = (input: {
+  readonly contextWindow: number
+  readonly buffer: number
+  readonly summaryTokens: number
+  readonly recentTokens: number
+  readonly systemToolsTokens: number
+}): number => {
+  const capacity = Math.max(0, input.contextWindow - Math.max(0, input.buffer))
+  const fixed =
+    Math.max(0, input.summaryTokens) + Math.max(0, input.recentTokens) + Math.max(0, input.systemToolsTokens)
+  return Math.max(0, capacity - fixed)
+}
+
+/** Pack items largest-first until `limit` tokens; used by D9 greedy and total-budget shrink. */
+export const packLargestFirst = (
+  items: readonly { readonly label: string; readonly tokens: number }[],
+  limit: number,
+): readonly string[] => {
+  if (limit <= 0) return []
+  const keep: string[] = []
+  let sum = 0
+  for (const item of [...items].sort((a, b) => b.tokens - a.tokens)) {
+    if (sum + item.tokens <= limit) {
+      keep.push(item.label)
+      sum += item.tokens
+    }
+  }
+  return keep
+}
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Objective
@@ -467,9 +506,30 @@ export const make = (dependencies: Dependencies) => {
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
     const recentBudget = Math.min(Math.floor(context * config.keepRecentRatio), config.keepRecentMax)
-    const selectionLimit = Math.floor(context * config.selectBudget)
+    const configuredSelection = Math.floor(context * config.selectBudget)
     const maxItems = context >= 1_000_000 ? 20 : 10
-    const selected = selectTurns(input.entries, recentBudget, selectionLimit)
+    // Trigger / total-budget buffer: min(10% window, 20k) unless configured (D13: no maxOutput).
+    const bufferTokens = config.buffer ?? Math.min(Math.floor(context * 0.1), DEFAULT_BUFFER)
+    // selectTurns uses the configured ratio for subturn split; the effective
+    // selection limit is tightened below by the total post-compaction cap.
+    const selected = selectTurns(input.entries, recentBudget, configuredSelection)
+    const recentTokens = selected.recent.reduce((sum, turn) => sum + turn.tokens, 0)
+    const systemToolsTokens = estimate({
+      system: input.request.system,
+      tools: input.request.tools,
+    })
+    const summaryOutput = summaryBudget(context, config.summaryL, config.summaryK)
+    // Full total-budget form (P1-4): shrink the selectable budget so that
+    // summary + selected + recent + system/tools ≤ context − buffer.
+    // Recent is protected (never reduced here); only selected yields.
+    const totalSelectedCap = selectedBudgetCap({
+      contextWindow: context,
+      buffer: bufferTokens,
+      summaryTokens: summaryOutput,
+      recentTokens,
+      systemToolsTokens,
+    })
+    const selectionLimit = Math.min(configuredSelection, totalSelectedCap)
     const previousCompaction = input.entries.findLast((entry) => entry.message.type === "compaction")?.message
     const previousSummary = previousCompaction?.type === "compaction" ? previousCompaction.summary : undefined
     const previousSurvival =
@@ -477,7 +537,6 @@ export const make = (dependencies: Dependencies) => {
     const previousFiles = previousCompaction?.type === "compaction" ? previousCompaction.files : undefined
     const fileOps = extractFileOps(input.entries.map((entry) => entry.message), previousFiles)
     const head = renderTurns(selected.head)
-    const recent = renderTurns(selected.recent)
     if (head.length === 0 && previousCompaction?.type !== "compaction") return false
     const numbered = formatNumberedItems(selected.items, context, previousSurvival)
     const selectionGuidance =
@@ -488,10 +547,8 @@ Choose items that are hard to compress (large code blocks, exact formats) or who
 Items marked ×N have survived N previous compactions — keep them if they are still important, or let them go when the summary already covers them.
 If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     const fullHistory = [head].filter(Boolean)
-    const summaryOutput = summaryBudget(context, config.summaryL, config.summaryK)
     const basePrompt = buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: fullHistory })
-    // Total-budget approximation: summary output + system prompt + the full
-    // selection prompt must fit the window (design §3 budget table).
+    // Summarize-request must itself fit the window (system slot + prompt + max out).
     if (Token.estimate(SUMMARIZATION_SYSTEM_PROMPT) + Token.estimate(basePrompt) + summaryOutput > context)
       return false
 
@@ -594,20 +651,14 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     if (cachedSummary === undefined) degraded = true
 
     if (!degraded && selectedLabels.length > 0) {
-      // Greedy truncation only when the final selection still exceeds 1.5x:
-      // pack largest-first (D9: keep the most important items).
+      // D9: only when the final selection still exceeds 1.5x the (total-budget-
+      // tightened) selection limit, pack largest-first down to the limit.
+      // ≤1.5x is fully kept at this step; the hard window cap is enforced below
+      // once the actual summary size is known.
       const chosen = selected.items.filter((item) => selectedLabels.includes(item.label))
-      let chosenTokens = chosen.reduce((sum, item) => sum + item.tokens, 0)
+      const chosenTokens = chosen.reduce((sum, item) => sum + item.tokens, 0)
       if (chosenTokens > selectionLimit * 1.5) {
-        const keep: string[] = []
-        let sum = 0
-        for (const item of [...chosen].sort((a, b) => b.tokens - a.tokens)) {
-          if (sum + item.tokens <= selectionLimit) {
-            keep.push(item.label)
-            sum += item.tokens
-          }
-        }
-        selectedLabels = keep
+        selectedLabels = packLargestFirst(chosen, selectionLimit)
       }
     }
 
@@ -633,6 +684,23 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     if (summary.trim() === "") return false
     const filesXml = renderFilesXml(fileOps)
     const summaryText = filesXml === "" ? summary : `${summary}\n\n${filesXml}`
+    // Hard total-budget cap (P1-4 full form) after the real summary size is known:
+    // summary + selected + recent + system/tools ≤ context − buffer.
+    // Recent stays; selected shrinks via largest-first packing if still over.
+    if (selectedLabels.length > 0) {
+      const residual = selectedBudgetCap({
+        contextWindow: context,
+        buffer: bufferTokens,
+        summaryTokens: Token.estimate(summaryText),
+        recentTokens,
+        systemToolsTokens,
+      })
+      const chosen = selected.items.filter((item) => selectedLabels.includes(item.label))
+      const chosenTokens = chosen.reduce((sum, item) => sum + item.tokens, 0)
+      if (chosenTokens > residual) {
+        selectedLabels = packLargestFirst(chosen, residual)
+      }
+    }
     // Survival accounting: selected items and recent-turn items get +1; items
     // that were neither selected nor recent disappear from the map.
     const nextSurvival: Record<string, number> = {}
