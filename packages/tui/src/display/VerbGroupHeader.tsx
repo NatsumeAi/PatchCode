@@ -12,7 +12,7 @@ const BULLET_WIDTH = 2
 function runColor(run: VerbRun, selected: boolean, theme: ReturnType<typeof useTheme>["theme"]): RGBA {
   if (selected) return theme.text
   if (run.running) return theme.warning
-  if (run.failed) return theme.error
+  if (run.failedCount > 0) return theme.error
   return theme.textMuted
 }
 
@@ -67,8 +67,8 @@ export function VerbGroupHeader(props: {
         <text flexGrow={1} fg={fg()}>
           {props.expanded ? disclosureOpen : disclosureClosed} {props.label}
         </text>
-        <Show when={props.run.failed}>
-          <text fg={theme.error}> · failed</text>
+        <Show when={props.run.failedCount > 0}>
+          <text fg={theme.error}> · {props.run.failedCount} failed</text>
         </Show>
       </box>
     </box>

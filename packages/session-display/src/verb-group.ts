@@ -25,7 +25,8 @@ export interface VerbRunMemberInput {
 export interface VerbRun {
   kind: VerbGroupKind
   memberIds: string[]
-  failed: boolean
+  /** Number of failed members (Grok `failed_count`, verified verb_group.rs:319). */
+  failedCount: number
   running: boolean
 }
 
@@ -89,30 +90,35 @@ const NOUN_BY_KIND: Record<VerbGroupKind, readonly [string, string]> = {
 /**
  * Classify runs of consecutive, collapsed, eager-foldable tool calls into
  * verb groups (verified Grok `run_step` + `scan_run_forward`): a Member is a
- * collapsed eager-fold tool; an opened/streaming entry or any other part
- * breaks the run. Returns one run per maximal consecutive same-kind streak
- * with at least one member.
+ * collapsed eager-fold tool regardless of status — failed members stay in the
+ * run and are counted (`failed_count`). A non-eager, opened, or non-tool
+ * entry breaks the run. Returns one run per maximal consecutive same-kind
+ * streak with at least one member.
  */
 export function classifyVerbRuns(parts: readonly VerbRunMemberInput[]): VerbRun[] {
   const runs: VerbRun[] = []
   let current: VerbRun | null = null
 
+  const failed = (status: PartStatus) => status === "error"
+  const running = (status: PartStatus) => status === "running" || status === "pending"
+
   for (const part of parts) {
     const kind = part.mode === "collapsed" ? eagerFoldKind(part.tool) : null
-    if (!kind || part.status === "error") {
+    if (!kind) {
       current = null
       continue
     }
     if (current && current.kind === kind) {
       current.memberIds.push(part.id)
-      if (part.status === "running" || part.status === "pending") current.running = true
+      if (running(part.status)) current.running = true
+      if (failed(part.status)) current.failedCount += 1
       continue
     }
     current = {
       kind,
       memberIds: [part.id],
-      failed: false,
-      running: part.status === "running" || part.status === "pending",
+      failedCount: failed(part.status) ? 1 : 0,
+      running: running(part.status),
     }
     runs.push(current)
   }
@@ -121,5 +127,6 @@ export function classifyVerbRuns(parts: readonly VerbRunMemberInput[]): VerbRun[
 }
 
 export function verbGroupHeaderLabel(run: VerbRun): string {
-  return `${verbLabel(run.kind, run.running)} ${run.memberIds.length} ${nounLabel(run.kind, run.memberIds.length)}`
+  const base = `${verbLabel(run.kind, run.running)} ${run.memberIds.length} ${nounLabel(run.kind, run.memberIds.length)}`
+  return run.failedCount > 0 ? `${base} · ${run.failedCount} failed` : base
 }

@@ -69,10 +69,11 @@ describe("classifyVerbRuns", () => {
     expect(runs).toHaveLength(2)
   })
 
-  test("error member breaks the run", () => {
+  test("error member stays in run and is counted (Grok failed_count)", () => {
     const runs = classifyVerbRuns([p("a", "read", "collapsed"), p("b", "read", "collapsed", "error")])
     expect(runs).toHaveLength(1)
-    expect(runs[0]!.memberIds).toEqual(["a"])
+    expect(runs[0]!.memberIds).toEqual(["a", "b"])
+    expect(runs[0]!.failedCount).toBe(1)
   })
 
   test("running member marks run running", () => {
@@ -87,13 +88,18 @@ describe("classifyVerbRuns", () => {
 
 describe("verbGroupHeaderLabel", () => {
   test("Read 3 files", () => {
-    expect(verbGroupHeaderLabel({ kind: "file", memberIds: ["a", "b", "c"], failed: false, running: false })).toBe(
-      "Read 3 files",
-    )
+    expect(
+      verbGroupHeaderLabel({ kind: "file", memberIds: ["a", "b", "c"], failedCount: 0, running: false }),
+    ).toBe("Read 3 files")
   })
   test("Reading 1 file while running", () => {
-    expect(verbGroupHeaderLabel({ kind: "file", memberIds: ["a"], failed: false, running: true })).toBe(
-      "Reading 1 file",
-    )
+    expect(
+      verbGroupHeaderLabel({ kind: "file", memberIds: ["a"], failedCount: 0, running: true }),
+    ).toBe("Reading 1 file")
+  })
+  test("Searched 2 patterns · 1 failed", () => {
+    expect(
+      verbGroupHeaderLabel({ kind: "search", memberIds: ["a", "b"], failedCount: 1, running: false }),
+    ).toBe("Searched 2 patterns · 1 failed")
   })
 })
