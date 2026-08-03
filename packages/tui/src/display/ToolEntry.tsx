@@ -11,7 +11,7 @@ import { CodeBody } from "./body/CodeBody"
 import { PatchBody } from "./body/PatchBody"
 import { TextBody } from "./body/TextBody"
 import { setPreLayoutSiblingMargin } from "../util/layout"
-import { accentBar, diamondFilled } from "./glyphs"
+import { accentBar, collapsedAccent, diamondFilled } from "./glyphs"
 import { blendColor, waveBrightness } from "./accent-wave"
 
 const BULLET_WIDTH = 2
@@ -94,6 +94,16 @@ export function ToolEntry(props: {
     return blendColor(theme.background, fg(), waveBrightness(waveTick(), 0))
   })
 
+  // Grok: collapsed+unselected rail uses thin ❙ dimmed toward bg; selected or
+  // expanded keeps full accentBar at full color.
+  const railFg = createMemo(() => {
+    if (props.vm.mode !== "collapsed" || isRunning() || props.selected) return fg()
+    return blendColor(theme.background, fg(), 0.5)
+  })
+  const railGlyph = createMemo(() =>
+    props.vm.mode === "collapsed" && !isRunning() && !props.selected ? collapsedAccent : accentBar,
+  )
+
   const headerVerbAndPrimary = createMemo(() => {
     const h = props.vm.header
     const parts: string[] = []
@@ -125,8 +135,8 @@ export function ToolEntry(props: {
     >
       {/* Header line */}
       <box flexDirection="row">
-        <text width={1} fg={accentFg()}>
-          {accentBar}
+        <text width={1} fg={railFg()}>
+          {railGlyph()}
         </text>
         <text width={BULLET_WIDTH} fg={accentFg()}>
           {diamondFilled}

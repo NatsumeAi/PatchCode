@@ -82,4 +82,14 @@ describe("ToolViewModel contract for accent rendering", () => {
     const v = vm({ header: { ...vm().header, muted: true } })
     expect(v.header.muted).toBe(true)
   })
+  test("dimDetails flag flows from view model", () => {
+    const v = vm({ header: { ...vm().header, details: "(1-50)", dimDetails: true } })
+    expect(v.header.details).toBe("(1-50)")
+    expect(v.header.dimDetails).toBe(true)
+  })
+  test("collapsed clickable entry is groupable (gap=0 rule precondition)", () => {
+    const v = vm({ mode: "collapsed" })
+    expect(v.mode).toBe("collapsed")
+    expect(v.clickable).toBe(true)
+  })
 })
