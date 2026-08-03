@@ -48,11 +48,18 @@ function header(part: ToolPart, ctx: DisplayContext): HeaderModel {
 function body(part: ToolPart, mode: DisplayMode, _ctx: DisplayContext): BodyModel {
   // §4: read collapsed body = none (no default Loaded lines)
   if (mode === "collapsed") return { kind: "none" }
-  // expanded: optionally show loaded list
+  // expanded/truncated: prefer loaded list (V1), else tool output (V2 bridge)
   const meta = metadata(part)
   const loaded = Array.isArray(meta.loaded) ? (meta.loaded as string[]).filter((x) => typeof x === "string") : []
-  if (loaded.length === 0) return { kind: "none" }
-  return { kind: "lines", lines: loaded.map((p) => `Loaded ${p}`) }
+  if (loaded.length > 0) return { kind: "lines", lines: loaded.map((p) => `Loaded ${p}`) }
+  const output =
+    part.state.status === "completed" || part.state.status === "error"
+      ? str((part.state as { output?: unknown }).output) ?? ""
+      : ""
+  if (output.trim()) return { kind: "text", text: output, maxLines: mode === "truncated" ? 8 : undefined }
+  const filePath = str(input(part).filePath)
+  if (filePath) return { kind: "lines", lines: [`Read ${filePath}`] }
+  return { kind: "none" }
 }
 
 export const readDescriptor: ToolDescriptor = {

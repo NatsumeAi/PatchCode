@@ -27,7 +27,7 @@ export { DEFAULT_CONFIG, mergeConfig } from "./config"
 export { normalizeToolName } from "./normalize"
 
 // Header utilities
-export { shortenPath, truncateText, formatDuration, filename } from "./header-utils"
+export { shortenPath, truncateText, formatDuration, filename, toEpochMs } from "./header-utils"
 
 // Registry
 export type { DisplayContext, ToolDescriptor } from "./registry"

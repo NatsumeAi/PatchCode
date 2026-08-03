@@ -8,15 +8,16 @@ describe("nextFoldMode", () => {
     expect(nextFoldMode("two", "truncated", false)).toBe("collapsed")
   })
 
-  test("three-state (read): collapsed → truncated → collapsed", () => {
+  test("three-state (read): collapsed → truncated → expanded → collapsed", () => {
     expect(nextFoldMode("three", "collapsed", false)).toBe("truncated")
-    expect(nextFoldMode("three", "truncated", false)).toBe("collapsed")
+    expect(nextFoldMode("three", "truncated", false)).toBe("expanded")
     expect(nextFoldMode("three", "expanded", false)).toBe("collapsed")
   })
 
   test("three-state running flag is ignored (Grok read next_fold ignores _is_running)", () => {
     expect(nextFoldMode("three", "collapsed", true)).toBe("truncated")
-    expect(nextFoldMode("three", "truncated", true)).toBe("collapsed")
+    expect(nextFoldMode("three", "truncated", true)).toBe("expanded")
     expect(nextFoldMode("three", "collapsed", false)).toBe("truncated")
   })
 })
+

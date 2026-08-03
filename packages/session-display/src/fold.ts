@@ -9,8 +9,11 @@ import type { DisplayMode, FoldCycle } from "./mode"
  * so the cycle is state-independent.
  */
 export function nextFoldMode(cycle: FoldCycle, current: DisplayMode, _isRunning: boolean): DisplayMode {
+  // Three-state still allows full expand so V2 tools (often without mid-density
+  // preview metadata) remain openable: collapsed → truncated → expanded → collapsed.
   if (cycle === "three") {
     if (current === "collapsed") return "truncated"
+    if (current === "truncated") return "expanded"
     return "collapsed"
   }
   if (current === "collapsed") return "expanded"

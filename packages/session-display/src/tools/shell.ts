@@ -44,9 +44,20 @@ function header(part: ToolPart, _ctx: DisplayContext): HeaderModel {
   }
 }
 
-function body(part: ToolPart, mode: DisplayMode, ctx: DisplayContext): BodyModel {
+/** Prefer metadata.output (V1 projector); fall back to state.output (V2 bridge). */
+function shellOutput(part: ToolPart): string {
   const meta = metadata(part)
-  const output = str(meta.output) ?? ""
+  const fromMeta = str(meta.output)
+  if (fromMeta) return fromMeta
+  if (part.state.status === "completed" || part.state.status === "error") {
+    const fromState = str((part.state as { output?: unknown }).output)
+    if (fromState) return fromState
+  }
+  return ""
+}
+
+function body(part: ToolPart, mode: DisplayMode, ctx: DisplayContext): BodyModel {
+  const output = shellOutput(part)
 
   // §4: shell success → body none while collapsed; expanded reveals output
   if (part.state.status === "completed" && !isLogicalError(part)) {

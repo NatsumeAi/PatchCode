@@ -12,8 +12,28 @@ export function truncateText(text: string, max: number): string {
   return text.slice(0, Math.max(0, max - 1)) + "\u2026"
 }
 
+/** Coerce DateTime / ISO / millis into epoch ms; null if unusable. */
+export function toEpochMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string" && value.length > 0) {
+    const asNum = Number(value)
+    if (Number.isFinite(asNum) && value.trim() !== "") return asNum
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  if (value != null && typeof value === "object") {
+    const obj = value as { epochMilliseconds?: unknown; epochMillis?: unknown }
+    if (typeof obj.epochMilliseconds === "number" && Number.isFinite(obj.epochMilliseconds)) {
+      return obj.epochMilliseconds
+    }
+    if (typeof obj.epochMillis === "number" && Number.isFinite(obj.epochMillis)) return obj.epochMillis
+  }
+  return null
+}
+
 /** Format milliseconds as human-readable duration (e.g. "2.1s", "1m30s"). */
 export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return ""
   const secs = ms / 1000
   if (secs < 60) return `${secs.toFixed(1)}s`
   const mins = Math.floor(secs / 60)

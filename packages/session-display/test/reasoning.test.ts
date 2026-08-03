@@ -59,6 +59,25 @@ describe("§8.2 reasoning snapshots", () => {
     expect(vm.durationMs).toBe(1000)
     expect(vm.status).toBe("done")
     expect(vm.mode).toBe("collapsed")
+    expect(vm.clickable).toBe(true)
+  })
+
+  test("duration from ISO timestamps (SSE DateTime JSON) does not produce NaN", () => {
+    const part: ReasoningPart = {
+      id: "part_r01",
+      sessionID: "ses_001",
+      messageID: "msg_001",
+      type: "reasoning",
+      text: "done",
+      time: {
+        start: "2026-08-03T05:43:22.000Z" as unknown as number,
+        end: "2026-08-03T05:43:24.500Z" as unknown as number,
+      },
+    }
+    const vm = buildReasoningViewModel(part, null, null, DEFAULT_CONFIG)
+    expect(vm.status).toBe("done")
+    expect(vm.durationMs).toBe(2500)
+    expect(Number.isFinite(vm.durationMs)).toBe(true)
   })
 
   test("reasoningSummary without title", () => {

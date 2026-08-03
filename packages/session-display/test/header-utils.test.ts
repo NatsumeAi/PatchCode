@@ -45,6 +45,11 @@ describe("formatDuration", () => {
   test("formats multi-minute", () => {
     expect(formatDuration(90000)).toBe("1m30s")
   })
+
+  test("rejects NaN/negative so UI never shows NaNmNaNs", () => {
+    expect(formatDuration(Number.NaN)).toBe("")
+    expect(formatDuration(-1)).toBe("")
+  })
 })
 
 describe("filename", () => {

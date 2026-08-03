@@ -1,6 +1,7 @@
 import type { ReasoningPart } from "@opencode-ai/sdk/v2"
 import type { DisplayConfig } from "../config"
 import type { DisplayMode } from "../mode"
+import { toEpochMs } from "../header-utils"
 
 export interface ReasoningViewModel {
   mode: DisplayMode
@@ -9,6 +10,8 @@ export interface ReasoningViewModel {
   durationMs: number | null
   userPinned: boolean
   status: "streaming" | "done"
+  /** Same fold contract as tools — always clickable when body or streaming. */
+  clickable: boolean
 }
 
 /**
@@ -36,7 +39,7 @@ export function resolveReasoningMode(
 ): DisplayMode {
   if (pin != null) return pin
 
-  const isDone = part.time.end !== undefined
+  const isDone = toEpochMs(part.time?.end) != null
 
   if (storedMode === "hide") return "collapsed"
   if (storedMode === "show") return "expanded"
@@ -53,16 +56,22 @@ export function buildReasoningViewModel(
   cfg: DisplayConfig,
 ): ReasoningViewModel {
   const mode = resolveReasoningMode(part, storedMode, pin, cfg)
-  const isDone = part.time.end !== undefined
-  const durationMs = isDone ? (part.time.end ?? 0) - part.time.start : null
+  const startMs = toEpochMs(part.time?.start)
+  const endMs = toEpochMs(part.time?.end)
+  // Prefer explicit end; treat missing/invalid end as still streaming.
+  const isDone = endMs != null
+  const durationMs =
+    isDone && startMs != null && endMs != null && endMs >= startMs ? endMs - startMs : null
   const summary = reasoningSummary(part.text.replace("[REDACTED]", "").trim())
+  const body = summary.body
 
   return {
     mode,
     title: summary.title,
-    body: summary.body,
+    body,
     durationMs,
     userPinned: pin != null,
     status: isDone ? "done" : "streaming",
+    clickable: body.length > 0 || !isDone,
   }
 }
