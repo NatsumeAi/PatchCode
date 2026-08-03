@@ -44,13 +44,31 @@ export function createSidebarLayoutState(options: SidebarLayoutStateOptions): Si
     setRequestedWidth(normalizeSidebarWidth(options.storedWidth()))
   })
 
-  const layout = createMemo(() =>
+  // Committed layout (no draft) — used to freeze mainContentWidth during drag so
+  // the message list does not reflow on every pointer move.
+  const committedLayout = createMemo(() =>
     resolveSidebarLayout({
       terminalWidth: options.terminalWidth(),
-      requestedWidth: draftWidth() ?? requestedWidth(),
+      requestedWidth: requestedWidth(),
       visible: options.visible(),
     }),
   )
+
+  const layout = createMemo(() => {
+    const draft = draftWidth()
+    if (draft === undefined) return committedLayout()
+    const live = resolveSidebarLayout({
+      terminalWidth: options.terminalWidth(),
+      requestedWidth: draft,
+      visible: options.visible(),
+    })
+    // Rail width tracks the drag; main pane keeps the pre-drag width so markdown
+    // / tool rows (ctx.width) do not re-measure every pixel.
+    return {
+      ...live,
+      mainContentWidth: committedLayout().mainContentWidth,
+    }
+  })
 
   function beginResize(startXValue: number) {
     if (resizing() || !layout().handleVisible) return
@@ -65,7 +83,10 @@ export function createSidebarLayoutState(options: SidebarLayoutStateOptions): Si
     const width = startWidth()
     if (start === undefined || width === undefined) return
     if (!resizing()) setResizing(true)
-    setDraftWidth(normalizeSidebarWidth(widthFromDrag({ startWidth: width, startX: start, currentX })))
+    const next = normalizeSidebarWidth(widthFromDrag({ startWidth: width, startX: start, currentX }))
+    // Same rounded column → no signal write, no re-render.
+    if (next === draftWidth()) return
+    setDraftWidth(next)
   }
 
   function endResize() {

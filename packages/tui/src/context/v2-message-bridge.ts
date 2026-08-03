@@ -19,6 +19,7 @@ import type {
   ToolPart,
   UserMessage,
 } from "@opencode-ai/sdk/v2"
+import { toEpochMsOr } from "../util/epoch-ms"
 
 export type LegacySessionMeta = {
   agent: string
@@ -40,20 +41,7 @@ export function sessionMeta(session: Session | undefined): LegacySessionMeta {
 
 /** Coerce event timestamps (epoch ms | ISO | DateTime-like) to epoch ms. */
 function ts(value: unknown, fallback = Date.now()) {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string" && value.length > 0) {
-    const asNum = Number(value)
-    if (Number.isFinite(asNum) && value.trim() !== "") return asNum
-    const parsed = Date.parse(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  if (value != null && typeof value === "object") {
-    const obj = value as { epochMilliseconds?: unknown }
-    if (typeof obj.epochMilliseconds === "number" && Number.isFinite(obj.epochMilliseconds)) {
-      return obj.epochMilliseconds
-    }
-  }
-  return fallback
+  return toEpochMsOr(value, fallback)
 }
 
 export function userMessageFromPrompt(input: {
@@ -133,6 +121,7 @@ export function emptyTextPart(input: {
   sessionID: string
   messageID: string
   textID: string
+  start?: number
 }): TextPart {
   return {
     id: textPartID(input.messageID, input.textID),
@@ -140,6 +129,8 @@ export function emptyTextPart(input: {
     messageID: input.messageID,
     type: "text",
     text: "",
+    // Chronological insert needs a start time so text sorts before later tools.
+    time: { start: input.start ?? Date.now() },
   }
 }
 
@@ -259,6 +250,52 @@ export function sessionMessageToLegacy(
     }
   }
 
+  // session.shell / Shell message → bash tool row (matches projector.ts shell branch)
+  if (message.type === "shell") {
+    const completed = message.time.completed === undefined ? undefined : ts(message.time.completed)
+    const end = completed ?? created
+    const output = message.output ?? ""
+    const body = ["$ " + message.command, output].filter(Boolean).join("\n")
+    const info = assistantMessageFromStep({
+      sessionID,
+      messageID: message.id,
+      agent: meta.agent,
+      model: { id: meta.model.modelID, providerID: meta.model.providerID, variant: meta.model.variant },
+      timestamp: created,
+      parentID: parentID ?? message.id,
+      directory: meta.directory,
+    })
+    info.time = { created, completed: end }
+    info.finish = "stop"
+    const parts: Part[] = [
+      {
+        id: `prt_${message.id}_shell`,
+        sessionID,
+        messageID: message.id,
+        type: "tool" as const,
+        tool: "bash",
+        callID: message.callID,
+        state: {
+          status: "completed" as const,
+          input: { command: message.command },
+          output,
+          title: "bash",
+          metadata: { output },
+          time: { start: created, end },
+        },
+      },
+      {
+        id: `prt_${message.id}_text`,
+        sessionID,
+        messageID: message.id,
+        type: "text" as const,
+        text: body,
+        time: { start: created, end },
+      },
+    ]
+    return { info, parts }
+  }
+
   if (message.type === "assistant") {
     const tokens = message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
     const completed = message.time.completed === undefined ? undefined : ts(message.time.completed)
@@ -299,6 +336,8 @@ export function sessionMessageToLegacy(
           messageID: message.id,
           type: "text" as const,
           text: part.text,
+          // Assistant text has no per-part clock; anchor to message created for order.
+          time: { start: created, ...(completed === undefined ? {} : { end: completed }) },
         }
       }
       if (part.type === "reasoning") {

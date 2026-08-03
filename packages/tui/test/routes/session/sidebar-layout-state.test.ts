@@ -40,16 +40,35 @@ describe("createSidebarLayoutState", () => {
     createRoot(() => {
       const { state, persisted } = setup()
       expect(state.requestedWidth()).toBe(42)
+      const mainBefore = state.layout().mainContentWidth
       state.beginResize(100)
       state.updateResize(90)
       expect(state.draftWidth()).toBe(52)
       expect(state.layout().effectiveWidth).toBe(52)
+      // Main pane width is frozen during drag (avoids full transcript reflow).
+      expect(state.layout().mainContentWidth).toBe(mainBefore)
       expect(persisted).toEqual([])
       state.endResize()
       expect(state.requestedWidth()).toBe(52)
       expect(state.draftWidth()).toBeUndefined()
       expect(state.resizing()).toBe(false)
       expect(persisted).toEqual([52])
+      // After commit, main content width reflects the new rail size.
+      expect(state.layout().mainContentWidth).not.toBe(mainBefore)
+    })
+  })
+
+  test("identical drag columns do not thrash draft writes", () => {
+    createRoot(() => {
+      const { state } = setup()
+      state.beginResize(100)
+      state.updateResize(90)
+      expect(state.draftWidth()).toBe(52)
+      // Sub-column jitter still rounds to 52 — draft stays put.
+      state.updateResize(90.4)
+      expect(state.draftWidth()).toBe(52)
+      state.endResize()
+      expect(state.requestedWidth()).toBe(52)
     })
   })
 

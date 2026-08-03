@@ -5,6 +5,7 @@ import { useTheme } from "../context/theme"
 import { setPreLayoutSiblingMargin } from "../util/layout"
 import { disclosureClosed, disclosureOpen } from "./glyphs"
 import { blendColor, waveBrightness } from "./accent-wave"
+import { createPressReleaseClick } from "./press-release"
 
 const BULLET_WIDTH = 2
 
@@ -46,6 +47,8 @@ export function VerbGroupHeader(props: {
     return blendColor(theme.background, fg(), waveBrightness(waveTick(), 0))
   })
 
+  const press = createPressReleaseClick(() => props.onToggle())
+
   return (
     <box
       paddingLeft={2}
@@ -55,7 +58,9 @@ export function VerbGroupHeader(props: {
           return 1
         })
       }}
-      onMouseUp={() => props.onToggle()}
+      onMouseDown={press.onMouseDown}
+      onMouseUp={press.onMouseUp}
+      onMouseOut={press.onMouseOut}
     >
       <box flexDirection="row">
         <text width={BULLET_WIDTH} fg={accentFg()}>

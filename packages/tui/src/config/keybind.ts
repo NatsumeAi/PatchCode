@@ -108,11 +108,14 @@ export const Definitions = {
   session_child_cycle_reverse: keybind("left", "Go to previous child session"),
   session_parent: keybind("up", "Go to parent session"),
   session_pin_toggle: keybind("ctrl+f", "Pin or unpin session in the session list"),
-  session_fold_toggle: keybind("e", "Fold/unfold selected tool or reasoning entry"),
-  session_fold_collapse: keybind("h,left", "Collapse selected entry"),
-  session_fold_expand: keybind("l,right", "Expand selected entry"),
-  session_expand_all: keybind("E", "Expand or collapse all entries"),
-  session_expand_all_thinking: keybind("ctrl+e", "Toggle all thinking blocks"),
+  // Fold shortcuts default to none — bare e/h/l/E stole prompt typing and were
+  // never a user-requested feature. Mouse click still toggles fold; users who
+  // want keys can set them in config.
+  session_fold_toggle: keybind("none", "Fold/unfold selected tool or reasoning entry"),
+  session_fold_collapse: keybind("none", "Collapse selected entry"),
+  session_fold_expand: keybind("none", "Expand selected entry"),
+  session_expand_all: keybind("none", "Expand or collapse all entries"),
+  session_expand_all_thinking: keybind("none", "Toggle all thinking blocks"),
   session_quick_switch_1: keybind("<leader>1", "Switch to session in quick slot 1"),
   session_quick_switch_2: keybind("<leader>2", "Switch to session in quick slot 2"),
   session_quick_switch_3: keybind("<leader>3", "Switch to session in quick slot 3"),

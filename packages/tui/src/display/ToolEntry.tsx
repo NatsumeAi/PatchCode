@@ -13,6 +13,7 @@ import { TextBody } from "./body/TextBody"
 import { setPreLayoutSiblingMargin } from "../util/layout"
 import { disclosureClosed, disclosureOpen } from "./glyphs"
 import { blendColor, waveBrightness } from "./accent-wave"
+import { createPressReleaseClick } from "./press-release"
 
 const BULLET_WIDTH = 2
 
@@ -119,6 +120,11 @@ export function ToolEntry(props: {
     return parts.join(" ")
   })
 
+  // Press+release on this block only — avoids expand on selection/mouseup-only.
+  const press = createPressReleaseClick(() => {
+    if (props.vm.clickable) props.onClick()
+  })
+
   return (
     <box
       paddingLeft={2}
@@ -134,10 +140,9 @@ export function ToolEntry(props: {
           return 1
         })
       }}
-      onMouseUp={() => {
-        // Always forward click when foldable so expand works even if body is empty.
-        if (props.vm.clickable) props.onClick()
-      }}
+      onMouseDown={press.onMouseDown}
+      onMouseUp={press.onMouseUp}
+      onMouseOut={press.onMouseOut}
     >
       {/* Header line: `>` / `v` + verb + primary [+ dim details as sibling text] */}
       {/* Never nest <text> inside <text> — OpenTUI TextNode only accepts string/StyledText children. */}

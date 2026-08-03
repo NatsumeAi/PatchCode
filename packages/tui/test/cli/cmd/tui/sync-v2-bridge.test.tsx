@@ -43,6 +43,24 @@ test("session.next events paint V1 message/parts for TUI render store", async ()
     )
     await wait(() => !!sync.session.get(sessionID))
 
+    // Admitted paints immediately (QUEUED UI); prompted is idempotent re-apply.
+    emit(
+      global({
+        id: "evt_admitted",
+        type: "session.next.prompt.admitted",
+        properties: {
+          timestamp: 999,
+          sessionID,
+          messageID: userID,
+          prompt: { text: "你好" },
+          delivery: "queue",
+        },
+      }),
+    )
+    await wait(() => (sync.data.message[sessionID] ?? []).some((m) => m.id === userID))
+    expect(sync.data.message[sessionID]?.find((m) => m.id === userID)?.role).toBe("user")
+    expect(sync.data.part[userID]?.[0]).toMatchObject({ type: "text", text: "你好" })
+
     emit(
       global({
         id: "evt_prompted",
@@ -143,6 +161,86 @@ test("session.next events paint V1 message/parts for TUI render store", async ()
       expect(assistant.parentID).toBe(userID)
       expect(assistant.finish).toBe("stop")
     }
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("tool.called paints real tool name from event.tool (verb-group prerequisite)", async () => {
+  await using tmp = await tmpdir()
+  await Bun.write(`${tmp.path}/kv.json`, "{}")
+
+  const { app, emit, sync } = await mount((url) => {
+    if (url.pathname === `/session/${sessionID}`) return json(session)
+    if (url.pathname === `/session/${sessionID}/message`) return json([])
+    if (url.pathname === `/session/${sessionID}/todo` || url.pathname === `/session/${sessionID}/diff`) return json([])
+    return undefined
+  }, tmp.path)
+
+  try {
+    emit(
+      global({
+        id: "evt_session",
+        type: "session.updated",
+        properties: { sessionID, info: session as never },
+      }),
+    )
+    await wait(() => !!sync.session.get(sessionID))
+
+    emit(
+      global({
+        id: "evt_step",
+        type: "session.next.step.started",
+        properties: {
+          timestamp: 1100,
+          sessionID,
+          assistantMessageID: assistantID,
+          agent: "build",
+          model: { id: "deepseek-v4-flash-free", providerID: "opencode", variant: "high" },
+        },
+      }),
+    )
+    await wait(() => (sync.data.message[sessionID] ?? []).some((m) => m.id === assistantID))
+
+    // No input.started — Called alone must still carry the tool name (schema field is `tool`).
+    emit(
+      global({
+        id: "evt_called_1",
+        type: "session.next.tool.called",
+        properties: {
+          timestamp: 1200,
+          sessionID,
+          assistantMessageID: assistantID,
+          callID: "call_read_1",
+          tool: "read",
+          input: { filePath: "a.ts" },
+          provider: { executed: false },
+        },
+      }),
+    )
+    emit(
+      global({
+        id: "evt_called_2",
+        type: "session.next.tool.called",
+        properties: {
+          timestamp: 1201,
+          sessionID,
+          assistantMessageID: assistantID,
+          callID: "call_read_2",
+          tool: "read",
+          input: { filePath: "b.ts" },
+          provider: { executed: false },
+        },
+      }),
+    )
+    await wait(() => {
+      const tools = (sync.data.part[assistantID] ?? []).filter((p) => p.type === "tool")
+      return tools.length >= 2
+    })
+
+    const tools = (sync.data.part[assistantID] ?? []).filter((p) => p.type === "tool")
+    expect(tools.every((p) => p.type === "tool" && p.tool === "read")).toBe(true)
+    expect(tools.some((p) => p.type === "tool" && p.tool === "tool")).toBe(false)
   } finally {
     app.renderer.destroy()
   }

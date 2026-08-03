@@ -49,7 +49,9 @@ export function useThinkingMode() {
 
   // Preserve previous experience for users who had explicitly toggled the
   // legacy `thinking_visibility` boolean. First-time users (no legacy key)
-  // get undefined → kernel decides (§3.7 new-user path).
+  // get undefined → kernel decides (streaming expanded → finished collapsed).
+  // NOTE: do NOT migrate legacy false → hide for new installs that only have
+  // the old key from defaults; only migrate when the user had an explicit bool.
   if (!hadStored) {
     if (legacy === true) set("show")
     else if (legacy === false) set("hide")
@@ -58,14 +60,15 @@ export function useThinkingMode() {
   if ((stored() as string) === "minimal") set("hide")
 
   // Backward-compatible mode accessor for existing UI that reads thinkingMode().
-  // Falls back to "hide" when undefined so pre-kernel code paths still work.
+  // When undefined, report "show" so commands/labels match the product default
+  // (thinking is visible while streaming). Kernel still uses storedMode=null.
   const mode = createMemo<ThinkingMode>(() => {
     const value = stored()
-    return isThinkingMode(value) ? value : "hide"
+    return isThinkingMode(value) ? value : "show"
   })
 
   // §3.7/§9: Expose stored mode for the display kernel.
-  // null = new user (no explicit kv) → kernel applies truncated→collapsed default.
+  // null = new user (no explicit kv) → kernel applies expanded(streaming)→collapsed(done).
   // "hide"/"show" = user has explicit preference → kernel respects it.
   const storedMode = createMemo<ThinkingMode | null>(() => {
     const value = stored()

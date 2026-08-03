@@ -2,16 +2,21 @@ import { createMemo, Show } from "solid-js"
 import { BoxRenderable, type BaseRenderable } from "@opentui/core"
 import type { ReasoningViewModel } from "@opencode-ai/session-display"
 import { formatDuration } from "@opencode-ai/session-display"
-import { useTheme, createSyntaxStyleMemo, generateSubtleSyntax } from "../context/theme"
+import { useTheme } from "../context/theme"
 import { Spinner } from "../component/spinner"
 import { setPreLayoutSiblingMargin } from "../util/layout"
 import { disclosureClosed, disclosureOpen } from "./glyphs"
+import { createPressReleaseClick } from "./press-release"
 
 const BULLET_WIDTH = 2
 
 /**
  * Reasoning/Thought row — same chrome as ToolEntry:
  * `>` collapsed, `v` expanded/truncated; click toggles fold; body below.
+ *
+ * Performance: body is plain <text>, not <code filetype=markdown>. Expanding a
+ * finished thought must not re-parse markdown / remount a syntax highlighter —
+ * that was the "expand causes full refresh lag" path.
  */
 export function ReasoningEntry(props: {
   vm: ReasoningViewModel
@@ -20,7 +25,6 @@ export function ReasoningEntry(props: {
   selected?: boolean
 }) {
   const { theme } = useTheme()
-  const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
 
   const isStreaming = createMemo(() => props.vm.status === "streaming")
   const fg = createMemo(() => (props.selected ? theme.text : theme.warning))
@@ -39,18 +43,20 @@ export function ReasoningEntry(props: {
     return label ? ` · ${label}` : ""
   })
 
-  const showBody = createMemo(() => {
-    if (props.vm.mode === "expanded") return true
-    if (props.vm.mode === "truncated" && (isStreaming() || props.vm.body.length > 0)) return true
-    return false
+  const showBody = createMemo(() => props.vm.mode !== "collapsed")
+
+  // Expanded: full body. Truncated (rare with expanded-default streaming): tail lines.
+  const bodyText = createMemo(() => {
+    const body = props.vm.body
+    if (!body) return ""
+    if (props.vm.mode === "expanded") return body
+    const lines = body.split("\n")
+    if (lines.length <= 3) return body
+    return lines.slice(-3).join("\n")
   })
 
-  const bodyText = createMemo(() => {
-    if (props.vm.mode === "expanded") return props.vm.body
-    // truncated: last few lines while streaming / preview
-    const lines = props.vm.body.split("\n")
-    if (lines.length <= 3) return props.vm.body
-    return lines.slice(-3).join("\n")
+  const press = createPressReleaseClick(() => {
+    if (props.vm.clickable) props.onClick()
   })
 
   return (
@@ -60,11 +66,10 @@ export function ReasoningEntry(props: {
         ref={(el: BoxRenderable) => {
           setPreLayoutSiblingMargin(el, (_previous?: BaseRenderable) => 1)
         }}
-        onMouseUp={() => {
-          if (props.vm.clickable) props.onClick()
-        }}
+        onMouseDown={press.onMouseDown}
+        onMouseUp={press.onMouseUp}
+        onMouseOut={press.onMouseOut}
       >
-        {/* Header — isomorphic with ToolEntry */}
         <box flexDirection="row">
           <text width={BULLET_WIDTH} fg={fg()}>
             {disclosure()}{" "}
@@ -79,18 +84,12 @@ export function ReasoningEntry(props: {
           </Show>
         </box>
 
-        {/* Body — only when not collapsed */}
+        {/* Keep body as cheap plain text; mount only when not collapsed. */}
         <Show when={showBody() && bodyText()}>
           <box paddingLeft={BULLET_WIDTH} marginTop={1}>
-            <code
-              filetype="markdown"
-              drawUnstyledText={false}
-              streaming={true}
-              syntaxStyle={syntax()}
-              content={bodyText()}
-              conceal={props.conceal}
-              fg={theme.textMuted}
-            />
+            <text fg={theme.textMuted} wrapMode="word">
+              {bodyText()}
+            </text>
           </box>
         </Show>
       </box>

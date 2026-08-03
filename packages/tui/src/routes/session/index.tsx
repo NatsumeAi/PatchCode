@@ -86,6 +86,7 @@ import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useOpencodeKeymap 
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
 import {
+  buildGroupedItems,
   buildToolViewModel,
   buildReasoningViewModel,
   classifyVerbRuns,
@@ -100,7 +101,14 @@ import {
 import { ToolEntry } from "../../display/ToolEntry"
 import { ReasoningEntry } from "../../display/ReasoningEntry"
 import { VerbGroupHeader } from "../../display/VerbGroupHeader"
-import { getPin, togglePin, pinVersion, setPin, applyToAll, allExpanded } from "../../display/pin-store"
+import {
+  getPin,
+  togglePin,
+  pinGroupVersion,
+  setPin,
+  applyToAll,
+  allExpanded,
+} from "../../display/pin-store"
 import { createEntrySelection } from "../../display/selection"
 
 addDefaultParsers(parsers.parsers)
@@ -164,10 +172,6 @@ const sessionBindingCommands = [
   "session.parent",
   "session.child.next",
   "session.child.previous",
-  "session.fold.toggle",
-  "session.fold.collapse",
-  "session.fold.expand",
-  "session.expand.all",
   "session.expand.all_thinking",
 ] as const
 
@@ -1705,26 +1709,46 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     formatPath: (p: string) => pathFormatter.format(p),
   }))
 
+  const runKey = (run: VerbRun) => `${run.kind}:${run.memberIds[0]}`
+
   const runs = createMemo<VerbRun[]>(() => {
+    pinGroupVersion() // reclassify when any pin changes (verb-group only)
     if (!displayCtx().config.groupToolVerbs) return []
-    const inputs = props.parts
-      .filter((p): p is ToolPart => p.type === "tool")
-      .map((part) => {
-        const vm = buildToolViewModel(part, displayCtx(), getPin(part.id))
-        return { id: part.id, tool: part.tool, status: part.state.status, mode: vm.mode }
-      })
+    // Walk the full part list so non-tools / non-eager tools break runs the
+    // same way Grok's scan_run_forward does. Only tool parts become members.
+    const inputs = props.parts.map((part) => {
+      if (part.type === "reasoning") {
+        // Grok ThoughtMember: finished thinking sits inside a run (height 0 for
+        // counting) and must NOT break consecutive tool folds. Model as
+        // Transparent (mode≠collapsed) so classifyVerbRuns keeps the streak.
+        return {
+          id: part.id,
+          tool: "",
+          status: "completed" as const,
+          mode: "expanded" as const,
+        }
+      }
+      if (part.type !== "tool") {
+        // Text / other non-tools Break the run (collapsed + empty tool → null kind).
+        return {
+          id: part.id,
+          tool: "",
+          status: "completed" as const,
+          mode: "collapsed" as const,
+        }
+      }
+      const toolPart = part as ToolPart
+      const vm = buildToolViewModel(toolPart, displayCtx(), getPin(toolPart.id))
+      // normalize so "bash"/"Read"/aliases still map through eagerFoldKind
+      return {
+        id: toolPart.id,
+        tool: normalizeToolName(toolPart.tool),
+        status: toolPart.state.status,
+        mode: vm.mode,
+      }
+    })
     return classifyVerbRuns(inputs)
   })
-
-  const runByMemberId = createMemo(() => {
-    const map = new Map<string, VerbRun>()
-    for (const run of runs()) {
-      for (const id of run.memberIds) map.set(id, run)
-    }
-    return map
-  })
-
-  const runKey = (run: VerbRun) => `${run.kind}:${run.memberIds[0]}`
 
   const toggleRun = (run: VerbRun) => {
     const key = runKey(run)
@@ -1739,49 +1763,59 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const runExpanded = (run: VerbRun) => expandedRuns().has(runKey(run))
 
   const groupedParts = createMemo(() => {
-    type Item = { kind: "header"; run: VerbRun } | { kind: "part"; part: Part; last: boolean }
-    const items: Item[] = []
-    const seenMembers = new Set<string>()
-    for (let i = 0; i < props.parts.length; i++) {
-      const part = props.parts[i]!
-      const last = i === props.parts.length - 1
-      const run = part.type === "tool" ? runByMemberId().get(part.id) : undefined
-      if (run && !seenMembers.has(part.id)) {
-        const expanded = runExpanded(run)
-        items.push({ kind: "header", run })
-        if (!expanded) {
-          for (const id of run.memberIds) seenMembers.add(id)
-        }
-        continue
-      }
-      items.push({ kind: "part", part, last })
-    }
-    return { items }
+    const expandedKeys = new Set(
+      runs()
+        .filter((run) => runExpanded(run))
+        .map((run) => runKey(run)),
+    )
+    return buildGroupedItems(props.parts, runs(), expandedKeys, runKey).map((item) => ({
+      ...item,
+      // Stable primitive keys so <For> reuses ReasoningPart/ToolPart instances
+      // across sync ticks (otherwise expand/collapse timers reset forever).
+      key: item.kind === "header" ? `hdr:${runKey(item.run)}` : `prt:${item.part.id}`,
+    }))
+  })
+
+  // Keyed list: For each over stable string keys; look up current item by key.
+  const groupedKeys = createMemo(() => groupedParts().map((item) => item.key))
+  const groupedByKey = createMemo(() => {
+    const map = new Map<string, ReturnType<typeof groupedParts>[number]>()
+    for (const item of groupedParts()) map.set(item.key, item)
+    return map
   })
 
   return (
     <>
-      <For each={groupedParts().items}>
-        {(item) => {
-          if (item.kind === "header") {
-            return (
-              <VerbGroupHeader
-                run={item.run}
-                label={verbGroupHeaderLabel(item.run)}
-                expanded={runExpanded(item.run)}
-                onToggle={() => toggleRun(item.run)}
-              />
-            )
-          }
-          const component = PART_MAPPING[item.part.type as keyof typeof PART_MAPPING]
-          if (!component) return null
+      <For each={groupedKeys()}>
+        {(key) => {
+          // Solid <For> passes the element value (string key), not an accessor.
+          const row = createMemo(() => groupedByKey().get(key))
           return (
-            <Dynamic
-              last={item.last}
-              component={component}
-              part={item.part as any}
-              message={props.message}
-            />
+            <Show when={row()}>
+              {(current) => {
+                const item = current()
+                if (item.kind === "header") {
+                  return (
+                    <VerbGroupHeader
+                      run={item.run}
+                      label={verbGroupHeaderLabel(item.run)}
+                      expanded={runExpanded(item.run)}
+                      onToggle={() => toggleRun(item.run)}
+                    />
+                  )
+                }
+                const component = PART_MAPPING[item.part.type as keyof typeof PART_MAPPING]
+                if (!component) return null
+                return (
+                  <Dynamic
+                    last={item.last}
+                    component={component}
+                    part={item.part as any}
+                    message={props.message}
+                  />
+                )
+              }}
+            </Show>
           )
         }}
       </For>
@@ -1863,18 +1897,20 @@ const PART_MAPPING = {
 function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: AssistantMessage }) {
   const ctx = use()
 
+  // Single source of truth: buildReasoningViewModel(pin).
+  // - streaming → expanded; finished → collapsed (DEFAULT_CONFIG.reasoning)
+  // - getPin(id) is Solid-tracked so click/keyboard re-open re-renders
+  // - pin always wins over auto mode (resolveReasoningMode)
   const vm = createMemo(() => {
-    pinVersion()
-    return buildReasoningViewModel(props.part, ctx.thinkingStoredMode(), getPin(props.part.id), DEFAULT_CONFIG)
+    void props.part.text
+    void props.part.time?.end
+    const pin = getPin(props.part.id)
+    return buildReasoningViewModel(props.part, ctx.thinkingStoredMode(), pin, DEFAULT_CONFIG)
   })
 
-  // Same two-state fold as tools: collapsed ↔ expanded (truncated treated as mid for streaming).
   const handleClick = () => {
     if (!vm().clickable) return
-    const current = vm().mode
-    const next = current === "collapsed" ? "expanded" : "collapsed"
-    setPin(props.part.id, next)
-    ctx.selectPart(props.part.id)
+    setPin(props.part.id, vm().mode === "collapsed" ? "expanded" : "collapsed")
   }
 
   return (
@@ -1930,15 +1966,21 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
     formatPath: (p: string) => pathFormatter.format(p),
   }))
 
+  // Per-id pin only — do not subscribe to global pin version.
   const vm = createMemo(() => {
-    pinVersion()
     return buildToolViewModel(props.part, displayCtx(), getPin(props.part.id))
   })
 
   const handleClick = () => {
     if (props.part.tool === "task") {
       const meta = props.part.state.status === "pending" ? {} : (props.part.state.metadata ?? {})
-      const sessionID = typeof meta.sessionId === "string" ? meta.sessionId : undefined
+      // V2 Output uses sessionID; legacy/jobs may use sessionId
+      const sessionID =
+        typeof meta.sessionID === "string"
+          ? meta.sessionID
+          : typeof meta.sessionId === "string"
+            ? meta.sessionId
+            : undefined
       if (sessionID) navigate({ type: "session", sessionID })
       return
     }
@@ -1947,7 +1989,7 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
       (getDescriptor(normalizeToolName(props.part.tool))?.policy(DEFAULT_CONFIG) as { foldCycle?: "two" | "three" })
         ?.foldCycle ?? "two"
     setPin(props.part.id, nextFoldMode(cycle, vm().mode, vm().header.status === "running"))
-    ctx.selectPart(props.part.id)
+    // No selectPart on mouse fold — keeps expand snappy (selection is for keyboard).
   }
 
   return (

@@ -46,6 +46,8 @@ import {
   userMessageFromPrompt,
   userTextPart,
 } from "./v2-message-bridge"
+import { findPartIndex, insertPartIndex } from "./part-order"
+import { toEpochMsOr } from "../util/epoch-ms"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -54,20 +56,7 @@ const emptyConsoleState: ConsoleState = {
 
 /** Coerce SSE timestamps (epoch ms | ISO string | DateTime-like) to epoch ms. */
 function epochMs(value: unknown, fallback = Date.now()): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string" && value.length > 0) {
-    const asNum = Number(value)
-    if (Number.isFinite(asNum) && value.trim() !== "") return asNum
-    const parsed = Date.parse(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  if (value != null && typeof value === "object") {
-    const obj = value as { epochMilliseconds?: unknown }
-    if (typeof obj.epochMilliseconds === "number" && Number.isFinite(obj.epochMilliseconds)) {
-      return obj.epochMilliseconds
-    }
-  }
-  return fallback
+  return toEpochMsOr(value, fallback)
 }
 
 function search<T>(items: T[], target: string, key: (item: T) => string) {
@@ -336,16 +325,19 @@ export const {
         setStore("part", part.messageID, [part])
         return
       }
-      const result = search(parts, part.id, (p) => p.id)
-      if (result.found) {
-        setStore("part", part.messageID, result.index, reconcile(part))
+      // Lookup by id must be linear: list is chronological, not id-sorted.
+      // (Provider reasoning/tool ids are not ULID-time-ordered across types.)
+      const existing = findPartIndex(parts, part.id)
+      if (existing >= 0) {
+        setStore("part", part.messageID, existing, reconcile(part))
         return
       }
+      const index = insertPartIndex(parts, part)
       setStore(
         "part",
         part.messageID,
         produce((draft) => {
-          draft.splice(result.index, 0, part)
+          draft.splice(index, 0, part)
         }),
       )
     }
@@ -353,14 +345,14 @@ export const {
     const applyPartText = (messageID: string, partID: string, sessionID: string, text: string, append = false) => {
       const parts = store.part[messageID]
       if (!parts) return false
-      const result = search(parts, partID, (p) => p.id)
-      if (!result.found) return false
+      const index = findPartIndex(parts, partID)
+      if (index < 0) return false
       touchPart(sessionID, partID)
       setStore(
         "part",
         messageID,
         produce((draft) => {
-          const part = draft[result.index]
+          const part = draft[index]
           if (part.type !== "text" && part.type !== "reasoning") return
           part.text = append ? part.text + text : text
         }),
@@ -397,12 +389,55 @@ export const {
       }
       setStore(
         produce((draft) => {
+          // Drop orphan parts for messages no longer in the transcript
+          const keep = new Set(infos.map((m) => m.id))
+          const prev = draft.message[sessionID] ?? []
+          for (const m of prev) {
+            if (!keep.has(m.id)) delete draft.part[m.id]
+          }
           draft.message[sessionID] = infos.slice(-100)
           for (const id of Object.keys(partMap)) {
             draft.part[id] = partMap[id]
           }
         }),
       )
+    }
+
+    /** After compaction, re-fetch transcript so pruned messages leave the UI. */
+    const rehydrateAfterCompaction = async (sessionID: string) => {
+      fullSyncedSessions.delete(sessionID)
+      try {
+        const v2 = await sdk.client.v2.session.messages({ sessionID, limit: 100 })
+        const items = (v2.data?.data ?? []) as SessionMessage[]
+        if (items.length > 0) {
+          applySessionMessages(sessionID, items)
+          fullSyncedSessions.add(sessionID)
+          return
+        }
+      } catch {
+        // fall through to V1 messages
+      }
+      try {
+        const messages = await sdk.client.session.messages({ sessionID, limit: 100 })
+        const legacyList = messages.data ?? []
+        if (legacyList.length === 0) return
+        setStore(
+          produce((draft) => {
+            const keep = new Set(legacyList.map((m) => m.info.id))
+            const prev = draft.message[sessionID] ?? []
+            for (const m of prev) {
+              if (!keep.has(m.id)) delete draft.part[m.id]
+            }
+            draft.message[sessionID] = legacyList.map((m) => m.info).slice(-100)
+            for (const message of legacyList) {
+              draft.part[message.info.id] = message.parts
+            }
+          }),
+        )
+        fullSyncedSessions.add(sessionID)
+      } catch {
+        // best-effort; live compaction marker already painted
+      }
     }
 
     function sessionListQuery(): { scope?: "project"; path?: string } {
@@ -612,38 +647,22 @@ export const {
           break
         }
         case "message.part.updated": {
-          touchPart(event.properties.part.sessionID, event.properties.part.id)
-          const parts = store.part[event.properties.part.messageID]
-          if (!parts) {
-            setStore("part", event.properties.part.messageID, [event.properties.part])
-            break
-          }
-          const result = search(parts, event.properties.part.id, (p) => p.id)
-          if (result.found) {
-            setStore("part", event.properties.part.messageID, result.index, reconcile(event.properties.part))
-            break
-          }
-          setStore(
-            "part",
-            event.properties.part.messageID,
-            produce((draft) => {
-              draft.splice(result.index, 0, event.properties.part)
-            }),
-          )
+          // Reuse chronological applyPart (not id binary-insert).
+          applyPart(event.properties.part)
           break
         }
 
         case "message.part.delta": {
           const parts = store.part[event.properties.messageID]
           if (!parts) break
-          const result = search(parts, event.properties.partID, (p) => p.id)
-          if (!result.found) break
+          const resultIndex = findPartIndex(parts, event.properties.partID)
+          if (resultIndex < 0) break
           touchPart(event.properties.sessionID, event.properties.partID)
           setStore(
             "part",
             event.properties.messageID,
             produce((draft) => {
-              const part = draft[result.index]
+              const part = draft[resultIndex]
               const field = event.properties.field as keyof typeof part
               const existing = part[field] as string | undefined
               ;(part[field] as string) = (existing ?? "") + event.properties.delta
@@ -655,13 +674,14 @@ export const {
         case "message.part.removed": {
           touchPart(event.properties.sessionID, event.properties.partID)
           const parts = store.part[event.properties.messageID]
-          const result = search(parts, event.properties.partID, (p) => p.id)
-          if (result.found) {
+          if (!parts) break
+          const resultIndex = findPartIndex(parts, event.properties.partID)
+          if (resultIndex >= 0) {
             setStore(
               "part",
               event.properties.messageID,
               produce((draft) => {
-                draft.splice(result.index, 1)
+                draft.splice(resultIndex, 1)
               }),
             )
           }
@@ -739,6 +759,40 @@ export const {
           })
           break
         }
+        case "session.next.shell.progress": {
+          const p = event.properties as {
+            sessionID: string
+            messageID?: string
+            callID: string
+            timestamp: number
+            output?: string
+          }
+          const messages = store.message[p.sessionID] ?? []
+          for (const msg of messages) {
+            const parts = store.part[msg.id] ?? []
+            const tool = parts.find((x) => x.type === "tool" && x.callID === p.callID)
+            if (!tool || tool.type !== "tool") continue
+            if (tool.state.status !== "running" && tool.state.status !== "pending") continue
+            const input =
+              tool.state.status !== "pending" && typeof tool.state.input === "object" && tool.state.input
+                ? tool.state.input
+                : {}
+            applyPart({
+              ...tool,
+              state: {
+                status: "running",
+                input,
+                title: "bash",
+                metadata: { output: p.output ?? "" },
+                time: {
+                  start: "time" in tool.state ? tool.state.time.start : p.timestamp,
+                },
+              },
+            })
+            break
+          }
+          break
+        }
         case "session.next.shell.ended": {
           const p = event.properties
           const messages = store.message[p.sessionID] ?? []
@@ -754,7 +808,8 @@ export const {
                 input: typeof tool.state.input === "object" && tool.state.input ? tool.state.input : {},
                 output: p.output,
                 title: "bash",
-                metadata: {},
+                // shell.ended has no exit in schema; keep output for expand + shell display
+                metadata: { output: p.output ?? "" },
                 time: {
                   start: "time" in tool.state ? tool.state.time.start : p.timestamp,
                   end: p.timestamp,
@@ -841,6 +896,17 @@ export const {
             },
             time: { ...current.time, completed: p.timestamp },
           })
+          // Safety: collapse open reasoning if reasoning.ended was missed
+          // (kernel done→collapsed requires time.end).
+          {
+            const end = epochMs(p.timestamp)
+            for (const part of store.part[p.assistantMessageID] ?? []) {
+              if (part.type !== "reasoning") continue
+              if (part.time?.end != null) continue
+              const start = epochMs(part.time?.start) || end
+              applyPart({ ...part, time: { start, end } })
+            }
+          }
           break
         }
         case "session.next.step.failed": {
@@ -856,6 +922,15 @@ export const {
             error: { name: "UnknownError", data: { message: p.error?.message ?? "error" } },
             time: { ...current.time, completed: p.timestamp },
           })
+          {
+            const end = epochMs(p.timestamp)
+            for (const part of store.part[p.assistantMessageID] ?? []) {
+              if (part.type !== "reasoning") continue
+              if (part.time?.end != null) continue
+              const start = epochMs(part.time?.start) || end
+              applyPart({ ...part, time: { start, end } })
+            }
+          }
           break
         }
         case "session.next.text.started": {
@@ -865,6 +940,7 @@ export const {
               sessionID: p.sessionID,
               messageID: p.assistantMessageID,
               textID: p.textID,
+              start: epochMs(p.timestamp),
             }),
           )
           break
@@ -879,6 +955,7 @@ export const {
               messageID: p.assistantMessageID,
               type: "text",
               text: p.delta,
+              time: { start: epochMs(p.timestamp) },
             })
           }
           break
@@ -886,6 +963,11 @@ export const {
         case "session.next.text.ended": {
           const p = event.properties
           const partID = textPartID(p.assistantMessageID, p.textID)
+          const existing = store.part[p.assistantMessageID]?.find((x) => x.id === partID)
+          const start =
+            existing && existing.type === "text" && existing.time?.start != null
+              ? existing.time.start
+              : epochMs(p.timestamp)
           if (!applyPartText(p.assistantMessageID, partID, p.sessionID, p.text, false)) {
             applyPart({
               id: partID,
@@ -893,6 +975,14 @@ export const {
               messageID: p.assistantMessageID,
               type: "text",
               text: p.text,
+              time: { start, end: epochMs(p.timestamp) },
+            })
+          } else if (existing && existing.type === "text") {
+            // Stamp end without clobbering streamed text body
+            applyPart({
+              ...existing,
+              text: p.text,
+              time: { start, end: epochMs(p.timestamp) },
             })
           }
           break
@@ -958,9 +1048,9 @@ export const {
           } else {
             // mark end time if part exists — keep original start for duration
             const parts = store.part[p.assistantMessageID]
-            const result = search(parts, partID, (x) => x.id)
-            if (result.found) {
-              const part = parts[result.index]
+            const idx = parts ? findPartIndex(parts, partID) : -1
+            if (idx >= 0) {
+              const part = parts![idx]
               if (part.type === "reasoning") {
                 const start = epochMs(part.time?.start) || end
                 applyPart({
@@ -991,10 +1081,28 @@ export const {
           // input streaming is not required for transcript paint; tool.called sets final input
           break
         case "session.next.tool.called": {
-          const p = event.properties
+          const p = event.properties as {
+            sessionID: string
+            assistantMessageID: string
+            callID: string
+            timestamp: number
+            /** Schema field on Tool.Called (not `name`). */
+            tool?: string
+            name?: string
+            input?: Record<string, unknown>
+          }
           const partID = toolPartID(p.assistantMessageID, p.callID)
           const existing = store.part[p.assistantMessageID]?.find((x) => x.id === partID)
-          const name = existing && existing.type === "tool" ? existing.tool : "tool"
+          // Prefer event.tool (Called schema), then prior input.started name, never the
+          // literal "tool" fallback — that breaks verb-group eagerFoldKind lookups.
+          const fromEvent =
+            typeof p.tool === "string" && p.tool.length > 0
+              ? p.tool
+              : typeof p.name === "string" && p.name.length > 0
+                ? p.name
+                : undefined
+          const fromExisting = existing && existing.type === "tool" && existing.tool !== "tool" ? existing.tool : undefined
+          const name = fromEvent ?? fromExisting ?? "tool"
           applyPart({
             id: partID,
             sessionID: p.sessionID,
@@ -1011,10 +1119,26 @@ export const {
           break
         }
         case "session.next.tool.success": {
-          const p = event.properties
+          const p = event.properties as {
+            sessionID: string
+            assistantMessageID: string
+            callID: string
+            timestamp: number
+            tool?: string
+            name?: string
+            content?: Array<{ type?: string; text?: string }>
+            structured?: Record<string, unknown>
+          }
           const partID = toolPartID(p.assistantMessageID, p.callID)
           const existing = store.part[p.assistantMessageID]?.find((x) => x.id === partID)
-          const name = existing && existing.type === "tool" ? existing.tool : "tool"
+          const fromEvent =
+            typeof p.tool === "string" && p.tool.length > 0
+              ? p.tool
+              : typeof p.name === "string" && p.name.length > 0
+                ? p.name
+                : undefined
+          const fromExisting = existing && existing.type === "tool" && existing.tool !== "tool" ? existing.tool : undefined
+          const name = fromEvent ?? fromExisting ?? "tool"
           const input =
             existing && existing.type === "tool" && existing.state.status !== "pending"
               ? existing.state.input
@@ -1025,6 +1149,7 @@ export const {
                 .filter(Boolean)
                 .join("\n")
             : ""
+          const structured = p.structured && typeof p.structured === "object" ? p.structured : {}
           applyPart({
             id: partID,
             sessionID: p.sessionID,
@@ -1037,7 +1162,8 @@ export const {
               input: typeof input === "object" && input ? input : {},
               output,
               title: name,
-              metadata: {},
+              // Shell display reads metadata.output; keep structured if present.
+              metadata: { ...structured, output },
               time: {
                 start:
                   existing && existing.type === "tool" && "time" in existing.state
@@ -1050,10 +1176,63 @@ export const {
           break
         }
 
-        // Running-tool state checkpoints (structured/content) carry no V1 part
-        // equivalent; the settled tool.success already carries the full output.
-        case "session.next.tool.progress":
+        // Running-tool checkpoints: merge structured/content onto the running part
+        // so long-running tools can stream output once the runner publishes progress.
+        case "session.next.tool.progress": {
+          const p = event.properties as {
+            sessionID: string
+            assistantMessageID: string
+            callID: string
+            timestamp: number
+            structured?: Record<string, unknown>
+            content?: Array<{ type?: string; text?: string }>
+          }
+          const partID = toolPartID(p.assistantMessageID, p.callID)
+          const existing = store.part[p.assistantMessageID]?.find((x) => x.id === partID)
+          if (!existing || existing.type !== "tool") break
+          if (existing.state.status !== "running" && existing.state.status !== "pending") break
+          const output = Array.isArray(p.content)
+            ? p.content
+                .map((item) => (item.type === "text" ? item.text ?? "" : ""))
+                .filter(Boolean)
+                .join("\n")
+            : ""
+          const structured =
+            p.structured && typeof p.structured === "object" && !Array.isArray(p.structured)
+              ? p.structured
+              : {}
+          const prevMeta =
+            existing.state.status === "running" && "metadata" in existing.state
+              ? ((existing.state as { metadata?: Record<string, unknown> }).metadata ?? {})
+              : {}
+          const input =
+            existing.state.status !== "pending" && typeof existing.state.input === "object" && existing.state.input
+              ? existing.state.input
+              : {}
+          applyPart({
+            id: existing.id,
+            sessionID: existing.sessionID,
+            messageID: existing.messageID,
+            type: "tool",
+            tool: existing.tool,
+            callID: existing.callID,
+            state: {
+              status: "running",
+              input,
+              title: existing.tool,
+              metadata: output
+                ? { ...prevMeta, ...structured, output }
+                : { ...prevMeta, ...structured },
+              time: {
+                start:
+                  "time" in existing.state && existing.state.time?.start != null
+                    ? existing.state.time.start
+                    : p.timestamp,
+              },
+            },
+          })
           break
+        }
 
         case "session.next.agent.switched": {
           const p = event.properties
@@ -1088,10 +1267,57 @@ export const {
           break
         }
 
-        // Admitted steers become visible on session.next.prompted; nothing to
-        // paint here (admission is provisional until the runner promotes it).
-        case "session.next.prompt.admitted":
+        // Paint admitted inputs immediately so TUI can show QUEUED while the
+        // runner has not yet promoted them (steer waits next turn; queue waits
+        // agent idle). session.next.prompted re-applies the same message id
+        // (idempotent) once the runner promotes.
+        case "session.next.prompt.admitted": {
+          const p = event.properties as {
+            sessionID: string
+            messageID: string
+            prompt: { text: string; files?: Array<{ uri: string; name?: string; mime?: string }>; agents?: Array<{ name: string }> }
+            timestamp: number
+            delivery?: string
+          }
+          const meta = metaFor(p.sessionID)
+          applyMessage(
+            userMessageFromPrompt({
+              sessionID: p.sessionID,
+              messageID: p.messageID,
+              text: p.prompt.text,
+              timestamp: p.timestamp,
+              meta,
+            }),
+          )
+          applyPart(
+            userTextPart({
+              sessionID: p.sessionID,
+              messageID: p.messageID,
+              text: p.prompt.text,
+            }),
+          )
+          for (const [index, file] of (p.prompt.files ?? []).entries()) {
+            applyPart({
+              id: `prt_${p.messageID}_file_${index}`,
+              sessionID: p.sessionID,
+              messageID: p.messageID,
+              type: "file",
+              url: file.uri,
+              mime: file.mime ?? "application/octet-stream",
+              filename: file.name ?? file.uri.split("/").at(-1) ?? file.uri,
+            })
+          }
+          for (const [index, agent] of (p.prompt.agents ?? []).entries()) {
+            applyPart({
+              id: `prt_${p.messageID}_agent_${index}`,
+              sessionID: p.sessionID,
+              messageID: p.messageID,
+              type: "agent",
+              name: agent.name,
+            })
+          }
           break
+        }
 
         case "session.next.revert.staged": {
           const p = event.properties
@@ -1153,21 +1379,69 @@ export const {
             type: "compaction",
             auto: p.reason === "auto",
           })
+          // Allow full rehydrate so pruned messages drop from the local store.
+          fullSyncedSessions.delete(p.sessionID)
+          queueMicrotask(() => {
+            void rehydrateAfterCompaction(p.sessionID)
+          })
           break
         }
         case "session.next.compaction.started":
         case "session.next.compaction.delta":
           // Checkpoint paints on the replayable compaction.ended boundary.
           break
+
+        case "session.next.retried": {
+          const p = event.properties as {
+            sessionID: string
+            attempt: number
+            timestamp: number
+            error?: { message?: string; isRetryable?: boolean }
+          }
+          // Surface supplier retries in the same status chip the prompt already renders.
+          setStore("session_status", p.sessionID, {
+            type: "retry",
+            attempt: Math.max(0, Math.floor(p.attempt)),
+            message: p.error?.message ?? "retrying",
+            next: Date.now() + 3_000,
+          })
+          break
+        }
+
         case "session.next.tool.failed": {
-          const p = event.properties
+          const p = event.properties as {
+            sessionID: string
+            assistantMessageID: string
+            callID: string
+            timestamp: number
+            tool?: string
+            name?: string
+            error?: { message?: string }
+            result?: unknown
+          }
           const partID = toolPartID(p.assistantMessageID, p.callID)
           const existing = store.part[p.assistantMessageID]?.find((x) => x.id === partID)
-          const name = existing && existing.type === "tool" ? existing.tool : "tool"
+          const fromEvent =
+            typeof p.tool === "string" && p.tool.length > 0
+              ? p.tool
+              : typeof p.name === "string" && p.name.length > 0
+                ? p.name
+                : undefined
+          const fromExisting = existing && existing.type === "tool" && existing.tool !== "tool" ? existing.tool : undefined
+          const name = fromEvent ?? fromExisting ?? "tool"
           const input =
             existing && existing.type === "tool" && existing.state.status !== "pending"
               ? existing.state.input
               : {}
+          // Preserve any progress metadata accumulated while running.
+          const prevMeta =
+            existing &&
+            existing.type === "tool" &&
+            existing.state.status !== "pending" &&
+            "metadata" in existing.state
+              ? ((existing.state as { metadata?: Record<string, unknown> }).metadata ?? {})
+              : {}
+          const errMsg = p.error?.message ?? "tool error"
           applyPart({
             id: partID,
             sessionID: p.sessionID,
@@ -1178,8 +1452,8 @@ export const {
             state: {
               status: "error",
               input: typeof input === "object" && input ? input : {},
-              error: p.error?.message ?? "tool error",
-              metadata: {},
+              error: errMsg,
+              metadata: { ...prevMeta, error: errMsg },
               time: {
                 start:
                   existing && existing.type === "tool" && "time" in existing.state
