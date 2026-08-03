@@ -80,21 +80,26 @@ function applyModel(
     readonly name?: string
     readonly cost?: ModelV2Info["cost"]
     readonly request?: NonNullable<NonNullable<ModelsDev.Model["experimental"]>["modes"]>[string]["provider"]
+    /** Provider-level npm / api from models.dev parent when the model entry omits them. */
+    readonly providerNpm?: string
+    readonly providerApi?: string
   } = {},
 ) {
   draft.name = input.name ?? model.name
   draft.family = model.family
-  draft.api = model.provider?.npm
+  const npm = model.provider?.npm ?? input.providerNpm
+  const apiUrl = model.provider?.api ?? input.providerApi
+  draft.api = npm
     ? {
         id: model.id,
         type: "aisdk",
-        package: model.provider.npm,
-        url: model.provider.api,
+        package: npm,
+        url: apiUrl,
       }
     : {
         id: model.id,
         type: "native",
-        url: model.provider?.api,
+        url: apiUrl,
         settings: {},
       }
   draft.capabilities = {
@@ -102,7 +107,26 @@ function applyModel(
     input: [...(model.modalities?.input ?? [])],
     output: [...(model.modalities?.output ?? [])],
   }
+  // Data-driven variants: copy models.dev reasoning_options (no model-name lists).
+  // Only openai / openai-compatible APIs take reasoning_effort in the request body.
   draft.variants = []
+  const effortBody =
+    npm === "@ai-sdk/openai" || npm === "@ai-sdk/openai-compatible"
+      ? (id: string) => ({ reasoning_effort: id })
+      : undefined
+  if (effortBody) {
+    for (const option of model.reasoning_options ?? []) {
+      if (option.type !== "effort") continue
+      draft.variants = option.values
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .map((id) => ({
+          id,
+          headers: {},
+          body: effortBody(id),
+        }))
+      break
+    }
+  }
   draft.time.released = released(model.release_date)
   draft.cost = input.cost ?? cost(model.cost)
   draft.status = model.status ?? "active"
@@ -161,13 +185,17 @@ export const ModelsDevPlugin = define({
 
           for (const model of Object.values(item.models)) {
             const baseCost = cost(model.cost)
-            catalog.model.update(providerID, model.id, (draft) => applyModel(draft, model, { cost: baseCost }))
+            catalog.model.update(providerID, model.id, (draft) =>
+              applyModel(draft, model, { cost: baseCost, providerNpm: item.npm, providerApi: item.api }),
+            )
             for (const [mode, options] of Object.entries(model.experimental?.modes ?? {})) {
               catalog.model.update(providerID, `${model.id}-${mode}`, (draft) =>
                 applyModel(draft, model, {
                   name: modeName(model, mode),
                   cost: mergeCost(baseCost, options.cost),
                   request: options.provider,
+                  providerNpm: item.npm,
+                  providerApi: item.api,
                 }),
               )
             }

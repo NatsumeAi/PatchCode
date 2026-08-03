@@ -1,7 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { VariantPlugin } from "@opencode-ai/core/plugin/variant"
@@ -19,7 +18,7 @@ const locationLayer = Layer.succeed(
 const it = testEffect(AppNodeBuilder.build(Catalog.node, [[Location.node, locationLayer]]))
 
 describe("VariantPlugin", () => {
-  it.effect("adds GLM 5.2 variants after catalog sources", () =>
+  it.effect("does not invent per-model variants (models.dev owns effort options)", () =>
     Effect.gen(function* () {
       const service = yield* Catalog.Service
       yield* service.transform((catalog) => {
@@ -33,35 +32,31 @@ describe("VariantPlugin", () => {
             package: "@ai-sdk/openai-compatible",
           }
         })
-      })
-      yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
-
-      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2")))?.variants).toEqual([
-        expect.objectContaining({ id: "high", body: { reasoning_effort: "high" } }),
-        expect.objectContaining({ id: "max", body: { reasoning_effort: "max" } }),
-      ])
-    }),
-  )
-
-  it.effect("keeps explicit variants over generated defaults", () =>
-    Effect.gen(function* () {
-      const service = yield* Catalog.Service
-      yield* service.transform((catalog) => {
-        catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2"), (model) => {
+        catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("deepseek-v4-flash-free"), (model) => {
           model.api = {
-            id: ModelV2.ID.make("glm-5.2"),
+            id: ModelV2.ID.make("deepseek-v4-flash-free"),
             type: "aisdk",
             package: "@ai-sdk/openai-compatible",
           }
-          model.variants = [{ id: ModelV2.VariantID.make("high"), headers: { custom: "true" }, body: {} }]
+          // Simulated models-dev projection already present
+          model.variants = [
+            { id: ModelV2.VariantID.make("high"), headers: {}, body: { reasoning_effort: "high" } },
+            { id: ModelV2.VariantID.make("max"), headers: {}, body: { reasoning_effort: "max" } },
+          ]
         })
       })
       yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
 
-      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2")))?.variants).toEqual([
-        expect.objectContaining({ id: "high", headers: { custom: "true" } }),
+      // no hardcoded glm synthesis
+      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2")))?.variants).toEqual([])
+      // leaves data-driven variants alone
+      expect(
+        (yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("deepseek-v4-flash-free")))?.variants,
+      ).toEqual([
+        expect.objectContaining({ id: "high", body: { reasoning_effort: "high" } }),
         expect.objectContaining({ id: "max", body: { reasoning_effort: "max" } }),
       ])
+      expect(VariantPlugin.generate({} as never)).toEqual([])
     }),
   )
 })
