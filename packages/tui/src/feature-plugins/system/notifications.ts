@@ -32,19 +32,24 @@ const tui: TuiPlugin = async (api) => {
   const questions = new Set<string>()
   const permissions = new Set<string>()
 
-  api.event.on("question.asked", (event) => {
+  const onQuestionAsked = (event: {
+    properties: { id: string; sessionID: string }
+  }) => {
     if (questions.has(event.properties.id)) return
     questions.add(event.properties.id)
     notify(api, event.properties.sessionID, "Question needs input", "question")
-  })
+  }
+  api.event.on("question.asked", onQuestionAsked)
+  // V2 runner publishes question.v2.asked; same notification UX as V1.
+  api.event.on("question.v2.asked", onQuestionAsked)
 
-  api.event.on("question.replied", (event) => {
+  const onQuestionClosed = (event: { properties: { requestID: string } }) => {
     questions.delete(event.properties.requestID)
-  })
-
-  api.event.on("question.rejected", (event) => {
-    questions.delete(event.properties.requestID)
-  })
+  }
+  api.event.on("question.replied", onQuestionClosed)
+  api.event.on("question.rejected", onQuestionClosed)
+  api.event.on("question.v2.replied", onQuestionClosed)
+  api.event.on("question.v2.rejected", onQuestionClosed)
 
   api.event.on("permission.asked", (event) => {
     if (permissions.has(event.properties.id)) return

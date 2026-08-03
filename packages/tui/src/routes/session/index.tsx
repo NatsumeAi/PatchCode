@@ -1865,8 +1865,13 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
     return buildReasoningViewModel(props.part, ctx.thinkingStoredMode(), getPin(props.part.id), DEFAULT_CONFIG)
   })
 
+  // Same two-state fold as tools: collapsed ↔ expanded (truncated treated as mid for streaming).
   const handleClick = () => {
-    togglePin(props.part.id, vm().mode)
+    if (!vm().clickable) return
+    const current = vm().mode
+    const next = current === "collapsed" ? "expanded" : "collapsed"
+    setPin(props.part.id, next)
+    ctx.selectPart(props.part.id)
   }
 
   return (

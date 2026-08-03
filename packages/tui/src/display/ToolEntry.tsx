@@ -11,7 +11,7 @@ import { CodeBody } from "./body/CodeBody"
 import { PatchBody } from "./body/PatchBody"
 import { TextBody } from "./body/TextBody"
 import { setPreLayoutSiblingMargin } from "../util/layout"
-import { accentBar, collapsedAccent, diamondFilled } from "./glyphs"
+import { disclosureClosed, disclosureOpen } from "./glyphs"
 import { blendColor, waveBrightness } from "./accent-wave"
 
 const BULLET_WIDTH = 2
@@ -94,15 +94,8 @@ export function ToolEntry(props: {
     return blendColor(theme.background, fg(), waveBrightness(waveTick(), 0))
   })
 
-  // Grok: collapsed+unselected rail uses thin ❙ dimmed toward bg; selected or
-  // expanded keeps full accentBar at full color.
-  const railFg = createMemo(() => {
-    if (props.vm.mode !== "collapsed" || isRunning() || props.selected) return fg()
-    return blendColor(theme.background, fg(), 0.5)
-  })
-  const railGlyph = createMemo(() =>
-    props.vm.mode === "collapsed" && !isRunning() && !props.selected ? collapsedAccent : accentBar,
-  )
+  // Single disclosure glyph: `>` collapsed, `v` expanded/truncated.
+  const disclosure = createMemo(() => (props.vm.mode === "collapsed" ? disclosureClosed : disclosureOpen))
 
   const headerVerbAndPrimary = createMemo(() => {
     const h = props.vm.header
@@ -135,16 +128,14 @@ export function ToolEntry(props: {
         })
       }}
       onMouseUp={() => {
+        // Always forward click when foldable so expand works even if body is empty.
         if (props.vm.clickable) props.onClick()
       }}
     >
-      {/* Header line */}
+      {/* Header line: `>` / `v` + verb + primary */}
       <box flexDirection="row">
-        <text width={1} fg={railFg()}>
-          {railGlyph()}
-        </text>
         <text width={BULLET_WIDTH} fg={accentFg()}>
-          {diamondFilled}
+          {disclosure()}{" "}
         </text>
         <Show when={!isRunning()} fallback={<Spinner color={fg()}>{headerText()}</Spinner>}>
           <text flexGrow={1} fg={fg()}>

@@ -1,11 +1,18 @@
 import { createMemo, Show } from "solid-js"
-import { BoxRenderable } from "@opentui/core"
+import { BoxRenderable, type BaseRenderable } from "@opentui/core"
 import type { ReasoningViewModel } from "@opencode-ai/session-display"
 import { formatDuration } from "@opencode-ai/session-display"
 import { useTheme, createSyntaxStyleMemo, generateSubtleSyntax } from "../context/theme"
 import { Spinner } from "../component/spinner"
 import { setPreLayoutSiblingMargin } from "../util/layout"
+import { disclosureClosed, disclosureOpen } from "./glyphs"
 
+const BULLET_WIDTH = 2
+
+/**
+ * Reasoning/Thought row — same chrome as ToolEntry:
+ * `>` collapsed, `v` expanded/truncated; click toggles fold; body below.
+ */
 export function ReasoningEntry(props: {
   vm: ReasoningViewModel
   onClick: () => void
@@ -15,61 +22,72 @@ export function ReasoningEntry(props: {
   const { theme } = useTheme()
   const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
 
-  const headerColor = () => (props.selected ? theme.text : theme.warning)
+  const isStreaming = createMemo(() => props.vm.status === "streaming")
+  const fg = createMemo(() => (props.selected ? theme.text : theme.warning))
+  const disclosure = createMemo(() => (props.vm.mode === "collapsed" ? disclosureClosed : disclosureOpen))
 
-  const headerText = createMemo(() => {
-    if (props.vm.status === "streaming") {
+  const headerPrimary = createMemo(() => {
+    if (isStreaming()) {
       return props.vm.title ? `Thinking: ${props.vm.title}` : "Thinking"
     }
-    const parts: string[] = ["Thought"]
-    if (props.vm.title) parts.push(`: ${props.vm.title}`)
-    if (props.vm.durationMs != null) parts.push(` \u00B7 ${formatDuration(props.vm.durationMs)}`)
-    return parts.join("")
+    return props.vm.title ? `Thought: ${props.vm.title}` : "Thought"
+  })
+
+  const durationLabel = createMemo(() => {
+    if (props.vm.durationMs == null) return ""
+    const label = formatDuration(props.vm.durationMs)
+    return label ? ` · ${label}` : ""
   })
 
   const showBody = createMemo(() => {
     if (props.vm.mode === "expanded") return true
-    if (props.vm.mode === "truncated" && props.vm.status === "streaming") return true
+    if (props.vm.mode === "truncated" && (isStreaming() || props.vm.body.length > 0)) return true
     return false
   })
 
-  const truncatedBody = createMemo(() => {
-    if (props.vm.mode !== "truncated") return props.vm.body
+  const bodyText = createMemo(() => {
+    if (props.vm.mode === "expanded") return props.vm.body
+    // truncated: last few lines while streaming / preview
     const lines = props.vm.body.split("\n")
     if (lines.length <= 3) return props.vm.body
     return lines.slice(-3).join("\n")
   })
 
   return (
-    <Show when={props.vm.body || props.vm.status === "streaming"}>
+    <Show when={props.vm.body || isStreaming()}>
       <box
-        ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
-        paddingLeft={3}
-        marginTop={1}
-        flexDirection="column"
-        flexShrink={0}
+        paddingLeft={2}
+        ref={(el: BoxRenderable) => {
+          setPreLayoutSiblingMargin(el, (_previous?: BaseRenderable) => 1)
+        }}
+        onMouseUp={() => {
+          if (props.vm.clickable) props.onClick()
+        }}
       >
-        <box onMouseUp={() => props.onClick()}>
-          <Show
-            when={props.vm.status === "done"}
-            fallback={<Spinner color={theme.warning}>{headerText()}</Spinner>}
-          >
-            <text fg={headerColor()} wrapMode="none">
-              <Show when={props.vm.mode !== "expanded"}>
-                <span>{props.vm.mode === "collapsed" ? "+ " : "- "}</span>
+        {/* Header — isomorphic with ToolEntry */}
+        <box flexDirection="row">
+          <text width={BULLET_WIDTH} fg={fg()}>
+            {disclosure()}{" "}
+          </text>
+          <Show when={!isStreaming()} fallback={<Spinner color={theme.warning}>{headerPrimary()}</Spinner>}>
+            <text flexGrow={1} fg={fg()} wrapMode="none">
+              {headerPrimary()}
+              <Show when={durationLabel()}>
+                <span style={{ fg: theme.textMuted }}>{durationLabel()}</span>
               </Show>
-              <span>{headerText()}</span>
             </text>
           </Show>
         </box>
-        <Show when={showBody() && (props.vm.mode === "expanded" ? props.vm.body : truncatedBody())}>
-          <box paddingLeft={props.vm.mode === "expanded" ? 0 : 2} marginTop={1}>
+
+        {/* Body — only when not collapsed */}
+        <Show when={showBody() && bodyText()}>
+          <box paddingLeft={BULLET_WIDTH} marginTop={1}>
             <code
               filetype="markdown"
               drawUnstyledText={false}
               streaming={true}
               syntaxStyle={syntax()}
-              content={props.vm.mode === "expanded" ? props.vm.body : truncatedBody()}
+              content={bodyText()}
               conceal={props.conceal}
               fg={theme.textMuted}
             />
@@ -79,5 +97,3 @@ export function ReasoningEntry(props: {
     </Show>
   )
 }
-
-const alwaysSeparate = new WeakSet<BoxRenderable>()

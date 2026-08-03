@@ -3,7 +3,7 @@ import { BoxRenderable, type BaseRenderable, type RGBA } from "@opentui/core"
 import type { VerbRun } from "@opencode-ai/session-display"
 import { useTheme } from "../context/theme"
 import { setPreLayoutSiblingMargin } from "../util/layout"
-import { accentBar, disclosureClosed, disclosureOpen, diamondFilled } from "./glyphs"
+import { disclosureClosed, disclosureOpen } from "./glyphs"
 import { blendColor, waveBrightness } from "./accent-wave"
 
 const BULLET_WIDTH = 2
@@ -58,14 +58,11 @@ export function VerbGroupHeader(props: {
       onMouseUp={() => props.onToggle()}
     >
       <box flexDirection="row">
-        <text width={1} fg={accentFg()}>
-          {accentBar}
-        </text>
         <text width={BULLET_WIDTH} fg={accentFg()}>
-          {diamondFilled}
+          {props.expanded ? disclosureOpen : disclosureClosed}{" "}
         </text>
         <text flexGrow={1} fg={fg()}>
-          {props.expanded ? disclosureOpen : disclosureClosed} {props.label}
+          {props.label}
         </text>
         <Show when={props.run.failedCount > 0}>
           <text fg={theme.error}> · {props.run.failedCount} failed</text>

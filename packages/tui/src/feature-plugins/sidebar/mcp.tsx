@@ -31,7 +31,7 @@ function View(props: { api: TuiPluginApi }) {
       <box>
         <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
           <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
+            <text fg={theme().text}>{open() ? "v" : ">"}</text>
           </Show>
           <text fg={theme().text}>
             <b>MCP</b>
