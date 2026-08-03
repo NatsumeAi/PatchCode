@@ -12,7 +12,11 @@ import { Wildcard } from "./util/wildcard"
 import { PermissionSaved } from "./permission/saved"
 
 export { Effect, Rule, Ruleset } from "@opencode-ai/schema/permission"
-const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "deny" }]
+// Plugin agents (e.g. oh-my-openagent "Sisyphus - ultraworker") are listed by the
+// legacy Agent service but often never registered into AgentV2. Denying everything
+// when resolve() misses made every bash/read call fail with "Unable to execute/read"
+// while `build` still worked. Prefer allow until V2 agent registry is fully populated.
+const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "allow" }]
 
 export const ID = Permission.ID
 export type ID = typeof ID.Type

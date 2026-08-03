@@ -93,14 +93,23 @@ const layer = Layer.effectDiscard(
               return content
             }).pipe(
               Effect.mapError((error) => {
-                const message =
+                if (
                   error instanceof ReadToolFileSystem.BinaryFileError ||
                   error instanceof ReadToolFileSystem.MediaIngestLimitError ||
                   error instanceof Image.DecodeError ||
                   error instanceof Image.SizeError
+                ) {
+                  return new ToolFailure({ message: error.message })
+                }
+                const detail =
+                  error instanceof Error && error.message
                     ? error.message
-                    : `Unable to read ${input.path}`
-                return new ToolFailure({ message })
+                    : typeof error === "object" && error && "message" in error
+                      ? String((error as { message: unknown }).message)
+                      : String(error)
+                return new ToolFailure({
+                  message: `Unable to read ${input.path}${detail ? ` (${detail})` : ""}`,
+                })
               }),
             )
           },

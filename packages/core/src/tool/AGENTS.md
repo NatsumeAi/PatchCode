@@ -54,6 +54,6 @@ Producer capture limits are separate. For example, Bash keeps `AppProcess.maxOut
 
 ## Current Gaps
 
-- Plugin boot has not been redesigned to register canonical tools through `Tools.Service`; do not redesign it as part of leaf migrations.
-- MCP and future Session-scoped registrations still need an explicit canonical registration design.
+- Plugin boot for pure V2 plugins (`Tools.Service` from `PluginContext`) is still a redesign; the opencode host bridges V1 plugin `tool` maps + filesystem tools through `DynamicTools.Host` for V2 materialize.
+- MCP host still lives in opencode; V2 Location installs via `DynamicTools.Host` (re-registers on `mcp.tools.changed`). Core-native MCP remains a future slice.
 - The public Session result shape currently exposes managed `outputPaths`; full storage encapsulation requires a future opaque managed-output reference design.

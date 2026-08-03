@@ -45,6 +45,12 @@ type Config<
   readonly description: string
   readonly input: Input
   readonly output: Output
+  /**
+   * Optional advertised JSON Schema override for dynamic tools (MCP, plugins).
+   * When set, this is what models see; `input` is still used for Effect decode
+   * (typically `Schema.Unknown` for external schemas).
+   */
+  readonly inputJsonSchema?: JsonSchema.JsonSchema
   readonly structured?: Structured
   readonly toStructuredOutput?: (input: {
     readonly input: Schema.Schema.Type<Input>
@@ -82,7 +88,7 @@ export function make<
       const definition = new ToolDefinition({
         name,
         description: config.description,
-        inputSchema: toJsonSchema(config.input),
+        inputSchema: config.inputJsonSchema ?? toJsonSchema(config.input),
         outputSchema: toJsonSchema(config.structured ?? config.output),
       })
       definitions.set(name, definition)

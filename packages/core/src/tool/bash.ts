@@ -193,7 +193,19 @@ const layer = Layer.effectDiscard(
                 truncated: result.outputTruncated === true,
                 ...(warnings.length ? { warnings } : {}),
               }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to execute command: ${input.command}` }))),
+            }).pipe(
+              Effect.mapError((error) => {
+                const detail =
+                  error instanceof Error && error.message
+                    ? error.message
+                    : typeof error === "object" && error && "message" in error
+                      ? String((error as { message: unknown }).message)
+                      : String(error)
+                return new ToolFailure({
+                  message: `Unable to execute command: ${input.command}${detail ? ` (${detail})` : ""}`,
+                })
+              }),
+            ),
         }),
       })
       .pipe(Effect.orDie)

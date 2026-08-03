@@ -33,6 +33,7 @@ import { Snapshot } from "./snapshot"
 import { SystemContextBuiltIns } from "./system-context/builtins"
 import { SystemContextRegistry } from "./system-context/registry"
 import { BuiltInTools } from "./tool/builtins"
+import { DynamicTools } from "./tool/dynamic"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
@@ -73,6 +74,8 @@ export const locationServices = LayerNode.group([
   QuestionV2.node,
   ReadToolFileSystem.node,
   BuiltInTools.node,
+  // After built-ins so dynamic MCP/plugin tools overlay cleanly.
+  DynamicTools.node,
   SessionRunnerModel.node,
   Snapshot.node,
   SessionRunnerLLM.node,
