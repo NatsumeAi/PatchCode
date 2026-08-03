@@ -58,7 +58,7 @@ export interface HeaderModel {
   /** Filled by build layer from config; optional so descriptors stay minimal. */
   dimDetails?: boolean
   status: PartStatus
-  accent: ToolFamily | "error" | "muted"
+  accent: ToolFamily | "error" | "muted" | "success"
 }
 
 export type BodyModel =
