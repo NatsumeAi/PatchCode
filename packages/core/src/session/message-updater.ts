@@ -170,6 +170,19 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
           }),
         )
       },
+      "session.next.shell.progress": (event) => {
+        return Effect.gen(function* () {
+          const currentShell = yield* adapter.getCurrentShell(event.data.callID)
+          if (currentShell) {
+            yield* adapter.updateShell(
+              produce(currentShell, (draft) => {
+                // Live tail while running; Ended replaces with the full buffer.
+                draft.output = event.data.output
+              }),
+            )
+          }
+        })
+      },
       "session.next.shell.ended": (event) => {
         return Effect.gen(function* () {
           const currentShell = yield* adapter.getCurrentShell(event.data.callID)

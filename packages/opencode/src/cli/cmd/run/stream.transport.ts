@@ -147,6 +147,7 @@ function sid(event: Event): string | undefined {
 
   if (
     event.type === "session.next.shell.started" ||
+    event.type === "session.next.shell.progress" ||
     event.type === "session.next.shell.ended" ||
     event.type === "permission.asked" ||
     event.type === "permission.replied" ||

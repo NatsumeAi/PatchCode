@@ -189,9 +189,10 @@ const taskHostLayer = Layer.effect(
               title: input.description,
               task_id: String(childID),
               sessionID: String(childID),
+              background: true,
               output: [
                 "The task is working in the background. You will be notified automatically when it finishes.",
-                "DO NOT sleep, poll for progress, or duplicate this task's work.",
+                "DO NOT sleep, poll, or duplicate this task's work.",
                 `task_id: ${childID}`,
               ].join("\n"),
             }
@@ -204,6 +205,7 @@ const taskHostLayer = Layer.effect(
             title: input.description,
             task_id: String(childID),
             sessionID: String(childID),
+            background: false,
             output: text || "Subagent completed with no text output.",
           }
         }),

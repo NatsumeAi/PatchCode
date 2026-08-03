@@ -143,6 +143,21 @@ export namespace Shell {
     },
   })
   export type Ended = typeof Ended.Type
+
+  /**
+   * Live-only running output for interactive `!shell` (bounded tail).
+   * Full output is still on Shell.Ended for durable replay.
+   */
+  export const Progress = Event.define({
+    type: "session.next.shell.progress",
+    schema: {
+      ...Base,
+      messageID: SessionMessage.ID,
+      callID: Schema.String,
+      output: Schema.String,
+    },
+  })
+  export type Progress = typeof Progress.Type
 }
 
 export namespace Step {
@@ -505,6 +520,7 @@ export const Definitions = Event.inventory(
   ContextUpdated,
   Synthetic,
   Shell.Started,
+  Shell.Progress,
   Shell.Ended,
   Step.Started,
   Step.Ended,

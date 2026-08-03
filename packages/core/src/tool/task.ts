@@ -44,6 +44,8 @@ export const Output = Schema.Struct({
   output: Schema.String,
   task_id: Schema.String.pipe(Schema.optional),
   sessionID: Schema.String.pipe(Schema.optional),
+  /** True when host started a background subagent (TUI foregroundTasks filters on this). */
+  background: Schema.Boolean.pipe(Schema.optional),
 })
 
 export interface Host {
@@ -63,6 +65,7 @@ export interface Host {
     readonly output: string
     readonly task_id?: string
     readonly sessionID?: string
+    readonly background?: boolean
   }>
 }
 

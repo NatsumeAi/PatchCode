@@ -441,6 +441,10 @@ const layer = Layer.effect(
             const args = Shell.args(sh, input.command, cwd)
             let output = ""
             let aborted = false
+            // Live progress for TUI (same cadence/window as agent bash tool).
+            const SHELL_PROGRESS_EVERY_MS = 500
+            const SHELL_PROGRESS_TAIL_CHARS = 32 * 1024
+            let lastProgressAt = 0
             const finish = Effect.gen(function* () {
               if (aborted) output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
               const ended = yield* DateTime.now
@@ -468,8 +472,22 @@ const layer = Layer.effect(
                     }),
                   )
                   yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
-                    Effect.sync(() => {
+                    Effect.gen(function* () {
                       output += chunk
+                      const now = Date.now()
+                      if (now - lastProgressAt < SHELL_PROGRESS_EVERY_MS) return
+                      lastProgressAt = now
+                      const tail =
+                        output.length > SHELL_PROGRESS_TAIL_CHARS
+                          ? output.slice(-SHELL_PROGRESS_TAIL_CHARS)
+                          : output
+                      yield* events.publish(SessionEvent.Shell.Progress, {
+                        sessionID: input.sessionID,
+                        timestamp: yield* DateTime.now,
+                        messageID,
+                        callID,
+                        output: tail,
+                      })
                     }),
                   )
                   yield* handle.exitCode

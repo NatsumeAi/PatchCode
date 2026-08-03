@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { LLMEvent, Model } from "@opencode-ai/llm"
+import { LLMEvent, LLMRequest, Model } from "@opencode-ai/llm"
 import { OpenAIChat } from "@opencode-ai/llm/protocols/openai-chat"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionCompaction } from "@opencode-ai/core/session/compaction"
@@ -260,7 +260,7 @@ test("correction rounds use the selection-only prompt without re-summarizing", a
   } as never
   let calls = 0
   const llm = {
-    stream: (request: { system?: { text?: string }[]; generation?: { maxTokens?: number } }) => {
+    stream: (request: LLMRequest) => {
       calls += 1
       requests.push({
         system: (request.system?.[0]?.text ?? "").slice(0, 60),

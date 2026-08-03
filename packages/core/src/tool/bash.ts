@@ -2,15 +2,17 @@ export * as BashTool from "./bash"
 
 import path from "path"
 import { ToolFailure } from "@opencode-ai/llm"
-import { Duration, Effect, Layer, Schema } from "effect"
+import { DateTime, Duration, Effect, Layer, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeLocationNode } from "../effect/app-node"
+import { EventV2 } from "../event"
 import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { PermissionV2 } from "../permission"
 import { PositiveInt } from "../schema"
+import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -19,6 +21,10 @@ export const name = "bash"
 export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
 export const MAX_TIMEOUT_MS = 10 * 60 * 1_000
 export const MAX_CAPTURE_BYTES = 1024 * 1024
+/** Bounded checkpoint cadence for running-command progress events. */
+export const PROGRESS_EVERY_MS = 500
+/** Progress events carry only the tail window so durable events stay bounded. */
+export const PROGRESS_TAIL_CHARS = 32 * 1024
 
 export const Input = Schema.Struct({
   command: Schema.String.annotate({ description: "Shell command string to execute" }),
@@ -56,9 +62,6 @@ const modelOutput = (output: Output) => {
   return `${warnings.trimStart()}${warnings ? "\n\n" : ""}Command exited with code ${output.exit}.`
 }
 
-const isTimeout = (error: AppProcess.AppProcessError) =>
-  error.cause instanceof Error && error.cause.message === "Timed out"
-
 /**
  * Minimal V2 core shell boundary. Keep parity debt visible without pulling the
  * legacy shell runtime into core.
@@ -68,7 +71,6 @@ const isTimeout = (error: AppProcess.AppProcessError) =>
 // TODO: Replace token-based command-argument external-directory advisories with parser-based detection.
 // TODO: Restore PowerShell and cmd-specific invocation/path handling on Windows.
 // TODO: Add plugin shell.env environment augmentation once V2 plugin hooks exist.
-// TODO: Add durable/live progress metadata streaming for long-running commands once V2 tool invocation progress context is wired.
 // TODO: Persist background job status and define restart recovery before exposing remote observation.
 // TODO: Re-add model-facing background launch only with owner-bound get/wait/cancel tools and completion delivery.
 // TODO: Add HTTP background-job observation only after durable status, restart recovery, and authorization are defined.
@@ -102,6 +104,7 @@ const layer = Layer.effectDiscard(
     const appProcess = yield* AppProcess.Service
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
+    const events = yield* EventV2.Service
 
     yield* tools
       .register({
@@ -163,34 +166,86 @@ const layer = Layer.effectDiscard(
                 forceKillAfter: Duration.seconds(3),
               })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
-              const result = yield* appProcess
-                .run(command, {
-                  combineOutput: true,
-                  timeout: Duration.millis(timeout),
-                  maxOutputBytes: MAX_CAPTURE_BYTES,
-                })
-                .pipe(
-                  Effect.catchTag("AppProcessError", (error) =>
-                    isTimeout(error) ? Effect.succeed(undefined) : Effect.fail(error),
-                  ),
-                )
-              if (!result) {
+              // Mutable capture survives timeout interrupt so partial stdout is not discarded.
+              const partial = {
+                chunks: [] as Uint8Array[],
+                truncated: false,
+              }
+              const collect = Effect.scoped(
+                Effect.gen(function* () {
+                  const handle = yield* appProcess.spawn(command)
+                  const decoder = new TextDecoder("utf-8")
+                  let bytes = 0
+                  let tail = ""
+                  let lastCheckpoint = Date.now()
+                  const publishProgress = Effect.fnUntraced(function* (text: string) {
+                    if (text.length === 0) return
+                    yield* events.publish(SessionEvent.Tool.Progress, {
+                      sessionID: context.sessionID,
+                      assistantMessageID: context.assistantMessageID,
+                      timestamp: yield* DateTime.now,
+                      callID: context.toolCallID,
+                      structured: { truncated: partial.truncated },
+                      content: [{ type: "text" as const, text }],
+                    })
+                  })
+                  yield* handle.all.pipe(
+                    Stream.mapEffect((chunk: Uint8Array) =>
+                      Effect.gen(function* () {
+                        const remaining = MAX_CAPTURE_BYTES - bytes
+                        if (remaining > 0)
+                          partial.chunks.push(remaining >= chunk.length ? chunk : chunk.slice(0, remaining))
+                        bytes += chunk.length
+                        partial.truncated = partial.truncated || bytes > MAX_CAPTURE_BYTES
+                        const text = decoder.decode(chunk, { stream: true })
+                        if (text.length === 0) return
+                        tail = (tail + text).slice(-PROGRESS_TAIL_CHARS)
+                        const now = Date.now()
+                        if (now - lastCheckpoint < PROGRESS_EVERY_MS) return
+                        lastCheckpoint = now
+                        yield* publishProgress(tail)
+                      }),
+                    ),
+                    Stream.runDrain,
+                  )
+                  // Flush incomplete multi-byte sequences held by the streaming decoder.
+                  const flushed = decoder.decode()
+                  if (flushed.length > 0) tail = (tail + flushed).slice(-PROGRESS_TAIL_CHARS)
+                  const exitCode = yield* handle.exitCode
+                  return {
+                    buffer: Buffer.concat(partial.chunks),
+                    truncated: partial.truncated,
+                    exitCode,
+                  }
+                }),
+              )
+              const settled = yield* Effect.timeoutOrElse(collect, {
+                duration: Duration.millis(timeout),
+                orElse: () =>
+                  Effect.succeed({
+                    buffer: Buffer.concat(partial.chunks),
+                    truncated: partial.truncated,
+                    exitCode: undefined as number | undefined,
+                    timedOut: true as const,
+                  }),
+              })
+              if ("timedOut" in settled && settled.timedOut) {
+                const captured = settled.buffer.toString("utf8").trimEnd()
+                const notice = `Command exceeded timeout of ${timeout} ms. Retry with a larger timeout if the command is expected to take longer.`
                 return {
-                  output: `Command exceeded timeout of ${timeout} ms. Retry with a larger timeout if the command is expected to take longer.`,
-                  truncated: false,
+                  output: captured.length > 0 ? `${captured}\n\n${notice}` : notice,
+                  truncated: settled.truncated === true,
                   timeout: true,
                   ...(warnings.length ? { warnings } : {}),
                 }
               }
 
-              const output = result.output?.toString("utf8") || "(no output)"
-              const notice = result.outputTruncated
-                ? "[output capture truncated at the in-memory safety limit]"
-                : undefined
+              const output = settled.buffer.toString("utf8") || "(no output)"
+              const notice = settled.truncated ? "[output capture truncated at the in-memory safety limit]" : undefined
               return {
-                exit: result.exitCode,
+                exit: settled.exitCode,
                 output: notice ? `${output}\n\n${notice}` : output,
-                truncated: result.outputTruncated === true,
+                truncated: settled.truncated === true,
                 ...(warnings.length ? { warnings } : {}),
               }
             }).pipe(
@@ -215,5 +270,13 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/bash",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FSUtil.node, AppProcess.node, Config.node, PermissionV2.node],
+  deps: [
+    ToolRegistry.node,
+    LocationMutation.node,
+    FSUtil.node,
+    AppProcess.node,
+    Config.node,
+    PermissionV2.node,
+    EventV2.node,
+  ],
 })

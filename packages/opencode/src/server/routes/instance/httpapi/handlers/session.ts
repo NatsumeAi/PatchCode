@@ -286,11 +286,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         try: () => SessionMessage.ID.make(ctx.payload.messageID as string),
         catch: () => new HttpApiError.BadRequest({}),
       })
+      // init is a deliberate user kickoff — always steer (start/join drain).
       yield* v2Svc
         .prompt({
           sessionID: ctx.params.sessionID,
           id: messageID,
           prompt: { text },
+          delivery: "steer",
         })
         .pipe(
           Effect.mapError((error) =>
@@ -421,11 +423,19 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 catch: () => new HttpApiError.BadRequest({}),
               })
         const noReply = payload.noReply === true
+        // Restore pre-V2 TUI queue semantics: while the agent drain is active,
+        // follow-ups wait (delivery=queue) instead of defaulting to steer.
+        // Idle sessions still admit as steer so the first turn starts immediately.
+        // Explicit payload.delivery (when wired on PromptPayload later) would win;
+        // legacy PromptPayload has no delivery field, so busy→queue is the rule.
+        const active = yield* v2Svc.active
+        const delivery = noReply ? "steer" : active.has(sessionID) ? "queue" : "steer"
         return yield* v2Svc
           .prompt({
             sessionID,
             ...(id ? { id } : {}),
             prompt: yield* toV2Prompt(payload),
+            delivery,
             // noReply: admit + project user message, do not wake agent / run LLM
             ...(noReply ? { resume: false, projectUser: true } : {}),
           })
@@ -517,19 +527,24 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               try: () => SessionMessage.ID.make(ctx.payload.messageID as string),
               catch: () => new HttpApiError.BadRequest({}),
             })
-      yield* v2Svc
-        .prompt({
-          sessionID: ctx.params.sessionID,
-          ...(id ? { id } : {}),
-          prompt: { text },
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            error instanceof SessionV2.NotFoundError
-              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
-              : new HttpApiError.BadRequest({}),
-          ),
-        )
+      {
+        const active = yield* v2Svc.active
+        const delivery = active.has(ctx.params.sessionID) ? "queue" : "steer"
+        yield* v2Svc
+          .prompt({
+            sessionID: ctx.params.sessionID,
+            ...(id ? { id } : {}),
+            prompt: { text },
+            delivery,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof SessionV2.NotFoundError
+                ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+                : new HttpApiError.BadRequest({}),
+            ),
+          )
+      }
       // API contract still expects SessionV1.WithParts; return a lightweight user stub.
       const now = Date.now()
       const messageID = (ctx.payload.messageID ?? SessionMessage.ID.create()) as MessageID
