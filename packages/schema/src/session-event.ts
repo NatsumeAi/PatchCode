@@ -160,6 +160,51 @@ export namespace Shell {
   export type Progress = typeof Progress.Type
 }
 
+export namespace Subagent {
+  export const Started = Event.define({
+    type: "session.next.subagent.started",
+    schema: {
+      ...Base,
+      childSessionID: Schema.String,
+      subagentType: Schema.String,
+      parentSessionID: Schema.String,
+    },
+  })
+
+  export const Completed = Event.define({
+    type: "session.next.subagent.completed",
+    ...options,
+    schema: {
+      ...Base,
+      childSessionID: Schema.String,
+      subagentType: Schema.String,
+      output: Schema.String,
+      usage: Schema.optional(Schema.Struct({ input: Schema.Number, output: Schema.Number, cost: Schema.Number })),
+      resumeFrom: Schema.String,
+    },
+  })
+
+  export const Failed = Event.define({
+    type: "session.next.subagent.failed",
+    ...options,
+    schema: {
+      ...Base,
+      childSessionID: Schema.String,
+      subagentType: Schema.String,
+      error: Schema.String,
+      resumeFrom: Schema.String,
+    },
+  })
+
+  export const HeartbeatLost = Event.define({
+    type: "session.next.subagent.heartbeat_lost",
+    schema: {
+      ...Base,
+      childSessionID: Schema.String,
+    },
+  })
+}
+
 export namespace Step {
   export const Started = Event.define({
     type: "session.next.step.started",
@@ -490,6 +535,8 @@ export const DurableDefinitions = Event.inventory(
   Synthetic,
   Shell.Started,
   Shell.Ended,
+  Subagent.Completed,
+  Subagent.Failed,
   Step.Started,
   Step.Ended,
   Step.Failed,
@@ -522,6 +569,10 @@ export const Definitions = Event.inventory(
   Shell.Started,
   Shell.Progress,
   Shell.Ended,
+  Subagent.Started,
+  Subagent.Completed,
+  Subagent.Failed,
+  Subagent.HeartbeatLost,
   Step.Started,
   Step.Ended,
   Step.Failed,

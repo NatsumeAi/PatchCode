@@ -8,6 +8,7 @@ import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
+import { PermissionV2 } from "@opencode-ai/core/permission"
 import { executeTool, settleTool, toolDefinitions } from "./lib/tool"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Schema, SchemaGetter, SchemaIssue, Scope } from "effect"
 import { testEffect } from "./lib/effect"
@@ -69,7 +70,7 @@ describe("ToolRegistry", () => {
         write: make("edit"),
         apply_patch: make("edit"),
       })
-      const names = (rules: Parameters<ToolRegistry.Interface["materialize"]>[0]) =>
+      const names = (rules: PermissionV2.Ruleset) =>
         toolDefinitions(service, rules).pipe(Effect.map((definitions) => definitions.map((tool) => tool.name)))
 
       expect(yield* names([{ action: "question", resource: "*", effect: "deny" }])).toEqual([

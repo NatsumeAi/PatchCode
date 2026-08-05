@@ -24,7 +24,12 @@ export type Event =
   | EventSessionNextContextUpdated
   | EventSessionNextSynthetic
   | EventSessionNextShellStarted
+  | EventSessionNextShellProgress
   | EventSessionNextShellEnded
+  | EventSessionNextSubagentStarted
+  | EventSessionNextSubagentCompleted
+  | EventSessionNextSubagentFailed
+  | EventSessionNextSubagentHeartbeatLost
   | EventSessionNextStepStarted
   | EventSessionNextStepEnded
   | EventSessionNextStepFailed
@@ -903,12 +908,72 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.next.shell.progress"
+        properties: {
+          timestamp: number
+          sessionID: string
+          messageID: string
+          callID: string
+          output: string
+        }
+      }
+    | {
+        id: string
         type: "session.next.shell.ended"
         properties: {
           timestamp: number
           sessionID: string
           callID: string
           output: string
+        }
+      }
+    | {
+        id: string
+        type: "session.next.subagent.started"
+        properties: {
+          timestamp: number
+          sessionID: string
+          childSessionID: string
+          subagentType: string
+          parentSessionID: string
+        }
+      }
+    | {
+        id: string
+        type: "session.next.subagent.completed"
+        properties: {
+          timestamp: number
+          sessionID: string
+          childSessionID: string
+          subagentType: string
+          output: string
+          usage?: {
+            input: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+            output: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+            cost: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          }
+          resumeFrom: string
+        }
+      }
+    | {
+        id: string
+        type: "session.next.subagent.failed"
+        properties: {
+          timestamp: number
+          sessionID: string
+          childSessionID: string
+          subagentType: string
+          error: string
+          resumeFrom: string
+        }
+      }
+    | {
+        id: string
+        type: "session.next.subagent.heartbeat_lost"
+        properties: {
+          timestamp: number
+          sessionID: string
+          childSessionID: string
         }
       }
     | {
@@ -985,6 +1050,15 @@ export type GlobalEvent = {
           assistantMessageID: string
           textID: string
           text: string
+          keptFrom?: number
+          kept?: Array<string>
+          survival?: {
+            [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          }
+          files?: {
+            read: Array<string>
+            modified: Array<string>
+          }
         }
       }
     | {
@@ -1150,6 +1224,15 @@ export type GlobalEvent = {
           sessionID: string
           messageID: string
           text: string
+          keptFrom?: number
+          kept?: Array<string>
+          survival?: {
+            [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          }
+          files?: {
+            read: Array<string>
+            modified: Array<string>
+          }
         }
       }
     | {
@@ -1161,7 +1244,15 @@ export type GlobalEvent = {
           messageID: string
           reason: "auto" | "manual"
           text: string
-          recent: string
+          keptFrom?: number
+          kept?: Array<string>
+          survival?: {
+            [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          }
+          files?: {
+            read: Array<string>
+            modified: Array<string>
+          }
         }
       }
     | {
@@ -1617,6 +1708,8 @@ export type GlobalEvent = {
     | SyncEventSessionNextSynthetic
     | SyncEventSessionNextShellStarted
     | SyncEventSessionNextShellEnded
+    | SyncEventSessionNextSubagentCompleted
+    | SyncEventSessionNextSubagentFailed
     | SyncEventSessionNextStepStarted
     | SyncEventSessionNextStepEnded
     | SyncEventSessionNextStepFailed
@@ -2744,6 +2837,8 @@ export type SessionDurableEvent =
   | SessionNextSynthetic
   | SessionNextShellStarted
   | SessionNextShellEnded
+  | SessionNextSubagentCompleted
+  | SessionNextSubagentFailed
   | SessionNextStepStarted
   | SessionNextStepEnded
   | SessionNextStepFailed
@@ -2870,13 +2965,18 @@ export type V2Event =
   | SessionNextContextUpdated
   | SessionNextSynthetic
   | SessionNextShellStarted
+  | SessionNextShellProgress
   | SessionNextShellEnded
+  | SessionNextSubagentStarted
+  | SessionNextSubagentCompleted1
+  | SessionNextSubagentFailed
+  | SessionNextSubagentHeartbeatLost
   | SessionNextStepStarted
   | SessionNextStepEnded
   | SessionNextStepFailed
   | SessionNextTextStarted
   | SessionNextTextDelta
-  | SessionNextTextEnded
+  | SessionNextTextEnded1
   | SessionNextReasoningStarted
   | SessionNextReasoningDelta
   | SessionNextReasoningEnded
@@ -2890,7 +2990,7 @@ export type V2Event =
   | SessionNextRetried
   | SessionNextCompactionStarted
   | SessionNextCompactionDelta
-  | SessionNextCompactionEnded
+  | SessionNextCompactionEnded1
   | SessionNextRevertStaged
   | SessionNextRevertCleared
   | SessionNextRevertCommitted
@@ -3452,6 +3552,49 @@ export type SyncEventSessionNextShellEnded = {
   }
 }
 
+export type SyncEventSessionNextSubagentCompleted = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.subagent.completed.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      childSessionID: string
+      subagentType: string
+      output: string
+      usage?: {
+        input: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        output: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        cost: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      resumeFrom: string
+    }
+  }
+}
+
+export type SyncEventSessionNextSubagentFailed = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.subagent.failed.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      childSessionID: string
+      subagentType: string
+      error: string
+      resumeFrom: string
+    }
+  }
+}
+
 export type SyncEventSessionNextStepStarted = {
   type: "sync"
   id: string
@@ -3548,6 +3691,15 @@ export type SyncEventSessionNextTextEnded = {
       assistantMessageID: string
       textID: string
       text: string
+      keptFrom?: number
+      kept?: Array<string>
+      survival?: {
+        [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      files?: {
+        read: Array<string>
+        modified: Array<string>
+      }
     }
   }
 }
@@ -3769,7 +3921,15 @@ export type SyncEventSessionNextCompactionEnded = {
       messageID: string
       reason: "auto" | "manual"
       text: string
-      recent: string
+      keptFrom?: number
+      kept?: Array<string>
+      survival?: {
+        [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      files?: {
+        read: Array<string>
+        modified: Array<string>
+      }
     }
   }
 }
@@ -3923,6 +4083,11 @@ export type AgentV2Info = {
   color?: AgentColor
   steps?: number
   permissions: PermissionV2Ruleset
+  capability?: "read-only" | "read-write" | "execute" | "all"
+  workspace?: string
+  source?: {
+    [key: string]: "explicit" | "inherited" | "default"
+  }
 }
 
 export type SessionV2Info = {
@@ -4140,7 +4305,15 @@ export type SessionMessageCompaction = {
   type: "compaction"
   reason: "auto" | "manual"
   summary: string
-  recent: string
+  keptFrom?: number
+  kept?: Array<string>
+  survival?: {
+    [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  files?: {
+    read: Array<string>
+    modified: Array<string>
+  }
   id: string
   metadata?: {
     [key: string]: unknown
@@ -4343,6 +4516,55 @@ export type SessionNextShellEnded = {
   }
 }
 
+export type SessionNextSubagentCompleted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.subagent.completed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    output: string
+    usage?: {
+      input: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      output: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      cost: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    resumeFrom: string
+  }
+}
+
+export type SessionNextSubagentFailed = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.subagent.failed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    error: string
+    resumeFrom: string
+  }
+}
+
 export type SessionNextStepStarted = {
   id: string
   metadata?: {
@@ -4455,6 +4677,15 @@ export type SessionNextTextEnded = {
     assistantMessageID: string
     textID: string
     text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -4709,7 +4940,15 @@ export type SessionNextCompactionEnded = {
     messageID: string
     reason: "auto" | "manual"
     text: string
-    recent: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -4766,6 +5005,93 @@ export type SessionNextRevertCommitted = {
     timestamp: number
     sessionID: string
     messageID: string
+  }
+}
+
+export type SessionNextSubagentCompleted1 = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.subagent.completed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    output: string
+    usage?: {
+      input: number | "NaN" | "Infinity" | "-Infinity"
+      output: number | "NaN" | "Infinity" | "-Infinity"
+      cost: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    resumeFrom: string
+  }
+}
+
+export type SessionNextTextEnded1 = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.text.ended"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    textID: string
+    text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
+  }
+}
+
+export type SessionNextCompactionEnded1 = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.compaction.ended"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    reason: "auto" | "manual"
+    text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -5215,6 +5541,67 @@ export type MessagePartRemoved = {
   }
 }
 
+export type SessionNextShellProgress = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.shell.progress"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    callID: string
+    output: string
+  }
+}
+
+export type SessionNextSubagentStarted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.subagent.started"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    parentSessionID: string
+  }
+}
+
+export type SessionNextSubagentHeartbeatLost = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.subagent.heartbeat_lost"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+  }
+}
+
 export type SessionNextTextDelta = {
   id: string
   metadata?: {
@@ -5295,6 +5682,15 @@ export type SessionNextCompactionDelta = {
     sessionID: string
     messageID: string
     text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -6337,6 +6733,18 @@ export type EventSessionNextShellStarted = {
   }
 }
 
+export type EventSessionNextShellProgress = {
+  id: string
+  type: "session.next.shell.progress"
+  properties: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    callID: string
+    output: string
+  }
+}
+
 export type EventSessionNextShellEnded = {
   id: string
   type: "session.next.shell.ended"
@@ -6345,6 +6753,59 @@ export type EventSessionNextShellEnded = {
     sessionID: string
     callID: string
     output: string
+  }
+}
+
+export type EventSessionNextSubagentStarted = {
+  id: string
+  type: "session.next.subagent.started"
+  properties: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    parentSessionID: string
+  }
+}
+
+export type EventSessionNextSubagentCompleted = {
+  id: string
+  type: "session.next.subagent.completed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    output: string
+    usage?: {
+      input: number | "NaN" | "Infinity" | "-Infinity"
+      output: number | "NaN" | "Infinity" | "-Infinity"
+      cost: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    resumeFrom: string
+  }
+}
+
+export type EventSessionNextSubagentFailed = {
+  id: string
+  type: "session.next.subagent.failed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
+    subagentType: string
+    error: string
+    resumeFrom: string
+  }
+}
+
+export type EventSessionNextSubagentHeartbeatLost = {
+  id: string
+  type: "session.next.subagent.heartbeat_lost"
+  properties: {
+    timestamp: number
+    sessionID: string
+    childSessionID: string
   }
 }
 
@@ -6427,6 +6888,15 @@ export type EventSessionNextTextEnded = {
     assistantMessageID: string
     textID: string
     text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -6605,6 +7075,15 @@ export type EventSessionNextCompactionDelta = {
     sessionID: string
     messageID: string
     text: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 
@@ -6617,7 +7096,15 @@ export type EventSessionNextCompactionEnded = {
     messageID: string
     reason: "auto" | "manual"
     text: string
-    recent: string
+    keptFrom?: number
+    kept?: Array<string>
+    survival?: {
+      [key: string]: number | "NaN" | "Infinity" | "-Infinity"
+    }
+    files?: {
+      read: Array<string>
+      modified: Array<string>
+    }
   }
 }
 

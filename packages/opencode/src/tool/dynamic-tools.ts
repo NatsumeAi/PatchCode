@@ -2,7 +2,7 @@
  * Registers MCP + plugin tools into core Location Tools.Service so V2
  * SessionRunner.materialize() advertises and settles them.
  */
-export * as V2DynamicTools from "./v2-dynamic-tools"
+export * as DynamicTools from "./dynamic-tools"
 
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js"
 import { ToolFailure } from "@opencode-ai/llm"
@@ -13,9 +13,9 @@ import { PermissionV2 } from "@opencode-ai/core/permission"
 import { Location } from "@opencode-ai/core/location"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import type { ToolDefinition } from "@opencode-ai/plugin"
-import { Effect, Exit, Layer, Option, Schema, Scope, Stream } from "effect"
+import { Effect, Exit, JsonSchema, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { JSONSchema7 } from "@ai-sdk/provider"
-import { MCP } from "@/mcp"
+import { MCP, type McpTool } from "@/mcp"
 import { Plugin } from "@/plugin"
 import { InstanceStore } from "@/project/instance-store"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -74,26 +74,12 @@ function assertPermission(action: string, context: Tool.Context) {
 
 function mcpToTool(
   name: string,
-  entry: {
-    def: { name: string; description?: string; inputSchema?: unknown }
-    client: {
-      callTool: (
-        params: unknown,
-        schema: unknown,
-        options: unknown,
-      ) => Promise<{
-        isError?: boolean
-        content: Array<{ type: string; text?: string }>
-        structuredContent?: unknown
-      }>
-    }
-    timeout?: number
-  },
+  entry: McpTool,
 ): Tool.AnyTool {
   return Tool.make({
     description: entry.def.description ?? "",
     input: Schema.Unknown,
-    inputJsonSchema: normalizeJsonSchema(entry.def.inputSchema) as any,
+    inputJsonSchema: normalizeJsonSchema(entry.def.inputSchema) as JsonSchema.JsonSchema,
     output: DynamicOutput,
     toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
     execute: (input, context) =>
@@ -156,7 +142,7 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
   return Tool.make({
     description: def.description,
     input: Schema.Unknown,
-    inputJsonSchema: inputJsonSchema as any,
+    inputJsonSchema: inputJsonSchema as JsonSchema.JsonSchema,
     output: DynamicOutput,
     toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
     execute: (input, context) =>
@@ -210,7 +196,7 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
         }
 
         const result = yield* Effect.tryPromise({
-          try: () => def.execute(parsedInput as any, pluginCtx as any),
+          try: () => def.execute(parsedInput as Parameters<typeof def.execute>[0], pluginCtx as Parameters<typeof def.execute>[1]),
           catch: (e) => new ToolFailure({ message: e instanceof Error ? e.message : String(e) }),
         })
 
@@ -246,7 +232,7 @@ const hostLayer = Layer.effect(
 
         let registrationScope: Scope.Scope | undefined
 
-        const sync = Effect.fn("V2DynamicTools.sync")(function* () {
+        const sync = Effect.fn("DynamicTools.sync")(function* () {
           if (registrationScope) {
             yield* Scope.close(registrationScope, Exit.void).pipe(Effect.ignore)
             registrationScope = undefined
@@ -267,7 +253,7 @@ const hostLayer = Layer.effect(
 
           for (const [name, entry] of Object.entries(mcpTools)) {
             if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) continue
-            record[name] = mcpToTool(name, entry as any)
+            record[name] = mcpToTool(name, entry)
           }
 
           const plugins = yield* instances.provide({ directory }, plugin.list()).pipe(

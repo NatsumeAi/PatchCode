@@ -28,7 +28,6 @@ import { SessionProcessor } from "@/session/processor"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionRevert } from "@/session/revert"
 import { SessionSummary } from "@/session/summary"
-import { SessionPrompt } from "@/session/prompt"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
 import { LSP } from "@/lsp/lsp"
@@ -54,6 +53,15 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilderV1 } from "./app-node-builder-v1"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
+import { ToolHostBridges } from "@/tool/tool-host-bridges"
+import { TaskTool } from "@opencode-ai/core/tool/task"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
+import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
+
+const locationServiceMapV2 = buildLocationServiceMap([[TaskTool.hostNode, ToolHostBridges.taskHostNode]])
 
 export const AppLayer = AppNodeBuilderV1.build(
   LayerNode.group([
@@ -87,7 +95,6 @@ export const AppLayer = AppNodeBuilderV1.build(
     SessionCompaction.node,
     SessionRevert.node,
     SessionSummary.node,
-    SessionPrompt.node,
     Instruction.node,
     LLM.node,
     LSP.node,
@@ -105,8 +112,19 @@ export const AppLayer = AppNodeBuilderV1.build(
     Installation.node,
     ShareNext.node,
     SessionShare.node,
+    SessionV2.node,
+    ToolHostBridges.node,
+    SubagentRegistry.node,
   ]),
-).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
+  [
+    [LocationServiceMap.node, locationServiceMapV2],
+    [SessionExecution.node, SessionExecutionLocal.node],
+  ],
+).pipe(
+  Layer.provide(locationServiceMapV2),
+  Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)),
+  Layer.provideMerge(Observability.layer),
+)
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">

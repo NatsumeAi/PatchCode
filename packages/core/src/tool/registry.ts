@@ -21,7 +21,10 @@ export type ExecuteInput = {
 }
 
 export interface Interface {
-  readonly materialize: (permissions?: PermissionV2.Ruleset) => Effect.Effect<Materialization>
+  readonly materialize: (agent?: {
+    permissions?: PermissionV2.Ruleset
+    capability?: "read-only" | "read-write" | "execute" | "all"
+  }) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
   readonly register: (tools: Readonly<Record<string, AnyTool>>) => Effect.Effect<void, RegistrationError, Scope.Scope>
 }
@@ -103,7 +106,8 @@ const registryLayer = Layer.effect(
           }),
         )
       }),
-      materialize: Effect.fn("ToolRegistry.materialize")(function* (permissions = []) {
+      materialize: Effect.fn("ToolRegistry.materialize")(function* (agent = {}) {
+        const permissions = agent.permissions ?? []
         const registrations = new Map(applications.entries())
         for (const [name, entries] of local) {
           const registration = entries.at(-1)?.registration
@@ -111,6 +115,11 @@ const registryLayer = Layer.effect(
         }
         for (const [name, registration] of registrations)
           if (whollyDisabled(permission(registration.tool, name), permissions)) registrations.delete(name)
+        if (agent.capability !== undefined) {
+          for (const name of Array.from(registrations.keys())) {
+            if (!capabilityAllows(name, agent.capability)) registrations.delete(name)
+          }
+        }
         return {
           definitions: Array.from(registrations, ([name, registration]) => definition(name, registration.tool)),
           settle: (input) => {
@@ -128,6 +137,31 @@ const layer = Layer.effect(
   Tools.Service,
   Service.use((registry) => Effect.succeed(Tools.Service.of({ register: registry.register }))),
 ).pipe(Layer.provideMerge(registryLayer))
+
+/**
+ * Capability filter (orthogonal to permission rules): which tool names are
+ * allowed for each capability mode. read-only agents get no write paths and no
+ * shell; read-write adds edit/write/apply_patch but keeps bash off; execute
+ * allows bash but no file mutation.
+ */
+function capabilityAllows(toolName: string, capability: "read-only" | "read-write" | "execute" | "all"): boolean {
+  if (capability === "all") return true
+  const WRITE_TOOLS = new Set(["edit", "write", "apply_patch", "bash"])
+  if (capability === "read-only") {
+    if (WRITE_TOOLS.has(toolName)) return false
+    return true
+  }
+  if (capability === "read-write") {
+    if (toolName === "bash") return false
+    return true
+  }
+  // execute: bash allowed, file mutation denied
+  if (capability === "execute") {
+    if (toolName === "edit" || toolName === "write" || toolName === "apply_patch") return false
+    return true
+  }
+  return true
+}
 
 function whollyDisabled(action: string, rules: PermissionV2.Ruleset) {
   const rule = rules.findLast((rule) => Wildcard.match(action, rule.action))

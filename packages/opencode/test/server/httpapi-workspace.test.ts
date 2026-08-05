@@ -4,6 +4,8 @@ import path from "node:path"
 import { Effect, Layer, Stream } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
@@ -27,7 +29,10 @@ import { httpApiLayer, requestInDirectory } from "./httpapi-layer"
 const originalWorkspaces = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 const appLayer = AppNodeBuilder.build(
   LayerNode.group([Project.node, Session.node, Workspace.node, InstanceStore.node, Database.node, Ripgrep.node]),
-  [[InstanceStore.bootstrapNode, InstanceBootstrap.node]],
+  [
+    [InstanceStore.bootstrapNode, InstanceBootstrap.node],
+    [SessionExecution.node, SessionExecutionLocal.node],
+  ],
 )
 const it = testEffect(Layer.mergeAll(appLayer, httpApiLayer))
 

@@ -1,15 +1,19 @@
 export * as TaskTool from "./task"
 
 import { ToolFailure } from "@opencode-ai/llm"
-import { Context, Effect, Layer, Option, Schema } from "effect"
-import { makeLocationNode } from "../effect/app-node"
+import { Cause, Context, Effect, Layer, Option, Schema } from "effect"
+import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
 import { PermissionV2 } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+import { SubagentRegistry } from "../session/subagent-registry"
 import type { SessionSchema } from "../session/schema"
 
 export const name = "task"
+
+export const CONCURRENCY_SOFT_CAP = 4
+export const CONCURRENCY_HARD_CAP = 7
 
 export const description = `Launch a new agent to handle complex, multistep tasks autonomously.
 
@@ -37,6 +41,21 @@ export const Input = Schema.Struct({
   background: Schema.Boolean.pipe(Schema.optional).annotate({
     description: "Run the agent in the background and return immediately",
   }),
+  cwd: Schema.String.pipe(Schema.optional).annotate({
+    description: "Subagent working directory (relative to project root)",
+  }),
+  fork_mode: Schema.optional(Schema.Literals(["PromptOnly", "LastNTurns", "FullHistory"])).annotate({
+    description:
+      "How much of the parent session trace the subagent receives. PromptOnly (default): no parent trace, only the prompt. LastNTurns: last 50 parent messages. FullHistory: entire parent trace.",
+  }),
+})
+
+export const Structured = Schema.Struct({
+  exit: Schema.optional(Schema.Literals(["running", "completed", "failed", "cancelled", "timeout", "budget_exhausted"])),
+  turns: Schema.optional(Schema.Number),
+  usage: Schema.optional(Schema.Struct({ input: Schema.Number, output: Schema.Number, cost: Schema.Number })),
+  error: Schema.optional(Schema.String),
+  resumeFrom: Schema.optional(Schema.String),
 })
 
 export const Output = Schema.Struct({
@@ -46,6 +65,8 @@ export const Output = Schema.Struct({
   sessionID: Schema.String.pipe(Schema.optional),
   /** True when host started a background subagent (TUI foregroundTasks filters on this). */
   background: Schema.Boolean.pipe(Schema.optional),
+  /** Structured result contract: exit state, turn/usage counters, resume handle. */
+  structured: Schema.optional(Structured),
 })
 
 export interface Host {
@@ -57,6 +78,8 @@ export interface Host {
     readonly taskID?: string
     readonly command?: string
     readonly background?: boolean
+    readonly cwd?: string
+    readonly forkMode?: "PromptOnly" | "LastNTurns" | "FullHistory"
     readonly agent: string
     readonly assistantMessageID: string
     readonly toolCallID: string
@@ -66,16 +89,43 @@ export interface Host {
     readonly task_id?: string
     readonly sessionID?: string
     readonly background?: boolean
+    readonly structured?: Schema.Schema.Type<typeof Structured>
   }>
 }
 
 export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/TaskTool.Host") {}
 
+/**
+ * Location-graph placeholder for the task host. The location graph is hoisted
+ * (Layer.fresh) and cannot see app-layer globals, so a Location that needs to
+ * execute the task tool must provide this service explicitly. App graphs
+ * replace it with the real host bridge via buildLocationServiceMap
+ * replacements (name-keyed); standalone use (tests) gets a no-op host.
+ */
+export const hostNode = makeGlobalNode({
+  service: HostService,
+  layer: Layer.succeed(
+    HostService,
+    HostService.of({
+      run: () =>
+        Effect.die(
+          new Error(
+            "Task host is not available. Subagent spawning requires the opencode task host bridge.",
+          ),
+        ),
+    }),
+  ),
+  deps: [],
+})
+
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const permission = yield* PermissionV2.Service
-
+    // Capture the host at build time: the location graph is hoisted and
+    // Layer.provide only exposes the host to node layers while they build —
+    // an execute-time serviceOption would always resolve None.
+    const capturedHost = yield* Effect.serviceOption(HostService)
     yield* tools
       .register({
         [name]: Tool.make({
@@ -96,8 +146,25 @@ const layer = Layer.effectDiscard(
                 })
                 .pipe(Effect.mapError(() => new ToolFailure({ message: "Permission denied: task" })))
 
-              // Resolve host at execute time so app-layer bridges can provide it.
-              const hostOpt = yield* Effect.serviceOption(HostService)
+              // Concurrency soft/hard cap — registry is optional (thin-shell testability).
+              // Soft tier (4-6 active) intentionally has no in-execute rejection:
+              // the dynamic-description soft prompt is deferred (plan Task 3
+              // "dynamic description postponed"); only the hard cap (7+) rejects.
+              const registryOpt = yield* Effect.serviceOption(SubagentRegistry.Service)
+              if (Option.isSome(registryOpt)) {
+                const registry = registryOpt.value
+                const active = yield* registry.activeCount
+                if (active >= CONCURRENCY_HARD_CAP) {
+                  return yield* new ToolFailure({
+                    message: `Too many active subagents (${active}). Solve the task yourself or wait for some to finish.`,
+                  })
+                }
+              }
+
+              // Use the build-time captured host (see layer). Keep the
+              // execute-time lookup as a fallback for hosts injected after
+              // registration (tests, thin shells).
+              const hostOpt = capturedHost._tag === "Some" ? capturedHost : yield* Effect.serviceOption(HostService)
               if (Option.isNone(hostOpt)) {
                 return yield* new ToolFailure({
                   message:
@@ -114,13 +181,19 @@ const layer = Layer.effectDiscard(
                   taskID: input.task_id,
                   command: input.command,
                   background: input.background,
+                  cwd: input.cwd,
+                  forkMode: input.fork_mode,
                   agent: context.agent,
                   assistantMessageID: context.assistantMessageID,
                   toolCallID: context.toolCallID,
                 })
                 .pipe(
+                  // Host errors surface as model-visible tool failures; interrupts
+                  // must survive so a cancelled parent turn stays cancellable.
                   Effect.catchCause((cause) =>
-                    Effect.fail(new ToolFailure({ message: `Task failed: ${String(cause)}` })),
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.failCause(cause)
+                      : Effect.fail(new ToolFailure({ message: `Task failed: ${Cause.squash(cause)}` })),
                   ),
                 )
             }),
@@ -133,5 +206,10 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/task",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node],
+  // Explicit dependency on the host placeholder: the location graph is hoisted
+  // (Layer.fresh) and only injects global services the tree references. The
+  // execute-time serviceOption alone would never resolve — the host must be a
+  // compile-time dependency of this node so hoist lifts it into the location
+  // environment. App graphs replace hostNode with the real bridge.
+  deps: [ToolRegistry.node, PermissionV2.node, hostNode],
 })

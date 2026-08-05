@@ -139,6 +139,10 @@ export const make = Effect.gen(function* () {
     sequence: number,
     exit: Exit.Exit<string, unknown>,
   ) {
+    yield* Effect.logInfo("BackgroundJob.settle", {
+      id,
+      success: Exit.isSuccess(exit),
+    }).pipe(Effect.ignore)
     const completed_at = yield* Clock.currentTimeMillis
     const result = yield* SynchronizedRef.modify(state.jobs, (jobs): readonly [FinishResult, Map<string, Active>] => {
       const job = jobs.get(id)

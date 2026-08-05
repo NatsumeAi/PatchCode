@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { cmd } from "./cmd"
 import { effectCmd } from "../effect-cmd"
+import type { AppServices } from "@/effect/app-runtime"
 
 export { extractResponseText, formatPromptTooLargeError, parseGitHubRemote } from "./github.shared"
 
@@ -30,7 +31,7 @@ export const GithubRunCommand = effectCmd({
   handler: (args) =>
     Effect.gen(function* () {
       const { githubRun } = yield* Effect.promise(() => import("./github.handler"))
-      return yield* githubRun(args)
+      return yield* githubRun(args) as Effect.Effect<undefined, never, AppServices>
     }),
 })
 

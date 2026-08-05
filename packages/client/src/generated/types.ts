@@ -668,7 +668,10 @@ export type SessionsContextOutput = {
         readonly type: "compaction"
         readonly reason: "auto" | "manual"
         readonly summary: string
-        readonly recent: string
+        readonly keptFrom?: number
+        readonly kept?: ReadonlyArray<string>
+        readonly survival?: { readonly [x: string]: number | "Infinity" | "-Infinity" | "NaN" }
+        readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
         readonly id: string
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }
@@ -833,6 +836,41 @@ export type SessionsHistoryOutput = {
     | {
         readonly id: string
         readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "session.next.subagent.completed"
+        readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+        readonly location?: { readonly directory: string; readonly workspaceID?: string }
+        readonly data: {
+          readonly timestamp: number
+          readonly sessionID: string
+          readonly childSessionID: string
+          readonly subagentType: string
+          readonly output: string
+          readonly usage?: {
+            readonly input: number | "Infinity" | "-Infinity" | "NaN"
+            readonly output: number | "Infinity" | "-Infinity" | "NaN"
+            readonly cost: number | "Infinity" | "-Infinity" | "NaN"
+          } | null
+          readonly resumeFrom: string
+        }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
+        readonly type: "session.next.subagent.failed"
+        readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+        readonly location?: { readonly directory: string; readonly workspaceID?: string }
+        readonly data: {
+          readonly timestamp: number
+          readonly sessionID: string
+          readonly childSessionID: string
+          readonly subagentType: string
+          readonly error: string
+          readonly resumeFrom: string
+        }
+      }
+    | {
+        readonly id: string
+        readonly metadata?: { readonly [x: string]: JsonValue }
         readonly type: "session.next.step.started"
         readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
         readonly location?: { readonly directory: string; readonly workspaceID?: string }
@@ -905,6 +943,10 @@ export type SessionsHistoryOutput = {
           readonly assistantMessageID: string
           readonly textID: string
           readonly text: string
+          readonly keptFrom?: number
+          readonly kept?: ReadonlyArray<string>
+          readonly survival?: { readonly [x: string]: number | "Infinity" | "-Infinity" | "NaN" }
+          readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
         }
       }
     | {
@@ -1089,7 +1131,10 @@ export type SessionsHistoryOutput = {
           readonly messageID: string
           readonly reason: "auto" | "manual"
           readonly text: string
-          readonly recent: string
+          readonly keptFrom?: number
+          readonly kept?: ReadonlyArray<string>
+          readonly survival?: { readonly [x: string]: number | "Infinity" | "-Infinity" | "NaN" }
+          readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
         }
       }
     | {
@@ -1291,6 +1336,37 @@ export type SessionsEventsOutput =
   | {
       readonly id: string
       readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.next.subagent.completed"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly timestamp: number
+        readonly sessionID: string
+        readonly childSessionID: string
+        readonly subagentType: string
+        readonly output: string
+        readonly usage?: { readonly input: number; readonly output: number; readonly cost: number } | undefined
+        readonly resumeFrom: string
+      }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.next.subagent.failed"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly timestamp: number
+        readonly sessionID: string
+        readonly childSessionID: string
+        readonly subagentType: string
+        readonly error: string
+        readonly resumeFrom: string
+      }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
       readonly type: "session.next.step.started"
       readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
       readonly location?: { readonly directory: string; readonly workspaceID?: string }
@@ -1363,6 +1439,10 @@ export type SessionsEventsOutput =
         readonly assistantMessageID: string
         readonly textID: string
         readonly text: string
+        readonly keptFrom?: number
+        readonly kept?: ReadonlyArray<string>
+        readonly survival?: { readonly [x: string]: number }
+        readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
       }
     }
   | {
@@ -1547,7 +1627,10 @@ export type SessionsEventsOutput =
         readonly messageID: string
         readonly reason: "auto" | "manual"
         readonly text: string
-        readonly recent: string
+        readonly keptFrom?: number
+        readonly kept?: ReadonlyArray<string>
+        readonly survival?: { readonly [x: string]: number }
+        readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
       }
     }
   | {
@@ -1746,7 +1829,10 @@ export type SessionsMessageOutput = {
         readonly type: "compaction"
         readonly reason: "auto" | "manual"
         readonly summary: string
-        readonly recent: string
+        readonly keptFrom?: number
+        readonly kept?: ReadonlyArray<string>
+        readonly survival?: { readonly [x: string]: number | "Infinity" | "-Infinity" | "NaN" }
+        readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
         readonly id: string
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }
@@ -1918,7 +2004,10 @@ export type MessagesListOutput = {
         readonly type: "compaction"
         readonly reason: "auto" | "manual"
         readonly summary: string
-        readonly recent: string
+        readonly keptFrom?: number
+        readonly kept?: ReadonlyArray<string>
+        readonly survival?: { readonly [x: string]: number | "Infinity" | "-Infinity" | "NaN" }
+        readonly files?: { readonly read: ReadonlyArray<string>; readonly modified: ReadonlyArray<string> }
         readonly id: string
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly time: { readonly created: number }

@@ -10,6 +10,7 @@ import { SessionV2 } from "./session"
 import { SessionStore } from "./session/store"
 import { Wildcard } from "./util/wildcard"
 import { PermissionSaved } from "./permission/saved"
+import { toCurrentRule } from "./session/subagent-permissions"
 
 export { Effect, Rule, Ruleset } from "@opencode-ai/schema/permission"
 // Plugin agents (e.g. oh-my-openagent "Sisyphus - ultraworker") are listed by the
@@ -145,7 +146,14 @@ const layer = Layer.effect(
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
-      return agent?.permissions ?? missingAgentPermissions
+      const agentRules = agent?.permissions ?? missingAgentPermissions
+      // Merge session-scoped rules (stored as V1 shape in the permission column)
+      // on top of agent rules so child-session permissions (subagent derivation)
+      // take effect. V1 {permission,pattern,action} → V2 {action,resource,effect}.
+      const sessionRules = yield* sessions.sessionPermission(sessionID).pipe(EffectRuntime.orDie)
+      return sessionRules && sessionRules.length > 0
+        ? [...agentRules, ...sessionRules.map((rule) => toCurrentRule(rule))]
+        : agentRules
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {

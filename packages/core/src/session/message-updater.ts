@@ -196,6 +196,10 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
           }
         })
       },
+      "session.next.subagent.started": () => Effect.void,
+      "session.next.subagent.completed": () => Effect.void,
+      "session.next.subagent.failed": () => Effect.void,
+      "session.next.subagent.heartbeat_lost": () => Effect.void,
       "session.next.step.started": (event) => {
         return Effect.gen(function* () {
           const currentAssistant = yield* adapter.getCurrentAssistant()

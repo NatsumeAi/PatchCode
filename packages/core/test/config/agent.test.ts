@@ -347,3 +347,112 @@ function loadHomePermissions(home: string) {
     return agent.permissions
   })
 }
+
+describe("ConfigAgentPlugin inheritance", () => {
+  it.live("expands extends chains with child overrides and source marks", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(tmp.path, "agents"), { recursive: true })
+            await fs.writeFile(
+              path.join(tmp.path, "agents", "base.md"),
+              `---
+description: Base agent
+request:
+  headers:
+    x-base: "1"
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+---
+Base system prompt.`,
+            )
+            await fs.writeFile(
+              path.join(tmp.path, "agents", "child.md"),
+              `---
+extends: base
+description: Child agent
+capability: read-write
+request:
+  body:
+    effort: high
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+---
+Child system prompt.`,
+            )
+          })
+          const agents = yield* AgentV2.Service
+          const config = Config.Service.of({
+            entries: () =>
+              Effect.succeed([
+                new Config.Directory({ type: "directory", path: AbsolutePath.make(tmp.path) }),
+              ]),
+          })
+          yield* ConfigAgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+            Effect.provideService(Config.Service, config),
+          )
+
+          const child = yield* agents.get(AgentV2.ID.make("child"))
+          expect(child).toMatchObject({
+            system: "Child system prompt.",
+            description: "Child agent",
+            capability: "read-write",
+          })
+          // Parent rules first, child rules last (findLast wins for deny).
+          expect(child?.permissions.map((p) => p.action)).toEqual(["read", "edit"])
+          expect(child?.source).toMatchObject({ description: "explicit", capability: "explicit", system: "explicit" })
+          expect(child?.request).toMatchObject({ headers: { "x-base": "1" }, body: { effort: "high" } })
+
+          const base = yield* agents.get(AgentV2.ID.make("base"))
+          expect(base).toMatchObject({ system: "Base system prompt.", description: "Base agent" })
+          expect(base?.source).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
+  it.live("agents without extends do not get double-applied permissions", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(tmp.path, "agents"), { recursive: true })
+            await fs.writeFile(
+              path.join(tmp.path, "agents", "solo.md"),
+              `---
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+---
+Solo.`,
+            )
+          })
+          const agents = yield* AgentV2.Service
+          const config = Config.Service.of({
+            entries: () =>
+              Effect.succeed([
+                new Config.Directory({ type: "directory", path: AbsolutePath.make(tmp.path) }),
+              ]),
+          })
+          yield* ConfigAgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+            Effect.provideService(Config.Service, config),
+          )
+          const solo = yield* agents.get(AgentV2.ID.make("solo"))
+          expect(solo?.permissions.filter((p) => p.action === "read")).toHaveLength(1)
+        }),
+      ),
+    ),
+  )
+})

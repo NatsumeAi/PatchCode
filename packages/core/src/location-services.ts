@@ -35,6 +35,7 @@ import { SystemContextRegistry } from "./system-context/registry"
 import { BuiltInTools } from "./tool/builtins"
 import { DynamicTools } from "./tool/dynamic"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
+import { TaskTool } from "./tool/task"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
 
@@ -76,6 +77,7 @@ export const locationServices = LayerNode.group([
   BuiltInTools.node,
   // After built-ins so dynamic MCP/plugin tools overlay cleanly.
   DynamicTools.node,
+  TaskTool.hostNode,
   SessionRunnerModel.node,
   Snapshot.node,
   SessionRunnerLLM.node,

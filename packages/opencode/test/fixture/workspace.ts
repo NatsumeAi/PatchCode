@@ -2,6 +2,8 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { Auth } from "../../src/auth"
 import { Workspace } from "../../src/control-plane/workspace"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
@@ -30,5 +32,6 @@ export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.I
     [
       [InstanceStore.bootstrapNode, InstanceBootstrap.node],
       [RuntimeFlags.node, RuntimeFlags.layer(overrides)],
+      [SessionExecution.node, SessionExecutionLocal.node],
     ],
   )

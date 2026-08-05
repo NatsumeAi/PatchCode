@@ -7,7 +7,6 @@ import {
   ConflictError,
   InvalidCursorError,
   MessageNotFoundError,
-  ServiceUnavailableError,
   SessionNotFoundError,
   UnknownError,
 } from "@opencode-ai/protocol/errors"
@@ -197,14 +196,12 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 }),
               ),
             ),
-            Effect.catchTag("Session.OperationUnavailableError", (error) =>
-              Effect.fail(
-                new ServiceUnavailableError({
-                  message: `Session ${error.operation} is not available yet`,
-                  service: `session.${error.operation}`,
-                }),
-              ),
+            // MessageDecodeError: wait reads the session transcript; a corrupt
+            // row surfaces as a generic server error rather than a 503.
+            Effect.catchTag("Session.MessageDecodeError", () =>
+              Effect.fail(new UnknownError({ message: "Failed to read session transcript" })),
             ),
+            Effect.asVoid,
           )
           return HttpApiSchema.NoContent.make()
         }),

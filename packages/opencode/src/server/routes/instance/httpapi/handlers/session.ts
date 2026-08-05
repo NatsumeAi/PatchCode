@@ -1,6 +1,8 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Command } from "@/command"
@@ -9,7 +11,6 @@ import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
-import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
@@ -22,6 +23,16 @@ import { InstanceState } from "@/effect/instance-state"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import { loopCommand } from "@opencode-ai/core/session/loop-control/command"
+import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
+import { GoalStore } from "@opencode-ai/core/session/loop-control/goal-store"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
+import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
+import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 import {
   CommandPayload,
   DiffQuery,
@@ -45,11 +56,20 @@ const tryParseJson = (text: string) =>
     catch: () => new HttpApiError.BadRequest({}),
   })
 
+const loopCommandForInstance = (raw: string, instance: SessionRuntime.Instance) =>
+  loopCommand(raw).pipe(
+    Effect.provideService(EventBus.Service, instance.eventBus),
+    Effect.provideService(GoalStore.Service, instance.goalStore),
+    Effect.provideService(IterationBudget.Service, instance.budget),
+    Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
+    Effect.provideService(WorkerState.Service, instance.workerState),
+    Effect.provideService(TerminalController.Service, instance.terminal),
+  )
+
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
     const shareSvc = yield* SessionShare.Service
-    const promptSvc = yield* SessionPrompt.Service
     const revertSvc = yield* SessionRevert.Service
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
@@ -488,9 +508,75 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       yield* requireSession(ctx.params.sessionID)
       // /loop is its own single path (loop-control + synthetic messages), not the agent drain.
       if (ctx.payload.command === "loop") {
-        return yield* promptSvc
-          .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
+        // Resolve the session-owned runtime bundle the V2 runner uses for this
+        // session so /loop commands observe and control the same mutable
+        // services. Precedence: ambient SessionRuntime → location layer.
+        const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+        const maybeLocations = yield* Effect.serviceOption(LocationServiceMap.Service)
+        let dispatch: Effect.Effect<string, Error, never>
+        if (Option.isSome(maybeRuntime)) {
+          const instance = yield* maybeRuntime.value.getOrCreate(ctx.params.sessionID)
+          dispatch = loopCommandForInstance(ctx.payload.arguments, instance)
+        } else if (Option.isSome(maybeLocations)) {
+          const current = yield* session.get(ctx.params.sessionID).pipe(Effect.orDie)
+          const locationLayer = maybeLocations.value.get({
+            directory: AbsolutePath.make(current.directory),
+            workspaceID: current.workspaceID,
+          })
+          dispatch = Effect.gen(function* () {
+            const maybe = yield* Effect.serviceOption(SessionRuntime.Service)
+            if (Option.isNone(maybe)) return yield* Effect.fail(new Error("session runtime unavailable"))
+            const instance = yield* maybe.value.getOrCreate(ctx.params.sessionID)
+            return yield* loopCommandForInstance(ctx.payload.arguments, instance)
+          }).pipe(
+            Effect.provide(locationLayer),
+            Effect.provideService(LocationServiceMap.Service, maybeLocations.value),
+          )
+        } else {
+          return yield* new HttpApiError.BadRequest({})
+        }
+        const text = yield* dispatch.pipe(Effect.orDie)
+        // Project the user message without waking the agent (legacy noReply semantics).
+        const user = yield* v2Svc
+          .prompt({
+            sessionID: ctx.params.sessionID,
+            prompt: {
+              text: `/${ctx.payload.command}${ctx.payload.arguments.trim() ? ` ${ctx.payload.arguments.trim()}` : ""}`,
+            },
+            resume: false,
+            projectUser: true,
+          })
           .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+        const current = yield* session.get(ctx.params.sessionID).pipe(Effect.orDie)
+        const model = current.model
+        const messageID = MessageID.ascending()
+        const completed = Date.now()
+        const part: SessionV1.TextPart = {
+          id: PartID.ascending(),
+          messageID,
+          sessionID: ctx.params.sessionID,
+          type: "text",
+          text,
+          synthetic: true,
+        }
+        const info: SessionV1.Assistant = {
+          id: messageID,
+          role: "assistant",
+          parentID: MessageID.ascending(user.id),
+          sessionID: ctx.params.sessionID,
+          mode: ctx.payload.agent ?? current.agent ?? "build",
+          agent: ctx.payload.agent ?? current.agent ?? "build",
+          path: { cwd: current.directory, root: current.directory },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ModelV2.ID.make(model?.id ?? "default"),
+          providerID: ProviderV2.ID.make(model?.providerID ?? "opencode"),
+          time: { created: completed, completed },
+          finish: "stop",
+        }
+        yield* events.publish(SessionV1.Event.MessageUpdated, { sessionID: ctx.params.sessionID, info })
+        yield* events.publish(SessionV1.Event.PartUpdated, { sessionID: ctx.params.sessionID, part, time: completed })
+        return { info, parts: [part] }
       }
       // One path for slash commands: expand template → same prompt/drain entry as chat.
       const text = yield* expandCommandTemplate({

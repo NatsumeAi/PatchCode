@@ -22,8 +22,8 @@ import { getAdapter, registeredAdapters } from "./adapters"
 import { type Target, type WorkspaceInfo, WorkspaceInfo as WorkspaceInfoSchema } from "./types"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
 import { Session } from "@/session/session"
-import { SessionPrompt } from "@/session/prompt"
 import { SessionTable } from "@opencode-ai/core/session/sql"
+import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/storage"
 import { errorData } from "@/util/error"
@@ -155,7 +155,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const auth = yield* Auth.Service
     const session = yield* Session.Service
-    const prompt = yield* SessionPrompt.Service
+    const v2Svc = yield* SessionV2.Service
     const http = yield* HttpClient.HttpClient
     const events = yield* EventV2Bridge.Service
     const vcs = yield* Vcs.Service
@@ -581,7 +581,7 @@ const layer = Layer.effect(
                 ),
               )
             } else {
-              yield* prompt.cancel(input.sessionID)
+              yield* v2Svc.interrupt(input.sessionID)
             }
 
             // "claim" this session so any future events coming from
@@ -951,7 +951,7 @@ export const node = LayerNode.make({
   deps: [
     Auth.node,
     Session.node,
-    SessionPrompt.node,
+    SessionV2.node,
     httpClient,
     EventV2Bridge.node,
     Vcs.node,

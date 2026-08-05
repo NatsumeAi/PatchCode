@@ -22,18 +22,19 @@ import { InstanceRef } from "@/effect/instance-ref"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import type { SessionID } from "../../session/schema"
-import { MessageID, PartID } from "../../session/schema"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "../../session/message-v2"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
-import { SessionPrompt } from "@/session/prompt"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
+import { SessionMessage } from "@opencode-ai/core/session/message"
 import { Git } from "@/git"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
 import { parseGitHubRemote } from "@/util/repository"
 import { Effect } from "effect"
-import { extractResponseText, formatPromptTooLargeError } from "./github.shared"
+import { formatPromptTooLargeError } from "./github.shared"
 
 type GitHubAuthor = {
   login: string
@@ -379,7 +380,7 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
   const gitSvc = yield* Git.Service
   const sessionSvc = yield* Session.Service
   const sessionShare = yield* SessionShare.Service
-  const sessionPrompt = yield* SessionPrompt.Service
+  const v2Svc = yield* SessionV2.Service
   const events = yield* EventV2Bridge.Service
   const runLocalEffect = <A, E>(effect: Effect.Effect<A, E>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(InstanceRef, ctx)))
@@ -891,83 +892,100 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
 
       return runLocalEffect(
         Effect.gen(function* () {
-          const prompt = sessionPrompt
-          const result = yield* prompt.prompt({
-            sessionID: session.id,
-            messageID: MessageID.ascending(),
-            variant,
-            model: {
-              providerID,
-              modelID,
-            },
-            // agent is omitted - server will use default_agent from config or fall back to "build"
-            parts: [
-              {
-                id: PartID.ascending(),
-                type: "text",
-                text: message,
-              },
-              ...files.flatMap((f) => [
-                {
-                  id: PartID.ascending(),
-                  type: "file" as const,
-                  mime: f.mime,
-                  url: `data:${f.mime};base64,${f.content}`,
-                  filename: f.filename,
-                  source: {
-                    type: "file" as const,
-                    text: {
-                      value: f.replacement,
-                      start: f.start,
-                      end: f.end,
-                    },
-                    path: f.filename,
-                  },
+          // V2 prompt is async (admit + wake); V2 has no per-prompt model override,
+          // so switch the session model first.
+          const current = yield* v2Svc.get(session.id as SessionSchema.ID).pipe(Effect.orDie)
+          if (current.model?.id !== modelID || current.model?.providerID !== providerID) {
+            yield* v2Svc
+              .switchModel({
+                sessionID: session.id as SessionSchema.ID,
+                model: {
+                  id: modelID,
+                  providerID,
                 },
-              ]),
-            ],
-          })
-
-          if (result.info.role === "assistant" && result.info.error) {
-            const err = result.info.error
-            console.error("Agent error:", err)
-            if (err.name === "ContextOverflowError") throw new Error(formatPromptTooLargeError(files))
-            const message = "message" in err.data ? err.data.message : ""
-            throw new Error(`${err.name}: ${message}`)
+              })
+              .pipe(Effect.orDie)
           }
 
-          const text = extractResponseText(result.parts)
-          if (text) return text
+          const messageID = SessionMessage.ID.create()
+          yield* v2Svc
+            .prompt({
+              id: messageID,
+              sessionID: session.id as SessionSchema.ID,
+              prompt: {
+                text: message,
+                ...(files.length
+                  ? {
+                      files: files.map((f) => ({
+                        uri: `data:${f.mime};base64,${f.content}`,
+                        mime: f.mime,
+                        name: f.filename,
+                        source: {
+                          start: f.start,
+                          end: f.end,
+                          text: f.replacement,
+                        },
+                      })),
+                    }
+                  : {}),
+              },
+              delivery: "steer",
+            })
+            .pipe(Effect.orDie)
 
+          // Wait for the final assistant message (SessionStore.wait is the single
+          // owner of settle semantics).
+          const msgs = yield* v2Svc.wait(session.id as SessionSchema.ID).pipe(Effect.orDie)
+          const assistant = msgs?.findLast((m) => m.type === "assistant")
+
+          if (!assistant || assistant.type !== "assistant") throw new Error("Timed out waiting for agent response")
+
+          if (assistant.error) {
+            console.error("Agent error:", assistant.error.message)
+            // V2 assistant errors carry only {type:"unknown", message} — no
+            // structured name tag survives (v1 had ContextOverflowError.name).
+            // Match on the stable message wording, guarded by the UnknownError
+            // type so unrelated error kinds are never misclassified.
+            if (
+              assistant.error.type === "unknown" &&
+              /context.?overflow|prompt.*too large|exceeds.*context/i.test(assistant.error.message)
+            ) {
+              throw new Error(formatPromptTooLargeError(files))
+            }
+            throw new Error(assistant.error.message)
+          }
+
+          const text = assistant.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n")
+          if (text.trim()) return text
+
+          // V2 has no per-prompt tools: {"*": false} — send the summary directly.
           console.log("Requesting summary from agent...")
-          const summary = yield* prompt.prompt({
-            sessionID: session.id,
-            messageID: MessageID.ascending(),
-            variant,
-            model: {
-              providerID,
-              modelID,
-            },
-            tools: { "*": false },
-            parts: [
-              {
-                id: PartID.ascending(),
-                type: "text",
+          const summaryMessageID = SessionMessage.ID.create()
+          // `after` = admit timestamp: without it wait() settles immediately on
+          // the prior (empty-text) turn's assistant instead of the summary turn.
+          const summaryStamp = Date.now()
+          yield* v2Svc
+            .prompt({
+              id: summaryMessageID,
+              sessionID: session.id as SessionSchema.ID,
+              prompt: {
                 text: "Summarize the actions (tool calls & reasoning) you did for the user in 1-2 sentences.",
               },
-            ],
-          })
-
-          if (summary.info.role === "assistant" && summary.info.error) {
-            const err = summary.info.error
-            console.error("Summary agent error:", err)
-            if (err.name === "ContextOverflowError") throw new Error(formatPromptTooLargeError(files))
-            const message = "message" in err.data ? err.data.message : ""
-            throw new Error(`${err.name}: ${message}`)
-          }
-
-          const summaryText = extractResponseText(summary.parts)
-          if (!summaryText) throw new Error("Failed to get summary from agent")
+              delivery: "steer",
+            })
+            .pipe(Effect.orDie)
+          const summaryMsgs = yield* v2Svc.wait(session.id as SessionSchema.ID, summaryStamp).pipe(Effect.orDie)
+          const summaryAssistant = summaryMsgs?.findLast((m) => m.type === "assistant")
+          if (!summaryAssistant || summaryAssistant.type !== "assistant") throw new Error("Failed to get summary from agent")
+          if (summaryAssistant.error) throw new Error(`Summary agent error: ${summaryAssistant.error.message}`)
+          const summaryText = summaryAssistant.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n")
+          if (!summaryText.trim()) throw new Error("Failed to get summary from agent")
           return summaryText
         }),
       )
