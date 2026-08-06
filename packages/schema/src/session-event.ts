@@ -140,6 +140,8 @@ export namespace Shell {
       ...Base,
       callID: Schema.String,
       output: Schema.String,
+      /** Process exit code; omitted when unknown (e.g. aborted before wait). */
+      exit: Schema.Number.pipe(optional),
     },
   })
   export type Ended = typeof Ended.Type
@@ -392,12 +394,13 @@ export namespace Tool {
   export type Called = typeof Called.Type
 
   /**
-   * Replayable bounded running-tool state. Tools should checkpoint semantic
-   * transitions or at a bounded cadence, not persist every stdout/stderr chunk.
+   * Live-only running-tool state (bounded cadence). Final tool outcome remains
+   * on Tool.Success / Tool.Failed for durable replay — same delivery model as
+   * Shell.Progress. Do not make this durable: mid-run checkpoints would rewrite
+   * the full assistant message on every tick (DB write amplification).
    */
   export const Progress = Event.define({
     type: "session.next.tool.progress",
-    ...options,
     schema: {
       ...ToolBase,
       structured: Schema.Record(Schema.String, Schema.Unknown),
@@ -545,7 +548,6 @@ export const DurableDefinitions = Event.inventory(
   Tool.Input.Started,
   Tool.Input.Ended,
   Tool.Called,
-  Tool.Progress,
   Tool.Success,
   Tool.Failed,
   Reasoning.Started,

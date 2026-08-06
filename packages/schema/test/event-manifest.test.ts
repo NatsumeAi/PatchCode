@@ -24,9 +24,12 @@ describe("public event manifest", () => {
       SessionV1.Event.Error,
     ])
     expect(EventManifest.Latest.size).toBe(EventManifest.Definitions.length)
-    // shell.progress is live-only (not durable); full shell output remains on Shell.Ended
+    // shell.progress and tool.progress are live-only (not durable); full
+    // output/settlement remains on Shell.Ended / Tool.Success|Failed.
     expect(EventManifest.Latest.get("session.next.shell.progress")).toBe(SessionEvent.Shell.Progress)
     expect(EventManifest.Durable.has("session.next.shell.progress.1")).toBe(false)
+    expect(EventManifest.Latest.get("session.next.tool.progress")).toBe(SessionEvent.Tool.Progress)
+    expect(EventManifest.Durable.has("session.next.tool.progress.1")).toBe(false)
   })
 
   test("uses canonical definitions for current public events", () => {

@@ -72,6 +72,8 @@ export const Shell = Schema.Struct({
   callID: Schema.String,
   command: Schema.String,
   output: Schema.String,
+  /** Process exit code when known. */
+  exit: Schema.Number.pipe(optional),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
     completed: DateTimeUtcFromMillis.pipe(optional),
