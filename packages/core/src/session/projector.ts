@@ -836,7 +836,17 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Shell.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Step.Started, (event) => run(db, events, event))
-    yield* events.project(SessionEvent.Step.Ended, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Step.Ended, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, events, event)
+        // V2 usage lives on Step.Ended (not V1 step-finish parts). Accumulate into
+        // SessionTable so session.cost / stats stay accurate for the V2 runner path.
+        yield* applyUsage(db, event.data.sessionID, {
+          cost: event.data.cost,
+          tokens: event.data.tokens,
+        })
+      }),
+    )
     yield* events.project(SessionEvent.Step.Failed, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Text.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Text.Ended, (event) => run(db, events, event))
@@ -883,6 +893,26 @@ const layer = Layer.effectDiscard(
           .get()
           .pipe(Effect.orDie)
         if (!boundary) return yield* Effect.die(`Revert boundary message not found: ${event.data.messageID}`)
+        const removed = yield* db
+          .select()
+          .from(SessionMessageTable)
+          .where(
+            and(eq(SessionMessageTable.session_id, event.data.sessionID), gt(SessionMessageTable.seq, boundary.seq)),
+          )
+          .all()
+          .pipe(Effect.orDie)
+        for (const row of removed) {
+          const message = decodeMessage({ ...row.data, id: row.id, type: row.type })
+          if (message.type !== "assistant") continue
+          if (message.tokens === undefined && message.cost === undefined) continue
+          const tokens = message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+          yield* applyUsage(
+            db,
+            event.data.sessionID,
+            { cost: message.cost ?? 0, tokens },
+            -1,
+          )
+        }
         yield* db
           .delete(SessionMessageTable)
           .where(

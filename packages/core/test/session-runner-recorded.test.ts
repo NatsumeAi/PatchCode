@@ -73,7 +73,8 @@ const systemContext = AppNodeBuilder.build(SystemContextRegistry.node)
 const skillGuidance = Layer.mock(SkillGuidance.Service, { load: () => Effect.succeed(SystemContext.empty) })
 const referenceGuidance = Layer.mock(ReferenceGuidance.Service, { load: () => Effect.succeed(SystemContext.empty) })
 const catalogStub = Layer.mock(Catalog.Service, {
-  transform: () => Effect.void,
+  transform: () => Effect.succeed({ dispose: Effect.void }),
+  reload: () => Effect.void,
   provider: {
     get: () => Effect.succeed(undefined),
     all: () => Effect.succeed([]),

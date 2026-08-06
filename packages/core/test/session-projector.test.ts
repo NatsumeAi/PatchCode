@@ -460,6 +460,62 @@ describe("SessionProjector", () => {
     }),
   )
 
+  it.effect("accumulates Step.Ended usage onto SessionTable totals", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: Project.ID.global,
+          slug: "test",
+          directory: "/project",
+          title: "test",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .insert(SessionMessageTable)
+        .values([assistantRow(SessionMessage.ID.make("msg_assistant_usage"), 0)])
+        .run()
+        .pipe(Effect.orDie)
+
+      const service = yield* EventV2.Service
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        timestamp: DateTime.makeUnsafe(1),
+        assistantMessageID: SessionMessage.ID.make("msg_assistant_usage"),
+        finish: "stop",
+        cost: 0.12,
+        tokens: { input: 10, output: 20, reasoning: 3, cache: { read: 4, write: 5 } },
+      })
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        timestamp: DateTime.makeUnsafe(2),
+        assistantMessageID: SessionMessage.ID.make("msg_assistant_usage"),
+        finish: "stop",
+        cost: 0.08,
+        tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+
+      const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
+      expect(row).toMatchObject({
+        cost: 0.2,
+        tokens_input: 11,
+        tokens_output: 22,
+        tokens_reasoning: 3,
+        tokens_cache_read: 4,
+        tokens_cache_write: 5,
+      })
+    }),
+  )
+
   it.effect("does not revive a stale incomplete assistant projection", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
