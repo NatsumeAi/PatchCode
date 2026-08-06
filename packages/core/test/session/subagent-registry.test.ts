@@ -56,6 +56,34 @@ describe("SubagentRegistry", () => {
     }
   })
 
+  it("resume may reactivate a completed child (completed → active)", async () => {
+    const program = Effect.gen(function* () {
+      const registry = yield* SubagentRegistry.Service
+      yield* registerChild("active")
+      yield* registry.transition(child, "completed", { finishedAt: Date.now() })
+      expect((yield* registry.get(child))?.status).toBe("completed")
+      yield* registry.transition(child, "active")
+      const record = yield* registry.get(child)
+      expect(record?.status).toBe("active")
+      expect(record?.finishedAt).toBeUndefined()
+      expect(yield* registry.activeCount).toBe(1)
+    }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(SubagentLifecycle.layerForTest))))
+    await Effect.runPromise(program)
+  })
+
+  it("resume may reactivate a failed child (failed → active)", async () => {
+    const program = Effect.gen(function* () {
+      const registry = yield* SubagentRegistry.Service
+      yield* registerChild("active")
+      yield* registry.transition(child, "failed", { error: "boom" })
+      yield* registry.transition(child, "active")
+      const record = yield* registry.get(child)
+      expect(record?.status).toBe("active")
+      expect(record?.error).toBeUndefined()
+    }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(SubagentLifecycle.layerForTest))))
+    await Effect.runPromise(program)
+  })
+
   it("transition lost is allowed from active (heartbeat loss)", async () => {
     const program = Effect.gen(function* () {
       const registry = yield* SubagentRegistry.Service

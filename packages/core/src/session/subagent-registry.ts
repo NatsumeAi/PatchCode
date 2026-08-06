@@ -45,8 +45,11 @@ const TERMINAL: readonly SubagentStatus[] = ["completed", "failed", "cancelled",
 const isAllowed = (from: SubagentStatus, to: SubagentStatus): boolean => {
   if (from === "pending") return PENDING_TO.includes(to)
   if (from === "active") return ACTIVE_TO.includes(to)
-  // terminal states are absorbing; completed may be re-marked failed (post-hoc result classification)
+  // terminal states are absorbing for most transitions; completed may be
+  // re-marked failed (post-hoc classification). Resume may reactivate any
+  // terminal record back to active (clears finishedAt in transition).
   if (from === "completed" && (to === "failed" || to === "completed")) return true
+  if (TERMINAL.includes(from) && to === "active") return true
   return false
 }
 
@@ -125,6 +128,10 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
             ...(patch ?? {}),
             status: to,
             ...(to === "active" && current.startedAt === undefined ? { startedAt: now } : {}),
+            // Resume/reactivate: clear terminal bookkeeping so heartbeat/concurrency work.
+            ...(to === "active" && TERMINAL.includes(current.status)
+              ? { finishedAt: undefined, error: undefined, lastHeartbeatAt: now }
+              : {}),
             ...(TERMINAL.includes(to) ? { finishedAt: now } : {}),
           }
           next.set(childSessionID, record)
