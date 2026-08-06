@@ -76,7 +76,12 @@ import { sessionEpilogue } from "../../util/presentation"
 
 import { useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
-import { nextThinkingMode, useThinkingMode, type ThinkingMode } from "../../context/thinking"
+import {
+  nextThinkingPreference,
+  thinkingPreferenceActionTitle,
+  useThinkingMode,
+  type ThinkingMode,
+} from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
 
 import { usePluginRuntime } from "../../plugin/runtime"
@@ -86,6 +91,7 @@ import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useOpencodeKeymap 
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
 import {
+  applyReasoningHoldOpen,
   buildGroupedItems,
   buildToolViewModel,
   buildReasoningViewModel,
@@ -94,6 +100,8 @@ import {
   getDescriptor,
   nextFoldMode,
   normalizeToolName,
+  REASONING_HOLD_OPEN_MS,
+  toEpochMs,
   verbGroupHeaderLabel,
   type DisplayContext,
   type VerbRun,
@@ -843,11 +851,7 @@ export function Session() {
       },
     },
     {
-      title: (() => {
-        const next = nextThinkingMode(thinkingMode())
-        if (next === "hide") return "Collapse thinking"
-        return "Expand thinking"
-      })(),
+      title: thinkingPreferenceActionTitle(thinking.storedMode()),
       value: "session.toggle.thinking",
       category: "Session",
       slash: {
@@ -855,7 +859,10 @@ export function Session() {
         aliases: ["toggle-thinking"],
       },
       run: () => {
-        thinking.set(nextThinkingMode(thinkingMode()))
+        // Cycle auto → show → hide → auto. Never use mode() here: when kv is
+        // unset mode() fakes "show", and nextThinkingMode("show") writes "hide",
+        // permanently killing expand-while-streaming / collapse-when-done.
+        thinking.setPreference(nextThinkingPreference(thinking.storedMode()))
         dialog.clear()
       },
     },
@@ -1897,19 +1904,52 @@ const PART_MAPPING = {
 function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: AssistantMessage }) {
   const ctx = use()
 
-  // Single source of truth: buildReasoningViewModel(pin).
-  // - streaming → expanded; finished → collapsed (DEFAULT_CONFIG.reasoning)
-  // - getPin(id) is Solid-tracked so click/keyboard re-open re-renders
-  // - pin always wins over auto mode (resolveReasoningMode)
+  // Hold-open until timestamp: covers SSE batches that mount already "done"
+  // and natural streaming→done transitions under auto preference.
+  const [holdUntil, setHoldUntil] = createSignal(0)
+
+  createEffect(() => {
+    const stored = ctx.thinkingStoredMode()
+    const pin = getPin(props.part.id)
+    if (pin != null || stored != null) {
+      setHoldUntil(0)
+      return
+    }
+    const endMs = toEpochMs(props.part.time?.end)
+    if (endMs == null) return
+    const until = endMs + REASONING_HOLD_OPEN_MS
+    if (Date.now() < until) setHoldUntil(until)
+  })
+
+  createEffect(() => {
+    const until = holdUntil()
+    if (until <= 0) return
+    const delay = Math.max(0, until - Date.now())
+    const timer = setTimeout(() => setHoldUntil(0), delay)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  // auto: streaming → expanded; finished → collapsed (after brief hold)
   const vm = createMemo(() => {
     void props.part.text
     void props.part.time?.end
+    void holdUntil()
     const pin = getPin(props.part.id)
-    return buildReasoningViewModel(props.part, ctx.thinkingStoredMode(), pin, DEFAULT_CONFIG)
+    const stored = ctx.thinkingStoredMode()
+    const base = buildReasoningViewModel(props.part, stored, pin, DEFAULT_CONFIG)
+    if (holdUntil() > Date.now()) {
+      return applyReasoningHoldOpen(base, {
+        storedMode: stored,
+        endedAtMs: toEpochMs(props.part.time?.end),
+        nowMs: Date.now(),
+      })
+    }
+    return base
   })
 
   const handleClick = () => {
     if (!vm().clickable) return
+    setHoldUntil(0)
     setPin(props.part.id, vm().mode === "collapsed" ? "expanded" : "collapsed")
   }
 

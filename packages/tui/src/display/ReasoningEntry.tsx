@@ -60,7 +60,7 @@ export function ReasoningEntry(props: {
   })
 
   return (
-    <Show when={props.vm.body || isStreaming()}>
+    <Show when={props.vm.body || props.vm.title || isStreaming() || props.vm.durationMs != null}>
       <box
         paddingLeft={2}
         ref={(el: BoxRenderable) => {

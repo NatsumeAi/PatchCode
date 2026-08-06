@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { BoxRenderable, type BaseRenderable, type RGBA } from "@opentui/core"
 import type { VerbRun } from "@opencode-ai/session-display"
 import { useTheme } from "../context/theme"
@@ -69,9 +69,6 @@ export function VerbGroupHeader(props: {
         <text flexGrow={1} fg={fg()}>
           {props.label}
         </text>
-        <Show when={props.run.failedCount > 0}>
-          <text fg={theme.error}> · {props.run.failedCount} failed</text>
-        </Show>
       </box>
     </box>
   )
