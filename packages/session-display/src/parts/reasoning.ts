@@ -26,15 +26,17 @@ export function reasoningSummary(text: string): { title: string | null; body: st
 }
 
 /**
- * Resolve reasoning display mode per product UX:
- * - Streaming (no end): always expanded (unless pin/hide) so live thinking is visible
- * - Done: collapsed unless pin / kv show / UI hold-open (adapter)
+ * Resolve reasoning display mode per product UX (locked):
+ * - Auto (storedMode null): streaming → expanded; done → collapsed
  * - kv "hide": always collapsed
  * - kv "show": always expanded
  * - pin always wins when set
  *
- * Note: SSE flushes start+delta+end in one Solid batch (~16ms). Adapters should
- * hold expanded briefly after end so users actually see the content before collapse.
+ * DO NOT change the auto default to collapsed-while-streaming. Live thinking
+ * must stay readable; finished thoughts fold.
+ *
+ * SSE may flush start+delta+end in one Solid batch. Adapters must call
+ * `applyReasoningHoldOpen` so users still see content briefly after end.
  */
 export function resolveReasoningMode(
   part: ReasoningPart,
@@ -53,6 +55,57 @@ export function resolveReasoningMode(
   // Always expanded while streaming (ignore cfg.streaming=collapsed).
   if (!isDone) return "expanded"
   return cfg.reasoning.finished
+}
+
+/** Brief post-end expand window so batched SSE still shows thinking once. */
+export const REASONING_HOLD_OPEN_MS = 1500
+
+/**
+ * True when auto-lifecycle should keep a just-finished thought expanded
+ * for a short window (batched end, or natural transition to done).
+ */
+export function shouldHoldReasoningOpen(input: {
+  status: "streaming" | "done"
+  mode: DisplayMode
+  userPinned: boolean
+  storedMode: "show" | "hide" | null
+  endedAtMs: number | null
+  nowMs: number
+  holdOpenMs?: number
+}): boolean {
+  if (input.userPinned) return false
+  if (input.storedMode != null) return false
+  if (input.status !== "done") return false
+  if (input.mode !== "collapsed") return false
+  if (input.endedAtMs == null) return false
+  const hold = input.holdOpenMs ?? REASONING_HOLD_OPEN_MS
+  return input.nowMs - input.endedAtMs < hold
+}
+
+/** Apply hold-open overlay to a view model (adapter convenience). */
+export function applyReasoningHoldOpen(
+  vm: ReasoningViewModel,
+  input: {
+    storedMode: "show" | "hide" | null
+    endedAtMs: number | null
+    nowMs: number
+    holdOpenMs?: number
+  },
+): ReasoningViewModel {
+  if (
+    !shouldHoldReasoningOpen({
+      status: vm.status,
+      mode: vm.mode,
+      userPinned: vm.userPinned,
+      storedMode: input.storedMode,
+      endedAtMs: input.endedAtMs,
+      nowMs: input.nowMs,
+      holdOpenMs: input.holdOpenMs,
+    })
+  ) {
+    return vm
+  }
+  return { ...vm, mode: "expanded" }
 }
 
 export function buildReasoningViewModel(
@@ -78,6 +131,6 @@ export function buildReasoningViewModel(
     durationMs,
     userPinned: pin != null,
     status: isDone ? "done" : "streaming",
-    clickable: body.length > 0 || !isDone,
+    clickable: body.length > 0 || summary.title != null || !isDone,
   }
 }

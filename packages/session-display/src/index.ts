@@ -45,7 +45,14 @@ export { buildToolViewModel } from "./build"
 
 // Reasoning
 export type { ReasoningViewModel } from "./parts/reasoning"
-export { resolveReasoningMode, buildReasoningViewModel, reasoningSummary } from "./parts/reasoning"
+export {
+  REASONING_HOLD_OPEN_MS,
+  applyReasoningHoldOpen,
+  buildReasoningViewModel,
+  reasoningSummary,
+  resolveReasoningMode,
+  shouldHoldReasoningOpen,
+} from "./parts/reasoning"
 
 // Descriptors (side-effect: registers all)
 export { readDescriptor } from "./tools/read"

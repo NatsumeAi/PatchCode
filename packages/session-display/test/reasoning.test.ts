@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { ReasoningPart } from "@opencode-ai/sdk/v2"
-import { resolveReasoningMode, buildReasoningViewModel, reasoningSummary } from "../src/parts/reasoning"
+import {
+  applyReasoningHoldOpen,
+  buildReasoningViewModel,
+  reasoningSummary,
+  resolveReasoningMode,
+  shouldHoldReasoningOpen,
+} from "../src/parts/reasoning"
 import { DEFAULT_CONFIG } from "../src/config"
 
 function makeReasoning(text: string, end?: number): ReasoningPart {
@@ -84,5 +90,72 @@ describe("§8.2 reasoning snapshots", () => {
     const result = reasoningSummary("Just plain thinking text")
     expect(result.title).toBeNull()
     expect(result.body).toBe("Just plain thinking text")
+  })
+  test("title-only done thought stays visible and clickable", () => {
+    const part = makeReasoning("**Inspecting PR workflow**\n\n", 2000)
+    // Force empty body after title extraction
+    const vm = buildReasoningViewModel(
+      { ...part, text: "**Inspecting PR workflow**" },
+      null,
+      null,
+      DEFAULT_CONFIG,
+    )
+    expect(vm.title).toBe("Inspecting PR workflow")
+    expect(vm.body).toBe("")
+    expect(vm.status).toBe("done")
+    expect(vm.clickable).toBe(true)
+  })
+})
+
+describe("reasoning hold-open after end (batched SSE)", () => {
+  test("auto + just ended → hold open", () => {
+    expect(
+      shouldHoldReasoningOpen({
+        status: "done",
+        mode: "collapsed",
+        userPinned: false,
+        storedMode: null,
+        endedAtMs: 10_000,
+        nowMs: 10_500,
+      }),
+    ).toBe(true)
+  })
+
+  test("auto + ended long ago → no hold", () => {
+    expect(
+      shouldHoldReasoningOpen({
+        status: "done",
+        mode: "collapsed",
+        userPinned: false,
+        storedMode: null,
+        endedAtMs: 10_000,
+        nowMs: 20_000,
+      }),
+    ).toBe(false)
+  })
+
+  test("kv hide never holds open", () => {
+    expect(
+      shouldHoldReasoningOpen({
+        status: "done",
+        mode: "collapsed",
+        userPinned: false,
+        storedMode: "hide",
+        endedAtMs: 10_000,
+        nowMs: 10_100,
+      }),
+    ).toBe(false)
+  })
+
+  test("applyReasoningHoldOpen expands auto just-finished thought", () => {
+    const part = makeReasoning("Thought text", 10_000)
+    const vm = buildReasoningViewModel(part, null, null, DEFAULT_CONFIG)
+    expect(vm.mode).toBe("collapsed")
+    const held = applyReasoningHoldOpen(vm, {
+      storedMode: null,
+      endedAtMs: 10_000,
+      nowMs: 10_200,
+    })
+    expect(held.mode).toBe("expanded")
   })
 })
