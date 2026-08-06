@@ -5,6 +5,7 @@ import * as Observability from "@opencode-ai/core/observability"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Database } from "@opencode-ai/core/database/database"
 import { Auth } from "@/auth"
+import { CredentialBridge } from "@/auth/credential-bridge"
 import { Account } from "@/account/account"
 import { Config } from "@/config/config"
 import { Git } from "@/git"
@@ -78,6 +79,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     ModelsDev.node,
     Provider.node,
     ProviderAuth.node,
+    CredentialBridge.node,
     Agent.node,
     Skill.node,
     Discovery.node,

@@ -7,6 +7,7 @@ import * as Observability from "@opencode-ai/core/observability"
 import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Auth } from "@/auth"
+import { CredentialBridge } from "@/auth/credential-bridge"
 import { BackgroundJob } from "@/background/job"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
@@ -228,6 +229,7 @@ const app = LayerNode.group([
   ModelsDev.node,
   Provider.node,
   ProviderAuth.node,
+  CredentialBridge.node,
   Agent.node,
   Skill.node,
   Discovery.node,
