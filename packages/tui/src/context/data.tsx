@@ -384,7 +384,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               type: "compaction",
               reason: event.data.reason,
               summary: event.data.text,
-              recent: event.data.recent,
               time: { created: event.data.timestamp },
             })
           })

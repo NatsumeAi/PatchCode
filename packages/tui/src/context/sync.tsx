@@ -794,33 +794,56 @@ export const {
           break
         }
         case "session.next.shell.ended": {
-          const p = event.properties
+          const p = event.properties as {
+            sessionID: string
+            callID: string
+            output: string
+            timestamp: number
+            exit?: number
+          }
           const messages = store.message[p.sessionID] ?? []
           // Find assistant shell message by tool callID on parts
           for (const msg of messages) {
             const parts = store.part[msg.id] ?? []
             const tool = parts.find((x) => x.type === "tool" && x.callID === p.callID)
             if (!tool || tool.type !== "tool") continue
+            const failed = typeof p.exit === "number" && p.exit !== 0
             applyPart({
               ...tool,
-              state: {
-                status: "completed",
-                input: typeof tool.state.input === "object" && tool.state.input ? tool.state.input : {},
-                output: p.output,
-                title: "bash",
-                // shell.ended has no exit in schema; keep output for expand + shell display
-                metadata: { output: p.output ?? "" },
-                time: {
-                  start: "time" in tool.state ? tool.state.time.start : p.timestamp,
-                  end: p.timestamp,
-                },
-              },
+              state: failed
+                ? {
+                    status: "error",
+                    input: typeof tool.state.input === "object" && tool.state.input ? tool.state.input : {},
+                    error: `exit ${p.exit}`,
+                    metadata: {
+                      output: p.output ?? "",
+                      ...(p.exit === undefined ? {} : { exit: p.exit }),
+                    },
+                    time: {
+                      start: "time" in tool.state ? tool.state.time.start : p.timestamp,
+                      end: p.timestamp,
+                    },
+                  }
+                : {
+                    status: "completed",
+                    input: typeof tool.state.input === "object" && tool.state.input ? tool.state.input : {},
+                    output: p.output,
+                    title: "bash",
+                    metadata: {
+                      output: p.output ?? "",
+                      ...(p.exit === undefined ? {} : { exit: p.exit }),
+                    },
+                    time: {
+                      start: "time" in tool.state ? tool.state.time.start : p.timestamp,
+                      end: p.timestamp,
+                    },
+                  },
             })
             if (msg.role === "assistant") {
               applyMessage({
                 ...msg,
                 time: { ...msg.time, completed: p.timestamp },
-                finish: "stop",
+                finish: failed ? "error" : "stop",
               })
             }
             break
@@ -1370,6 +1393,13 @@ export const {
               text: p.text,
               timestamp: p.timestamp,
               meta,
+            }),
+          )
+          applyPart(
+            userTextPart({
+              sessionID: p.sessionID,
+              messageID: p.messageID,
+              text: p.text,
             }),
           )
           applyPart({

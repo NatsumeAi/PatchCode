@@ -88,3 +88,46 @@ test("user files without name fall back to URI basename so TUI never renders und
   expect(file!.type).toBe("file")
   expect((file as { filename?: string }).filename).toBe("a.png")
 })
+
+test("compaction message survives rehydrate as user text + compaction part", () => {
+  const meta = sessionMeta(undefined)
+  const result = sessionMessageToLegacy(
+    "ses_1",
+    {
+      id: "msg_c",
+      type: "compaction",
+      reason: "auto",
+      summary: "kept the auth discussion",
+      time: { created: 3000 },
+    } as SessionMessage,
+    meta,
+  )
+  expect(result).toBeDefined()
+  expect(result!.info.role).toBe("user")
+  expect(result!.parts.some((part) => part.type === "compaction")).toBe(true)
+  const text = result!.parts.find((part) => part.type === "text")
+  expect(text).toBeDefined()
+  expect((text as { text?: string }).text).toBe("kept the auth discussion")
+})
+
+test("shell message with non-zero exit maps to error tool state", () => {
+  const meta = sessionMeta(undefined)
+  const result = sessionMessageToLegacy(
+    "ses_1",
+    {
+      id: "msg_s",
+      type: "shell",
+      callID: "call_1",
+      command: "false",
+      output: "",
+      exit: 1,
+      time: { created: 4000, completed: 4001 },
+    } as SessionMessage,
+    meta,
+  )
+  expect(result).toBeDefined()
+  const tool = result!.parts.find((part) => part.type === "tool")
+  expect(tool).toBeDefined()
+  expect((tool as { state: { status: string; metadata?: { exit?: number } } }).state.status).toBe("error")
+  expect((tool as { state: { metadata?: { exit?: number } } }).state.metadata?.exit).toBe(1)
+})

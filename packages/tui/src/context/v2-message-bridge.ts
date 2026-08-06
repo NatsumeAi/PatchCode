@@ -255,6 +255,8 @@ export function sessionMessageToLegacy(
     const completed = message.time.completed === undefined ? undefined : ts(message.time.completed)
     const end = completed ?? created
     const output = message.output ?? ""
+    const exit = "exit" in message ? message.exit : undefined
+    const failed = typeof exit === "number" && exit !== 0
     const body = ["$ " + message.command, output].filter(Boolean).join("\n")
     const info = assistantMessageFromStep({
       sessionID,
@@ -266,7 +268,7 @@ export function sessionMessageToLegacy(
       directory: meta.directory,
     })
     info.time = { created, completed: end }
-    info.finish = "stop"
+    info.finish = failed ? "error" : "stop"
     const parts: Part[] = [
       {
         id: `prt_${message.id}_shell`,
@@ -275,14 +277,28 @@ export function sessionMessageToLegacy(
         type: "tool" as const,
         tool: "bash",
         callID: message.callID,
-        state: {
-          status: "completed" as const,
-          input: { command: message.command },
-          output,
-          title: "bash",
-          metadata: { output },
-          time: { start: created, end },
-        },
+        state: failed
+          ? {
+              status: "error" as const,
+              input: { command: message.command },
+              error: `exit ${exit}`,
+              metadata: {
+                output,
+                ...(exit === undefined ? {} : { exit }),
+              },
+              time: { start: created, end },
+            }
+          : {
+              status: "completed" as const,
+              input: { command: message.command },
+              output,
+              title: "bash",
+              metadata: {
+                output,
+                ...(exit === undefined ? {} : { exit }),
+              },
+              time: { start: created, end },
+            },
       },
       {
         id: `prt_${message.id}_text`,
@@ -294,6 +310,32 @@ export function sessionMessageToLegacy(
       },
     ]
     return { info, parts }
+  }
+
+  if (message.type === "compaction") {
+    return {
+      info: userMessageFromPrompt({
+        sessionID,
+        messageID: message.id,
+        text: message.summary,
+        timestamp: created,
+        meta,
+      }),
+      parts: [
+        userTextPart({
+          sessionID,
+          messageID: message.id,
+          text: message.summary,
+        }),
+        {
+          id: `prt_${message.id}_compaction`,
+          sessionID,
+          messageID: message.id,
+          type: "compaction" as const,
+          auto: message.reason === "auto",
+        },
+      ],
+    }
   }
 
   if (message.type === "assistant") {
