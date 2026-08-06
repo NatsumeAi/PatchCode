@@ -33,4 +33,5 @@ logs/
 *.bun-build
 tsconfig.tsbuildinfo
 .codegraph/
+.codegraph
 packages/sdk/js/openapi.json
