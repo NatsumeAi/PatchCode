@@ -141,6 +141,26 @@ describe("SessionCompaction.compactAfterOverflow correction loop", () => {
     expect(calls).toBe(2)
   })
 
+  test("round0 LLM failure retries full summarizer (not selection-only)", async () => {
+    // Regression: previously round0 fail → round1 selectionOnly → empty cachedSummary → false.
+    const { ok, calls, published } = await run([
+      { error: true },
+      "<selection>[1]</selection>\nrecovered summary after retry",
+    ])
+    expect(ok).toBe(true)
+    expect(calls).toBe(2)
+    const ended = published.find((p) => p.type === "session.next.compaction.ended")
+    expect(String(ended!.data.text)).toContain("recovered summary after retry")
+  })
+
+  test("selection tag with empty summary body degrades to Pi full summary", async () => {
+    const { ok, calls, published } = await run(["<selection>[1]</selection>", "pi degraded summary"])
+    expect(ok).toBe(true)
+    expect(calls).toBe(2)
+    const ended = published.find((p) => p.type === "session.next.compaction.ended")
+    expect(String(ended!.data.text)).toContain("pi degraded summary")
+  })
+
   test("two summary failures degrade to the Pi fallback", async () => {
     const { ok, calls } = await run([{ error: true }, { error: true }, "fallback summary"])
     expect(ok).toBe(true)

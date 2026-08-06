@@ -124,6 +124,8 @@ type Input = {
   readonly entries: readonly Entry[]
   readonly model: Model
   readonly request: LLMRequest
+  /** Defaults to "auto". Manual compact must pass "manual". */
+  readonly reason?: "auto" | "manual"
 }
 
 const estimate = (value: unknown) => Token.estimate(JSON.stringify(value))
@@ -596,20 +598,20 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
         return failed || text.trim() === "" ? undefined : text
       })
 
+    const reason = input.reason ?? "auto"
     const messageID = SessionMessage.ID.create()
     yield* dependencies.events.publish(SessionEvent.Compaction.Started, {
       sessionID: input.sessionID,
       messageID,
       timestamp: yield* DateTime.now,
-      reason: "auto",
+      reason,
     })
 
     // Correction loop: 1 initial attempt + select.retry corrections. The first
-    // attempt caches the summary (design D15: reselection never redoes the
-    // summary); correction rounds only re-request the <selection> list. Then
-    // greedy truncation for selections still over 1.5x, then the Pi-style
-    // fallback (recent + full summary). When select is disabled the loop is
-    // skipped entirely.
+    // successful full summarize caches the summary (D15: reselection never
+    // redoes the summary). Selection-only correction prompts are used ONLY
+    // when a non-empty summary is already cached — otherwise retry the full
+    // summarizer prompt (avoids empty-summary → silent return false).
     let summary = ""
     let cachedSummary: string | undefined
     let selectedLabels: readonly string[] = []
@@ -618,17 +620,25 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     let degraded = false
     const selectionRounds = config.selectEnabled ? 1 + config.selectRetry : 0
     for (let round = 0; round < selectionRounds; round++) {
-      const promptText = round === 0 ? basePrompt : correctionPromptFor(errors, numbered)
-      const output = yield* summarize(promptText, round > 0)
+      const hasSummary = cachedSummary !== undefined && cachedSummary.trim() !== ""
+      // Selection-only only after we already have a real summary to keep (D15).
+      const selectionOnly = round > 0 && hasSummary
+      const promptText = selectionOnly ? correctionPromptFor(errors, numbered) : basePrompt
+      const output = yield* summarize(promptText, selectionOnly)
       if (output === undefined) {
-        // One summary-failure retry uses the same prompt; a second failure
-        // falls back to the Pi-style degrade below.
-        if (round === 0) continue
+        // No model text: retry with full prompt while we lack a summary; once
+        // we already cached one, further LLM failures degrade to Pi fallback.
+        if (!hasSummary && round + 1 < selectionRounds) continue
         degraded = true
         break
       }
       const parsed = parseSelection(output)
-      if (cachedSummary === undefined && parsed.ok) cachedSummary = stripSelection(output)
+      if (!hasSummary && parsed.ok) {
+        const stripped = stripSelection(output)
+        // Never cache "" from a selection-only / selection-tag-only response —
+        // that would skip degrade and return false below.
+        if (stripped.trim() !== "") cachedSummary = stripped
+      }
       if (!parsed.ok) {
         lastFailure = "format"
         errors = [...parsed.errors]
@@ -658,7 +668,8 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       lastFailure = "invalid"
       errors = [...validated.errors]
     }
-    if (cachedSummary === undefined) degraded = true
+    // Empty/missing summary must Pi-degrade — never publish an empty checkpoint.
+    if (cachedSummary === undefined || cachedSummary.trim() === "") degraded = true
 
     if (!degraded && selectedLabels.length > 0) {
       // D9: only when the final selection still exceeds 1.5x the (total-budget-
@@ -744,7 +755,7 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       sessionID: input.sessionID,
       messageID,
       timestamp: yield* DateTime.now,
-      reason: "auto",
+      reason,
       text: summaryText,
       ...(keptFrom === undefined ? {} : { keptFrom }),
       ...(kept.length === 0 ? {} : { kept }),
@@ -757,12 +768,11 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     if (!config.auto) return false
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
-    const output = input.request.generation?.maxTokens ?? input.model.route.defaults.limits?.output ?? 0
-    // Trigger buffer per design §3: min(10% window, 20k) unless explicitly configured.
+    // D13: maxOutput must not participate in the trigger threshold — buffer only.
     const triggerBuffer = config.buffer ?? Math.min(Math.floor(context * 0.1), 20_000)
     if (
       estimate({ system: input.request.system, messages: input.request.messages, tools: input.request.tools }) <=
-      context - Math.max(output, triggerBuffer)
+      context - triggerBuffer
     )
       return false
     return yield* compactAfterOverflow(input)
