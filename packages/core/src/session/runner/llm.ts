@@ -8,8 +8,9 @@ import {
   isContextOverflowFailure,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
-import { Cause, DateTime, Effect, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
+import { Cause, DateTime, Duration, Effect, FiberSet, Layer, Option, Scope, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
+import { Catalog } from "../../catalog"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
@@ -201,6 +202,9 @@ const mediaMaterializer = (fs: FSUtil.Interface) =>
     })
   })
 
+const TITLE_MAX_LENGTH = 50
+const TITLE_TIMEOUT = Duration.seconds(15)
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -209,6 +213,7 @@ const layer = Layer.effect(
     const agents = yield* AgentV2.Service
     const tools = yield* ToolRegistry.Service
     const models = yield* SessionRunnerModel.Service
+    const catalog = yield* Catalog.Service
     const store = yield* SessionStore.Service
     const location = yield* Location.Service
     const systemContext = yield* SystemContextRegistry.Service
@@ -219,6 +224,8 @@ const layer = Layer.effect(
     const runtime = yield* SessionRuntime.Service
     const fs = yield* FSUtil.Service
     const db = (yield* Database.Service).db
+    // Location-lived scope so title generation outlives the drain Effect.scoped.
+    const titleScope = yield* Scope.make()
     const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
     const materializeMedia = mediaMaterializer(fs)
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
@@ -229,6 +236,9 @@ const layer = Layer.effect(
 
     const isDefaultTitle = (title: string) =>
       /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(title)
+
+    const truncateTitle = (value: string) =>
+      value.length > TITLE_MAX_LENGTH ? value.substring(0, TITLE_MAX_LENGTH - 3) + "..." : value
 
     const loadSessionRow = Effect.fn("SessionRunner.loadSessionRow")(function* (sessionID: SessionSchema.ID) {
       return yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
@@ -312,6 +322,24 @@ const layer = Layer.effect(
       yield* events.publish(SessionV1.Event.Updated, { sessionID, info })
     })
 
+    const resolveTitleModel = Effect.fn("SessionRunner.resolveTitleModel")(function* (session: SessionSchema.Info) {
+      const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
+      if (titleAgent?.model) {
+        return yield* models.resolve({ ...session, model: titleAgent.model }).pipe(
+          Effect.catch(() => models.resolve(session)),
+        )
+      }
+      const providerID = session.model?.providerID ?? (yield* catalog.model.default())?.providerID
+      const small = providerID ? yield* catalog.model.small(providerID) : undefined
+      if (!small) return yield* models.resolve(session)
+      return yield* models
+        .resolve({
+          ...session,
+          model: ModelV2.Ref.make({ id: small.id, providerID: small.providerID }),
+        })
+        .pipe(Effect.catch(() => models.resolve(session)))
+    })
+
     const ensureTitle = Effect.fn("SessionRunner.ensureTitle")(function* (sessionID: SessionSchema.ID) {
       const session = yield* getSession(sessionID)
       if (session.parentID) return
@@ -319,14 +347,15 @@ const layer = Layer.effect(
 
       const context = yield* store.context(sessionID)
       const users = context.filter((m) => m.type === "user")
-      if (users.length !== 1) return
+      // Rapid-fire may promote multiple users in one drain; still title from the first.
+      if (users.length === 0) return
       const firstUser = users[0]
       if (firstUser.type !== "user") return
       const userText = firstUser.text?.trim()
       if (!userText) return
 
       const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
-      const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined as undefined)))
+      const model = yield* resolveTitleModel(session).pipe(Effect.catch(() => Effect.succeed(undefined as undefined)))
       if (!model) return
 
       const system = titleAgent?.system
@@ -350,11 +379,14 @@ const layer = Layer.effect(
         .map((line) => line.trim())
         .find((line) => line.length > 0)
       if (!cleaned) return
-      const title = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
+      const title = truncateTitle(cleaned)
       yield* publishSessionUpdated(sessionID, { title }).pipe(
         Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })),
       )
     })
+
+    const scheduleTitle = (sessionID: SessionSchema.ID) =>
+      ensureTitle(sessionID).pipe(Effect.timeout(TITLE_TIMEOUT), Effect.ignore, Effect.forkIn(titleScope))
 
     const persistStepDiffs = Effect.fn("SessionRunner.persistStepDiffs")(function* (
       sessionID: SessionSchema.ID,
@@ -535,6 +567,8 @@ const layer = Layer.effect(
         }
         if (promoted > 0) currentStep = 1
       }
+      // After Prompted projection: first user message is visible to ensureTitle.
+      yield* scheduleTitle(session.id)
       const system =
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
       const model = yield* models.resolve(session)
@@ -664,6 +698,18 @@ const layer = Layer.effect(
             // request terminal failure when the turn legitimately replays).
             return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
           }
+          // Post-compaction attempt (no further recoverOverflow): surface a clear
+          // Step.Failed so the TUI is not left with a silent die/drain failure.
+          if (
+            !recoverOverflow &&
+            isContextOverflowFailure(overflowFailure ?? failure)
+          ) {
+            yield* withPublication(
+              publisher.failAssistant(
+                "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually.",
+              ),
+            )
+          }
           if (overflowFailure) yield* publish(overflowFailure)
           const llmFailure = failure instanceof LLMError ? failure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
@@ -768,8 +814,23 @@ const layer = Layer.effect(
         Effect.catchDefect(
           Effect.fnUntraced(function* (defect) {
             if (!(defect instanceof TurnTransitionError)) return yield* Effect.die(defect)
-            if (defect.transition._tag === "ContinueAfterOverflowCompaction")
+            if (defect.transition._tag === "ContinueAfterOverflowCompaction") {
+              // Defensive: post-compaction path should not request another overflow
+              // recovery. Publish a durable failure so the UI shows why the turn died.
+              yield* events
+                .publish(SessionEvent.Step.Failed, {
+                  sessionID,
+                  timestamp: yield* DateTime.now,
+                  assistantMessageID: SessionMessage.ID.create(),
+                  error: {
+                    type: "unknown",
+                    message:
+                      "Context still overflows after compaction; cannot recover another overflow in this turn.",
+                  },
+                })
+                .pipe(Effect.catchCause(() => Effect.void))
               return yield* Effect.die("Post-compaction provider attempt cannot recover another overflow")
+            }
             yield* Effect.yieldNow
             return yield* runAfterOverflowCompaction(sessionID, undefined, defect.transition.step, drain)
           }),
@@ -828,8 +889,6 @@ const layer = Layer.effect(
 
       yield* Effect.gen(function* () {
         yield* failInterruptedTools(input.sessionID)
-        // First real user turn: generate a session title in the background.
-        yield* ensureTitle(input.sessionID).pipe(Effect.ignore, Effect.forkScoped)
         const drain = yield* buildDrainContext(input.sessionID)
         let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
         let shouldRun = input.force || hasSteer || hasQueue
@@ -866,11 +925,27 @@ const layer = Layer.effect(
       const session = yield* getSession(sessionID)
       const agent = yield* agents.select(session.agent)
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
+      const system =
+        initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
       const model = yield* models.resolve(session)
-      const baselineSeq = initialized?.baselineSeq ?? 0
-      const entries = yield* SessionHistory.entriesForRunner(db, session.id, baselineSeq)
-      const request = LLM.request({ model, system: [], messages: [], tools: [] })
-      yield* compaction.compactAfterOverflow({ sessionID: session.id, entries, model, request })
+      const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
+      // Budget must count real system context. Tools stay empty — manual compact
+      // does not materialize a tool turn.
+      const request = LLM.request({
+        model,
+        system: [agent.info?.system, system.baseline]
+          .filter((part): part is string => part !== undefined && part.length > 0)
+          .map(SystemPart.make),
+        messages: [],
+        tools: [],
+      })
+      yield* compaction.compactAfterOverflow({
+        sessionID: session.id,
+        entries,
+        model,
+        request,
+        reason: "manual",
+      })
     })
 
     return Service.of({
@@ -889,6 +964,7 @@ export const node = makeLocationNode({
     AgentV2.node,
     ToolRegistry.node,
     SessionRunnerModel.node,
+    Catalog.node,
     SessionStore.node,
     Location.node,
     FSUtil.node,

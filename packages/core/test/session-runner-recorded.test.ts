@@ -11,6 +11,7 @@ import { EventTable } from "@opencode-ai/core/event/sql"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
+import { Catalog } from "@opencode-ai/core/catalog"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -71,11 +72,27 @@ const models = SessionRunnerModel.layerWith(() => Effect.succeed(model))
 const systemContext = AppNodeBuilder.build(SystemContextRegistry.node)
 const skillGuidance = Layer.mock(SkillGuidance.Service, { load: () => Effect.succeed(SystemContext.empty) })
 const referenceGuidance = Layer.mock(ReferenceGuidance.Service, { load: () => Effect.succeed(SystemContext.empty) })
+const catalogStub = Layer.mock(Catalog.Service, {
+  transform: () => Effect.void,
+  provider: {
+    get: () => Effect.succeed(undefined),
+    all: () => Effect.succeed([]),
+    available: () => Effect.succeed([]),
+  },
+  model: {
+    get: () => Effect.succeed(undefined),
+    all: () => Effect.succeed([]),
+    available: () => Effect.succeed([]),
+    default: () => Effect.succeed(undefined),
+    small: () => Effect.succeed(undefined),
+  },
+})
 const config = Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed([]) }))
 const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
+  [Catalog.node, catalogStub],
   [SystemContextRegistry.node, systemContext],
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
   [SkillGuidance.node, skillGuidance],
@@ -122,6 +139,7 @@ const it = testEffect(
       [PermissionV2.node, permission],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
       [SessionRunnerModel.node, models],
+      [Catalog.node, catalogStub],
       [SystemContextRegistry.node, systemContext],
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
       [SkillGuidance.node, skillGuidance],

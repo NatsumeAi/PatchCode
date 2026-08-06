@@ -43,6 +43,7 @@ import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigCompaction } from "@opencode-ai/core/config/compaction"
+import { Catalog } from "@opencode-ai/core/catalog"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import {
   SessionContextEpochTable,
@@ -74,11 +75,25 @@ let toolExecutionsStarted: Deferred.Deferred<void> | undefined
 let toolExecutionsReady = 5
 let activeToolExecutions = 0
 let maxActiveToolExecutions = 0
+let titleResponse = "Generated Title"
+const isTitleRequest = (request: LLMRequest) =>
+  request.messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) => part.type === "text" && part.text.includes("Generate a title for this conversation:"),
+      ),
+  )
 const client = Layer.succeed(
   LLMClient.Service,
   LLMClient.Service.of({
     prepare: () => Effect.die("unused"),
     stream: ((request: LLMRequest) => {
+      // Title generation runs concurrently with the main turn; keep it off the
+      // shared response queue so existing request-count assertions stay stable.
+      if (isTitleRequest(request)) {
+        return Stream.fromIterable([LLMEvent.textDelta({ id: "text-title", text: titleResponse })])
+      }
       requests.push(request)
       if (responseStream) {
         const stream = responseStream
@@ -211,6 +226,21 @@ const skillGuidance = Layer.mock(SkillGuidance.Service, {
     ),
 })
 const referenceGuidance = Layer.mock(ReferenceGuidance.Service, { load: () => Effect.succeed(SystemContext.empty) })
+const catalogStub = Layer.mock(Catalog.Service, {
+  transform: () => Effect.void,
+  provider: {
+    get: () => Effect.succeed(undefined),
+    all: () => Effect.succeed([]),
+    available: () => Effect.succeed([]),
+  },
+  model: {
+    get: () => Effect.succeed(undefined),
+    all: () => Effect.succeed([]),
+    available: () => Effect.succeed([]),
+    default: () => Effect.succeed(undefined),
+    small: () => Effect.succeed(undefined),
+  },
+})
 const config = Layer.succeed(
   Config.Service,
   Config.Service.of({
@@ -232,6 +262,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
+  [Catalog.node, catalogStub],
   [SystemContextRegistry.node, systemContext],
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
   [SkillGuidance.node, skillGuidance],
@@ -282,6 +313,7 @@ const it = testEffect(
       [LayerNodePlatform.llmClient, client],
       [PermissionV2.node, permission],
       [SessionRunnerModel.node, models],
+      [Catalog.node, catalogStub],
       [SystemContextRegistry.node, systemContext],
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
       [SkillGuidance.node, skillGuidance],
@@ -333,6 +365,8 @@ const setup = Effect.gen(function* () {
   toolExecutionsReady = 5
   activeToolExecutions = 0
   maxActiveToolExecutions = 0
+  titleResponse = "Generated Title"
+  requests.length = 0
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -559,6 +593,68 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
   })
 
 describe("SessionRunnerLLM", () => {
+  const awaitSessionTitle = (id: SessionV2.ID, expected: string) =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      for (let i = 0; i < 50; i++) {
+        const info = yield* session.get(id)
+        if (info.title === expected) return info
+        // Cooperative yield so the title fiber (forkIn) can finish; avoid
+        // TestClock.adjust so later tests keep a zero clock.
+        yield* Effect.yieldNow
+      }
+      return yield* session.get(id)
+    })
+
+  it.effect("generates a title after the first Prompted user message is projected", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const { db } = yield* Database.Service
+      const defaultTitle = `New session - ${new Date().toISOString()}`
+      yield* db
+        .update(SessionTable)
+        .set({ title: defaultTitle })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      titleResponse = "Fix auth token refresh"
+      const session = yield* SessionV2.Service
+      response = fragmentFixture("text", "text-main", ["Done"]).completeEvents
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Please fix auth token refresh" }), resume: false })
+      yield* session.resume(sessionID)
+      const info = yield* awaitSessionTitle(sessionID, "Fix auth token refresh")
+      expect(info.title).toBe("Fix auth token refresh")
+    }),
+  )
+
+  it.effect("titles from the first user when rapid-fire promotes multiple users", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const { db } = yield* Database.Service
+      const defaultTitle = `New session - ${new Date().toISOString()}`
+      yield* db
+        .update(SessionTable)
+        .set({ title: defaultTitle })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      titleResponse = "First topic wins"
+      const session = yield* SessionV2.Service
+      response = fragmentFixture("text", "text-main", ["Done"]).completeEvents
+      // Two steers before drain: promoteSteers publishes both in one turn.
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First topic" }), resume: false })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second topic" }), resume: false })
+      yield* session.resume(sessionID)
+      const info = yield* awaitSessionTitle(sessionID, "First topic wins")
+      expect(info.title).toBe("First topic wins")
+      expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "user", text: "First topic" },
+        { type: "user", text: "Second topic" },
+        { type: "assistant", finish: "stop" },
+      ])
+    }),
+  )
+
   it.effect("advertises and executes a globally attached application tool", () =>
     Effect.gen(function* () {
       yield* setup
@@ -1208,7 +1304,14 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
         { type: "user", text: "Continue" },
         { type: "compaction" },
-        { type: "assistant", finish: "error", error: { message: "prompt too long" } },
+        {
+          type: "assistant",
+          finish: "error",
+          error: {
+            message:
+              "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually.",
+          },
+        },
       ])
     }),
   )
