@@ -301,7 +301,10 @@ function legacyMirror(
               input: { command: message.command },
               output: message.output ?? "",
               title: "bash",
-              metadata: { output: message.output ?? "" },
+              metadata: {
+                output: message.output ?? "",
+                ...(message.exit === undefined ? {} : { exit: message.exit }),
+              },
               time: {
                 start: timeCreated,
                 end: completed ?? timeCreated,
@@ -467,6 +470,40 @@ function legacyMirror(
             type: "text" as const,
             text: message.text,
             ...(message.type === "synthetic" ? { synthetic: true } : {}),
+          },
+        },
+      ],
+    }
+  }
+
+  if (message.type === "compaction") {
+    return {
+      message: {
+        id: messageID,
+        session_id: sessionID,
+        time_created: timeCreated,
+        data: {
+          role: "user" as const,
+          time: { created: timeCreated },
+          agent: fallbackAgent,
+          model: fallbackModel,
+          summary: { diffs: [] },
+        },
+      },
+      parts: [
+        {
+          id: `prt_${messageID}_text`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: { type: "text" as const, text: message.summary },
+        },
+        {
+          id: `prt_${messageID}_compaction`,
+          message_id: messageID,
+          session_id: sessionID,
+          data: {
+            type: "compaction" as const,
+            auto: message.reason === "auto",
           },
         },
       ],
@@ -806,7 +843,7 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Tool.Input.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Input.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Called, (event) => run(db, events, event))
-    yield* events.project(SessionEvent.Tool.Progress, (event) => run(db, events, event))
+    // Tool.Progress is live-only (like Shell.Progress) — not projected.
     yield* events.project(SessionEvent.Tool.Success, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, events, event))

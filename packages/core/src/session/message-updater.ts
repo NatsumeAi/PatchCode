@@ -191,6 +191,7 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
               produce(currentShell, (draft) => {
                 draft.output = event.data.output
                 draft.time.completed = event.data.timestamp
+                if (event.data.exit !== undefined) draft.exit = event.data.exit
               }),
             )
           }

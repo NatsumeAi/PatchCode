@@ -24,7 +24,7 @@ const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("pr
 const content = (text: string) => [{ type: "text" as const, text }]
 
 describe("Tool.Progress", () => {
-  it.effect("projects durable progress and keeps final settlements durable", () =>
+  it.effect("is live-only; final settlements stay durable", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
       const service = yield* EventV2.Service
@@ -90,7 +90,8 @@ describe("Tool.Progress", () => {
         state: { status: "running", structured: {}, content: [] },
       })
 
-      yield* service.publish(SessionEvent.Tool.Progress, {
+      // Live-only: progress is delivered to subscribers but not persisted / projected.
+      const progress = yield* service.publish(SessionEvent.Tool.Progress, {
         sessionID,
         timestamp,
         assistantMessageID,
@@ -98,8 +99,10 @@ describe("Tool.Progress", () => {
         structured: { phase: "checkpoint" },
         content: content("saved"),
       })
+      expect(Schema.is(SessionEvent.Durable)(progress)).toBe(false)
+      // DB still shows the Called running state (no durable progress rewrite).
       expect((yield* readAssistant).content[0]).toMatchObject({
-        state: { status: "running", structured: { phase: "checkpoint" }, content: content("saved") },
+        state: { status: "running", structured: {}, content: [] },
       })
 
       const success = yield* service.publish(SessionEvent.Tool.Success, {
@@ -135,8 +138,6 @@ describe("Tool.Progress", () => {
       expect((yield* readAssistant).content[1]).toMatchObject({
         state: {
           status: "error",
-          structured: { phase: "checkpoint" },
-          content: content("before failure"),
           error: { type: "unknown", message: "boom" },
         },
       })
@@ -150,7 +151,7 @@ describe("Tool.Progress", () => {
         .orderBy(asc(EventTable.seq))
         .all()
         .pipe(Effect.orDie)
-      expect(rows.map((row) => row.type)).toContain(EventV2.versionedType(SessionEvent.Tool.Progress.type, 1))
+      expect(rows.map((row) => row.type)).not.toContain(EventV2.versionedType(SessionEvent.Tool.Progress.type, 1))
       expect(rows.map((row) => row.type)).toContain(EventV2.versionedType(SessionEvent.Tool.Success.type, 1))
       expect(rows.map((row) => row.type)).toContain(EventV2.versionedType(SessionEvent.Tool.Failed.type, 1))
     }),

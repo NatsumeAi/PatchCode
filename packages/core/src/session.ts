@@ -444,6 +444,7 @@ const layer = Layer.effect(
             const args = Shell.args(sh, input.command, cwd)
             let output = ""
             let aborted = false
+            let exitCode: number | undefined
             // Live progress for TUI (same cadence/window as agent bash tool).
             const SHELL_PROGRESS_EVERY_MS = 500
             const SHELL_PROGRESS_TAIL_CHARS = 32 * 1024
@@ -456,6 +457,7 @@ const layer = Layer.effect(
                 timestamp: ended,
                 callID,
                 output,
+                ...(exitCode === undefined ? {} : { exit: exitCode }),
               })
               return ended
             })
@@ -493,7 +495,7 @@ const layer = Layer.effect(
                       })
                     }),
                   )
-                  yield* handle.exitCode
+                  exitCode = yield* handle.exitCode
                 }),
               ).pipe(Effect.orDie, Effect.exit),
             )
@@ -507,6 +509,7 @@ const layer = Layer.effect(
               callID,
               command: input.command,
               output,
+              ...(exitCode === undefined ? {} : { exit: exitCode }),
               time: { created: started, completed },
             })
           }),
