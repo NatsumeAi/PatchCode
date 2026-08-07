@@ -79,7 +79,9 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
       .slice(0, RECALL_TOP_N)
       .filter((hit) => scanForThreats(hit.text).length === 0)
       .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
-    yield* index.incrementAccess(kept.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
+    yield* index
+      .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source })))
+      .pipe(Effect.catch(() => Effect.void))
     return formatRecallBlock(kept)
   } finally {
     yield* index.close().pipe(Effect.catch(() => Effect.void))

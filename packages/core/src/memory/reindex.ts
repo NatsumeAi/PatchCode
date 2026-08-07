@@ -48,7 +48,9 @@ export interface MemoryIndex {
   ) => Effect.Effect<void, IndexError>
   readonly deletePath: (root: "global" | "workspace", filePath: string) => Effect.Effect<void, IndexError>
   readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
-  readonly incrementAccess: (ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
+  readonly incrementAccess: (
+    hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,
+  ) => Effect.Effect<void, IndexError>
   readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
   readonly chunkHashesForPath: (root: "global" | "workspace", filePath: string) => Effect.Effect<Array<[string, number]>, IndexError>
   readonly removeChunks: (root: "global" | "workspace", ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
@@ -300,13 +302,26 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
         .sort((a, b) => b.score - a.score)
       return scored.slice(0, limit)
     }),
-    incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (ids: ReadonlyArray<number>) {
-      if (ids.length === 0) return
-      const bump = (db: SyncDB) =>
-        q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${inClause(ids)})`)).pipe(
-          Effect.asVoid,
-        )
-      yield* withBoth(bump, bump)
+    incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (
+      hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,
+    ) {
+      if (hits.length === 0) return
+      const globalIds = hits
+        .filter((hit) => hit.source === "global" || (hit.source === "session" && workspace === undefined))
+        .map((hit) => hit.id)
+      const workspaceIds = hits
+        .filter((hit) => hit.source === "workspace" || (hit.source === "session" && workspace !== undefined))
+        .map((hit) => hit.id)
+      if (globalIds.length > 0) {
+        yield* q(() =>
+          global.db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${inClause(globalIds)})`),
+        ).pipe(Effect.asVoid)
+      }
+      if (workspace !== undefined && workspaceIds.length > 0) {
+        yield* q(() =>
+          workspace.db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${inClause(workspaceIds)})`),
+        ).pipe(Effect.asVoid)
+      }
     }),
     chunkHashesForPath: Effect.fn("MemoryIndex.chunkHashesForPath")(function* (root, filePath) {
       const db = pick(root)

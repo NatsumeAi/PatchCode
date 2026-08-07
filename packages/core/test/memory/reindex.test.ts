@@ -104,7 +104,7 @@ describe("Memory index", () => {
           })
           const hits = yield* index.search("token", 10)
           expect(hits.length).toBe(1)
-          yield* index.incrementAccess([hits[0]!.id])
+          yield* index.incrementAccess([{ id: hits[0]!.id, source: "global" }])
           const chunks = yield* index.listChunks()
           expect(chunks[0]!.accessCount).toBe(1)
           yield* index.close()
@@ -188,7 +188,7 @@ describe("Memory index multi-chunk", () => {
           const hits = yield* index.search("Section", 10)
           expect(hits.length).toBeGreaterThanOrEqual(2)
           // Multi-id access bump must not throw.
-          yield* index.incrementAccess(chunks.map((chunk) => chunk.id))
+          yield* index.incrementAccess(chunks.map((chunk) => ({ id: chunk.id, source: "global" })))
           const after = yield* index.listChunks()
           expect(after.every((chunk) => chunk.accessCount === 1)).toBe(true)
           // Re-reindex preserves access counts (same content).

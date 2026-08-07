@@ -111,7 +111,10 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           if (index !== undefined) {
             try {
               const ids = yield* index.chunkIdsForPath(relative).pipe(Effect.catch(() => Effect.succeed([])))
-              yield* index.incrementAccess(ids).pipe(Effect.catch(() => Effect.void))
+              const source: "global" | "workspace" = rootsOf().workspaceDir === undefined ? "global" : "workspace"
+              yield* index
+                .incrementAccess(ids.map((id) => ({ id, source })))
+                .pipe(Effect.catch(() => Effect.void))
             } finally {
               yield* index.close().pipe(Effect.catch(() => Effect.void))
             }
@@ -144,7 +147,9 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                   .filter((hit) => !isContentFree(hit.text))
                   .map((hit) => ({ ...hit, source: hit.source })),
               ).slice(0, max)
-              yield* index.incrementAccess(ranked.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
+              yield* index
+                .incrementAccess(ranked.map((hit) => ({ id: hit.id, source: hit.source })))
+                .pipe(Effect.catch(() => Effect.void))
               return {
                 matches: ranked.map((hit) => {
                   const threatIds = scanForThreats(hit.text)
