@@ -15,7 +15,7 @@ import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type Scop
 import { scanForThreats } from "./scan"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
 import { Option } from "effect"
-import { rankResults, isContentFree } from "./ranking"
+import { rankResults, isContentFree, staleNote } from "./ranking"
 
 const MemoryListInput = Schema.Struct({ path: Schema.optional(Schema.String) })
 const MemoryListOutput = Schema.Struct({
@@ -142,7 +142,13 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                   .map((hit) => ({ ...hit, source: hit.source })),
               ).slice(0, max)
               yield* index.incrementAccess(ranked.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
-              return { matches: ranked.map((hit) => ({ path: hit.path, line: hit.line, text: hit.text })) }
+              return {
+                matches: ranked.map((hit) => ({
+                  path: hit.path,
+                  line: hit.line,
+                  text: `${hit.text} ${staleNote(hit.ageDays, hit.source)}`.trim(),
+                })),
+              }
             } finally {
               yield* index.close().pipe(Effect.catch(() => Effect.void))
             }

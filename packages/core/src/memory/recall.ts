@@ -10,7 +10,7 @@ import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { resolveRoots, type MemoryRoots } from "./storage"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
-import { rankResults } from "./ranking"
+import { rankResults, staleNote } from "./ranking"
 import { scanForThreats } from "./scan"
 
 export const RECALL_TOP_N = 5
@@ -41,9 +41,15 @@ export function ftsQuery(query: string): string {
 }
 
 /** Renders the top hits as a bounded, citation-carrying markdown block. */
-export function formatRecallBlock(hits: ReadonlyArray<{ path: string; text: string }>): string {
+export function formatRecallBlock(
+  hits: ReadonlyArray<{ path: string; text: string; source?: string; ageDays?: number }>,
+): string {
   if (hits.length === 0) return ""
-  const lines = hits.map((hit) => `- ${hit.path}: ${hit.text.slice(0, RECALL_CHUNK_MAX_CHARS)}`)
+  const lines = hits.map((hit) => {
+    const note = staleNote(hit.ageDays ?? 0, (hit.source ?? "workspace") as "global" | "workspace" | "session")
+    const text = `${hit.text.slice(0, RECALL_CHUNK_MAX_CHARS)} ${note}`.trim()
+    return `- ${hit.path}: ${text}`
+  })
   return `## Relevant memory\n${lines.join("\n")}`.slice(0, RECALL_BLOCK_MAX_CHARS)
 }
 
@@ -72,6 +78,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     const kept = rankResults(hits)
       .slice(0, RECALL_TOP_N)
       .filter((hit) => scanForThreats(hit.text).length === 0)
+      .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
     yield* index.incrementAccess(kept.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
     return formatRecallBlock(kept)
   } finally {

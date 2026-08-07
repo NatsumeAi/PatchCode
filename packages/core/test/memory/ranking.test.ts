@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { decayScore, rankResults, isContentFree, TEMPORAL_HALF_LIFE_DAYS } from "../../src/memory/ranking"
+import { decayScore, rankResults, isContentFree, TEMPORAL_HALF_LIFE_DAYS, STALE_AFTER_DAYS, staleNote } from "../../src/memory/ranking"
 
 describe("Memory ranking", () => {
   test("half-life is 7 days", () => {
@@ -27,6 +27,14 @@ describe("Memory ranking", () => {
       { path: "sessions/a.md", score: 0.9, source: "session", ageDays: 0 },
     ])
     expect(ranked[0]!.path).toBe("sessions/a.md")
+  })
+
+  test("staleness marks only old session chunks", () => {
+    expect(STALE_AFTER_DAYS).toBe(14)
+    expect(staleNote(20, "session")).toContain("may be stale")
+    expect(staleNote(5, "session")).toBe("")
+    expect(staleNote(20, "global")).toBe("")
+    expect(staleNote(20, "workspace")).toBe("")
   })
 
   test("scaffold content is filtered", () => {

@@ -20,6 +20,15 @@ export function decayScore(score: number, ageDays: number, source: "global" | "w
   return score * Math.exp(-lambda * ageDays)
 }
 
+export const STALE_AFTER_DAYS = 14
+
+/** Display-only staleness note for old session chunks; curated sources are exempt. */
+export function staleNote(ageDays: number, source: "global" | "workspace" | "session"): string {
+  if (source !== "session") return ""
+  if (ageDays <= STALE_AFTER_DAYS) return ""
+  return `(memory from ${Math.round(ageDays)} days ago, may be stale — verify before relying)`
+}
+
 export type Rankable = { path: string; score: number; source: string; ageDays: number }
 
 const sourceRank = { workspace: 0, global: 1, session: 2 } as const
