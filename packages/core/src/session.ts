@@ -393,8 +393,17 @@ const layer = Layer.effect(
           Effect.gen(function* () {
             const session = yield* result.get(input.sessionID)
             // V1 SessionPrompt cleanup parity: hard-delete staged undo tail before a new turn.
+            // Commit failures must not fail the turn (see Follow-up F2); log + continue.
             if (session.revert) {
-              yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
+              yield* SessionRevert.commit(session)
+                .pipe(
+                  Effect.provideService(EventV2.Service, events),
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.failCause(cause)
+                      : Effect.logWarning("staged revert commit failed (prompt)", { cause }).pipe(Effect.asVoid),
+                  ),
+                )
             }
             const prompt = resolvePrompt(input.prompt)
             const messageID = input.id ?? SessionMessage.ID.create()
@@ -431,7 +440,14 @@ const layer = Layer.effect(
             if (active.has(input.sessionID)) return yield* new SessionBusyError({ sessionID: input.sessionID })
             const session = yield* result.get(input.sessionID)
             if (session.revert) {
-              yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
+              yield* SessionRevert.commit(session).pipe(
+                Effect.provideService(EventV2.Service, events),
+                Effect.catchCause((cause) =>
+                  Cause.hasInterruptsOnly(cause)
+                    ? Effect.failCause(cause)
+                    : Effect.logWarning("staged revert commit failed (shell)", { cause }).pipe(Effect.asVoid),
+                ),
+              )
             }
             const started = yield* DateTime.now
             const callID = Identifier.create("tool", "ascending")
