@@ -11,7 +11,9 @@ const STOP_REMINDER_INTERVAL = Duration.minutes(5)
 const WAIT_IDLE_BACKUP_INTERVAL = Duration.seconds(60)
 const LOOP_TIMER_DURATION = Duration.hours(24)
 
-const fixedSchedule = (interval: Duration.Duration) => Schedule.fixed(interval)
+/** Wait `interval` then recur — never fire on the same instant as start (avoids
+ *  draining suites seeing StopReminder on the first Busy tick). */
+const spacedSchedule = (interval: Duration.Duration) => Schedule.spaced(interval)
 
 const heartbeatTick = (
   workerState: WorkerState.Interface,
@@ -23,7 +25,7 @@ const heartbeatTick = (
       const time = yield* Effect.clockWith((c) => c.currentTimeMillis)
       yield* eventBus.publish({ _tag: "HeartbeatTick", time })
     }
-  }).pipe(Effect.repeat(fixedSchedule(HEARTBEAT_INTERVAL)))
+  }).pipe(Effect.repeat(spacedSchedule(HEARTBEAT_INTERVAL)))
 
 const stopReminderTick = (
   workerState: WorkerState.Interface,
@@ -38,7 +40,11 @@ const stopReminderTick = (
         yield* eventBus.publish({ _tag: "StopReminder", reason: "no_heartbeat_within_5min" })
       }
     }
-  }).pipe(Effect.repeat(fixedSchedule(STOP_REMINDER_INTERVAL)))
+  }).pipe(
+    // First fire only after STOP_REMINDER_INTERVAL of Busy wall/clock time.
+    Effect.delay(STOP_REMINDER_INTERVAL),
+    Effect.repeat(spacedSchedule(STOP_REMINDER_INTERVAL)),
+  )
 
 const waitIdleBackupTick = (
   workerState: WorkerState.Interface,
@@ -53,7 +59,7 @@ const waitIdleBackupTick = (
         yield* eventBus.publish({ _tag: "WaitIdleBackupTick", reason: "idle_status_check" })
       }
     }
-  }).pipe(Effect.repeat(fixedSchedule(WAIT_IDLE_BACKUP_INTERVAL)))
+  }).pipe(Effect.delay(WAIT_IDLE_BACKUP_INTERVAL), Effect.repeat(spacedSchedule(WAIT_IDLE_BACKUP_INTERVAL)))
 
 const loopTimerDuration = (
   eventBus: EventBus.Interface,

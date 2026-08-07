@@ -151,14 +151,23 @@ const buildRealHooks = (
             yield* instance.workerState.transition({ _tag: "Dead", reason: "ParentAbort" }).pipe(Effect.ignore)
             return
           case "StopReminder":
-            // Observable via EventBus.snapshotBuffer (/loop status). Do not inject into
-            // verifier feedback channel — TestClock suites advance 5m and would pollute
-            // next-turn system context. Product surface: command.ts already surfaces
-            // StopReminder events from the buffer.
+            // FULL harness effect: inject timer reminder into next-turn system context
+            // (separate channel from verifier rejects).
+            yield* instance.verifierBiDirectional
+              .injectTimerReminder(
+                `Stop reminder: ${event.reason}. Progress under harness observation — finish the goal or request stop.`,
+              )
+              .pipe(Effect.provideService(EventBus.Service, instance.eventBus))
             return
           case "WaitIdleBackupTick":
-            // Idle backup tick is observable on EventBus; parent wake is owned by
-            // subagent completion bridge (Task 3).
+            // Only real timer idle checks inject (not every turn_end publish).
+            if (event.reason === "idle_status_check") {
+              yield* instance.verifierBiDirectional
+                .injectTimerReminder(
+                  `Wait/idle backup: ${event.reason}. Harness is still waiting on background work or idle state.`,
+                )
+                .pipe(Effect.provideService(EventBus.Service, instance.eventBus))
+            }
             return
           case "LoopTerminated":
             if (event.reason === "loop_timer_reached_24h") {
@@ -248,10 +257,7 @@ const buildRealHooks = (
           // Empty claims (common on pure tool-finish→stop without assistant prose) are
           // not auditable; skip rather than hard-aborting the drain.
           if (!out.workerClaim.trim()) return
-          // Auto-seeded goals are for status/display; only explicit `/loop goal` or
-          // GoalStore.set enables the live verifier auditor (avoids test LLM hard-abort).
-          const explicit = yield* instance.goalStore.isExplicit
-          if (!explicit) return
+          // FULL D1: auto-seeded and explicit goals both enable verifier.
           const verifier = yield* getVerifier(out, goal)
           const outcome = yield* DoneDecisionLoop.onWorkerClaimComplete(verifier, {
             worker_claim: out.workerClaim,
@@ -272,9 +278,19 @@ const buildRealHooks = (
             }
             return
           }
+          // Auditor/provider failure: soft-inject reject reason and continue the
+          // loop (do not HardAbort the parent drain — only N=8 reject cap / terminal
+          // controller may stop). HardAbort reserved for AbortRequested / doom / CB.
           verifiers.delete(out.sessionID)
           yield* verifier.dispose
-          yield* instance.eventBus.publish({ _tag: "HardAbort", reason: "verifier_failed" })
+          const errText = String(outcome.cause)
+          yield* instance.verifierBiDirectional
+            .injectRejectReasonToWorkerContext(
+              `Verifier audit failed (will retry next claim): ${errText.slice(0, 500)}`,
+              [],
+            )
+            .pipe(Effect.provideService(EventBus.Service, instance.eventBus))
+          yield* instance.circuitBreaker.recordFailure
         }),
       onFailover: (cause) =>
         Effect.gen(function* () {

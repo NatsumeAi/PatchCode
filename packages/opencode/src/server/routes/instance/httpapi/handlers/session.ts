@@ -1,6 +1,8 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
+import { TaskTool } from "@opencode-ai/core/tool/task"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
@@ -387,20 +389,50 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const toV2Prompt = (payload: typeof PromptPayload.Type) =>
       Effect.gen(function* () {
         const parts = payload.parts ?? []
-        const text = parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+        const textParts = parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
         const files = parts.flatMap((part) =>
           part.type === "file"
             ? [{ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }]
             : [],
         )
-        const agents = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
-        const dropped = parts.filter((part) => part.type === "subtask").length
-        if (dropped > 0) yield* Effect.logInfo("subtask parts dropped on v2 prompt", { count: dropped })
+        const agentParts = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
+        // FULL: honor subtask parts (do not drop). Map agent + embed prompt/description
+        // into the V2 prompt; optional auto-spawn is handled after admit when Task host
+        // is available (see prompt handler).
+        const subtasks = parts.filter((part): part is Extract<(typeof parts)[number], { type: "subtask" }> =>
+          part.type === "subtask",
+        )
+        const subtaskBlocks = subtasks.map(
+          (s) =>
+            `<subtask agent=${JSON.stringify(s.agent)} description=${JSON.stringify(s.description)}>${s.prompt}</subtask>`,
+        )
+        const agents = [
+          ...agentParts,
+          ...subtasks.map((s) => ({ name: s.agent })),
+        ]
+        const text = [...textParts, ...subtaskBlocks].filter(Boolean).join("\n")
+        if (subtasks.length > 0) {
+          yield* Effect.logInfo("subtask parts honored on v2 prompt", { count: subtasks.length })
+        }
         return {
           text,
           ...(files.length > 0 ? { files } : {}),
           ...(agents.length > 0 ? { agents } : {}),
-        } satisfies PromptInput.Prompt
+          // Carry raw subtasks for post-admit spawn
+          _subtasks: subtasks.map((s) => ({
+            prompt: s.prompt,
+            description: s.description,
+            agent: s.agent,
+            command: s.command,
+          })),
+        } as PromptInput.Prompt & {
+          _subtasks?: ReadonlyArray<{
+            prompt: string
+            description: string
+            agent: string
+            command?: string
+          }>
+        }
       })
 
     const switchTo = (sessionID: SessionID, payload: typeof PromptPayload.Type) =>
@@ -464,11 +496,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         // legacy PromptPayload has no delivery field, so busy→queue is the rule.
         const active = yield* v2Svc.active
         const delivery = noReply ? "steer" : active.has(sessionID) ? "queue" : "steer"
-        return yield* v2Svc
+        const built = yield* toV2Prompt(payload)
+        const { _subtasks, ...prompt } = built as typeof built & {
+          _subtasks?: ReadonlyArray<{
+            prompt: string
+            description: string
+            agent: string
+            command?: string
+          }>
+        }
+        const message = yield* v2Svc
           .prompt({
             sessionID,
             ...(id ? { id } : {}),
-            prompt: yield* toV2Prompt(payload),
+            prompt,
             delivery,
             // noReply: admit + project user message, do not wake agent / run LLM
             ...(noReply ? { resume: false, projectUser: true } : {}),
@@ -480,6 +521,34 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 : new HttpApiError.BadRequest({}),
             ),
           )
+        // FULL subtask parity: auto-spawn each subtask via Task host (background).
+        if (_subtasks && _subtasks.length > 0 && !noReply) {
+          const taskHostOpt = yield* Effect.serviceOption(TaskTool.HostService)
+          if (Option.isSome(taskHostOpt)) {
+            for (const st of _subtasks) {
+              yield* taskHostOpt.value
+                .run({
+                  parentSessionID: SessionSchema.ID.make(String(sessionID)),
+                  description: st.description || st.agent,
+                  prompt: st.prompt,
+                  subagentType: st.agent,
+                  command: st.command,
+                  background: true,
+                  agent: st.agent,
+                  assistantMessageID: SessionMessage.ID.create(),
+                  toolCallID: `subtask-${st.agent}`,
+                })
+                .pipe(
+                  Effect.catch((err) =>
+                    Effect.logWarning("subtask auto-spawn failed", { agent: st.agent, err: String(err) }),
+                  ),
+                )
+            }
+          } else {
+            yield* Effect.logWarning("subtask parts present but Task host unavailable; prompt embeds subtask XML only")
+          }
+        }
+        return message
       })
 
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {

@@ -234,7 +234,7 @@ describe("LoopControlHost.layerReal", () => {
     )
   })
 
-  test("publishes HardAbort when verifier provider fails", () => {
+  test("soft-injects reject when verifier provider fails (does not HardAbort drain)", () => {
     const client: LLMClientShape = {
       prepare: () => Effect.die("unused"),
       stream: () => Stream.die("unused"),
@@ -245,6 +245,7 @@ describe("LoopControlHost.layerReal", () => {
       Effect.gen(function* () {
         const hooks = yield* LoopControlHost.Interface
         const bus = yield* EventBus.Service
+        const vbd = yield* VerifierBiDirectional.Service
         yield* GoalStore.set("Finish the parser fix")
         yield* hooks.onStreamComplete({
           sessionID: "s1",
@@ -253,8 +254,12 @@ describe("LoopControlHost.layerReal", () => {
           workerDiffPath: "src/parser.ts",
           model,
         })
-        const events = yield* bus.snapshotBuffer(10)
-        expect(events).toContainEqual({ _tag: "HardAbort", reason: "verifier_failed" })
+        const events = yield* bus.snapshotBuffer(20)
+        expect(events.some((e) => e._tag === "HardAbort" && e.reason === "verifier_failed")).toBe(false)
+        // Soft path: circuit breaker recorded failure; next-turn context has reject text.
+        const next = yield* vbd.getNextTurnSystemContext
+        expect(next.verifier_reject_reason.toLowerCase()).toContain("verifier")
+        if (hooks.shouldContinue) expect(yield* hooks.shouldContinue("s1")).toBe(true)
       }),
       client,
     )

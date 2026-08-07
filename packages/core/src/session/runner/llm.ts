@@ -510,14 +510,28 @@ const layer = Layer.effect(
      * test can pin its shape without coupling to wiring.
      */
     const renderVerifierFeedback = (next: NextTurnSystemContext): string => {
-      if (next.verifier_reject_reason.length === 0 && next.verifier_reject_evidence.length === 0) return ""
-      const lines = [`<verifier-feedback reason=${JSON.stringify(next.verifier_reject_reason)}>`]
-      if (next.verifier_reject_reason.length > 0) lines.push(`reason: ${next.verifier_reject_reason}`)
-      for (const item of next.verifier_reject_evidence) {
-        const loc = item.line === undefined ? item.file : `${item.file}:${item.line}`
-        lines.push(`evidence: ${loc} — ${item.issue}`)
+      if (
+        next.verifier_reject_reason.length === 0 &&
+        next.verifier_reject_evidence.length === 0 &&
+        !(next.timer_reminder && next.timer_reminder.length > 0)
+      ) {
+        return ""
       }
-      lines.push("</verifier-feedback>")
+      const lines: string[] = []
+      if (next.verifier_reject_reason.length > 0 || next.verifier_reject_evidence.length > 0) {
+        lines.push(`<verifier-feedback reason=${JSON.stringify(next.verifier_reject_reason)}>`)
+        if (next.verifier_reject_reason.length > 0) lines.push(`reason: ${next.verifier_reject_reason}`)
+        for (const item of next.verifier_reject_evidence) {
+          const loc = item.line === undefined ? item.file : `${item.file}:${item.line}`
+          lines.push(`evidence: ${loc} — ${item.issue}`)
+        }
+        lines.push("</verifier-feedback>")
+      }
+      if (next.timer_reminder && next.timer_reminder.length > 0) {
+        lines.push(`<harness-timer-reminder>`)
+        lines.push(next.timer_reminder)
+        lines.push(`</harness-timer-reminder>`)
+      }
       return lines.join("\n")
     }
 
@@ -652,11 +666,20 @@ const layer = Layer.effect(
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
-      // Proactive compaction by iteration-step budget is disabled (Task 10):
-      // its trigger was step-based, unrelated to token usage. Compaction now
-      // fires only via compactIfNeeded threshold or overflow recovery.
-      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
+      // Token compact path + ContextEngine step-budget proactive path (FULL).
+      // When the engine wants a proactive compact, still use compactIfNeeded as the
+      // sole real compact executor so overflow recovery semantics stay single-path.
+      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })) {
+        yield* drain.contextEngine.compact.pipe(Effect.ignore)
         return yield* Effect.die(continueAfterCompaction(currentStep))
+      }
+      if (yield* drain.contextEngine.shouldProactiveCompact) {
+        // Re-attempt compact with same request; if still declined, mark engine so
+        // we do not spin every turn (MIN_STEPS gate advances via compact()).
+        const did = yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })
+        yield* drain.contextEngine.compact.pipe(Effect.ignore)
+        if (did) return yield* Effect.die(continueAfterCompaction(currentStep))
+      }
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
@@ -817,6 +840,16 @@ const layer = Layer.effect(
             return { needsContinuation: false, step: currentStep }
           }
           if (stepSettlement && !publisher.hasProviderError()) {
+            // FULL tree token budget: debit input+output+reasoning; stop when exhausted.
+            const used =
+              stepSettlement.tokens.input +
+              stepSettlement.tokens.output +
+              stepSettlement.tokens.reasoning
+            const tree = yield* drain.treeBudget.debit(used)
+            if (tree.exhausted) {
+              yield* drain.terminal.request("budget_exhausted")
+              needsContinuation = false
+            }
             yield* withPublication(
               events.publish(SessionEvent.Step.Ended, {
                 sessionID: session.id,

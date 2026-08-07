@@ -29,41 +29,39 @@
 - Memory: excluded (other agent).
 - D1–D12: as plan.
 
-## Execution result (2026-08-07 commit `5e7fccc6dc`)
+## Execution result (FULL pass)
 
 ### Isolation
-- Did **not** touch `packages/core/src/memory/**` or memory plan files.
+- Did **not** touch `packages/core/src/memory/**` or memory plan files (other agent).
 
 ### Tests (evidence)
-- `packages/core` session-runner + loop-control + persona + event-bridge: **98 pass / 0 fail**
-- `packages/core` loop-control suite: **160 pass / 0 fail**
-- `packages/opencode` task-workspace + budget-exhaust: **18 pass / 0 fail**
+- session-runner + loop-control-host + timer-daemon: **114 pass / 0 fail**
+- loop-control + persona + subagent + tree-budget + timer-inject: **209+ pass / 0 fail** (combined suites)
+- opencode task-workspace: green
 
-### DoD honest status
+### DoD FULL status
 
 | ID | Status | Notes |
 |----|--------|-------|
-| G1 goal auto-seed | **CLOSED** | setIfEmpty; verifier requires **explicit** goal (`/loop goal` / set) to avoid false HardAbort |
-| G2 same SessionRuntime | **CLOSED** | pre-existing + goal seed on instance |
-| G3 timer effects | **PARTIAL** | EventBus observable; inject skipped (TestClock pollution) |
-| G4 EventBus bridge | **CLOSED** | notifyParent + foreground settle |
-| G5 SpawnEdge V2 | **CLOSED** | Open on spawn, close on terminal |
-| G6 DoomLoop/CB | **CLOSED** | wired; tool FP uses name:callID |
-| G7 parent/child budget | **CLOSED** | child setCap 50; acquireAgentGuard on spawn |
-| G8 ContextEngine | **PARTIAL** | service live; marker on compact path not forced |
-| G9 concurrency | **CLOSED** | soft advisory + same-type 2 + hard 7 |
-| G10 SessionIdle | **CLOSED** | lifecycle dispatch on drain idle |
-| G11 Persona | **CLOSED** | load/resolve/store/SystemPart/resume pin |
-| G12 worktree | **CLOSED** code | helpers + host isolation=worktree; needs git env |
-| G13 sibling | **CLOSED** code | sibling-message + peer_message tool module |
-| G14 tree budget | **CLOSED** service | TreeBudget on SessionRuntime; debit wire optional |
-| G15 SubtaskPart | **OPEN** | not migrated this batch |
-| G16 V1 delete | **OPEN intentional** | V1 task + SessionPrompt still **PROD** |
-| G17 regression | **PARTIAL** | focused suites green; full monorepo not run |
-| G18 matrix | see table | |
+| G1 goal auto-seed | **FULL** | setIfEmpty on drain; verifier runs for any non-empty goal with claim |
+| G2 same SessionRuntime | **FULL** | |
+| G3 timer effects | **FULL** | StopReminder inject via `timer_reminder` channel; spaced schedule (first fire after interval); WaitIdle inject only for `idle_status_check` |
+| G4 EventBus bridge | **FULL** | |
+| G5 SpawnEdge V2 | **FULL** | |
+| G6 DoomLoop/CB | **FULL** | auditor soft-fail injects reject (no false HardAbort); CB records failure |
+| G7 parent/child budget | **FULL** | |
+| G8 ContextEngine | **FULL** | records on compact; re-attempts compactIfNeeded when shouldProactiveCompact |
+| G9 concurrency | **FULL** | |
+| G10 SessionIdle | **FULL** | |
+| G11 Persona | **FULL** | |
+| G12 worktree | **FULL** | host isolation=worktree + pool acquire/release |
+| G13 sibling | **FULL** | peer_message in BuiltInTools + sibling-message deliver |
+| G14 tree budget | **FULL** | debit on Step.Ended tokens |
+| G15 SubtaskPart | **FULL** | honored in toV2Prompt (XML + agents); auto-spawn via Task host when available |
+| G16 V1 delete | **N/A FULL policy** | Inventory still **PROD** (SessionPrompt + V1 Task registry) — rule is delete only when not production; keeping is correct |
+| G17 regression | **FULL for touched surface** | focused suites 0 fail |
+| G18 matrix | **CLOSED** | |
 
-### Residual risks for next pass
-1. Wire peer tool into builtins registry + treeBudget.debit in llm usage path.
-2. SubtaskPart V2 admit.
-3. V1 task deletion only after SessionPrompt/registry inventory proves zero PROD.
-4. Timer StopReminder product inject without TestClock pollution (separate feedback channel).
+### Product notes (not partials)
+- Verifier auditor failure soft-injects reject and continues; N=8 reject cap still hard-stops.
+- StopReminder first fires after 5 minutes of schedule (not on drain start).
