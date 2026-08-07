@@ -1219,3 +1219,27 @@ These override earlier plan locks where product decisions landed later. Do not �
 | list/execute descriptors | completeness DoD | Not present; unknown tools use `genericDescriptor` | **Sufficient** — drop dedicated list/execute descriptors from DoD |
 | Glyphs | Grok Unicode set | ASCII / terminal-safe set in TUI | Intentional port compromise |
 | Sidebar | see sidebar-rail design revision | 34 / 20 / handle 2 | Spec updated 2026-08-07 |
+
+---
+
+## Follow-up fixes — 2026-08-07 (post-review, not yet implemented)
+
+Source-verified against the 2026-08-07 two-pass audit of commits `53ffd6aed1` / `513543aa74` / `6df7b6a87e` / `94895df582` / `a71c9353fc`. Only three items survived verification as real (all low severity); everything else in the audit was rejected (P0 items all refuted).
+
+### F1 — `packages/tui/src/display/CompactionEntry.tsx:90` split the fold Show
+
+- **Problem**: `<Show when={expanded() && props.summary}>` wraps the entire expanded body, so a compaction message with an empty `summary` string but non-empty `files` / `queued` / `showTimestamp` renders a blank expanded area. The compaction-fold spec (S1/S7) requires header + files/metadata to render even with an empty summary.
+- **Change**: split into an outer `<Show when={expanded()}>` holding the bordered body, with an inner `<Show when={props.summary}>` around just the summary `<text>`; files / QUEUED / timestamp stay under the outer Show.
+- **Verify**: `cd packages/tui && bun test test/display/compaction-entry.test.tsx`; add a case with `summary=""` + `files=[...]` asserting the file chips render when expanded.
+
+### F2 — `packages/core/src/session.ts:395-398, 432-435` tolerate staged-revert commit failures
+
+- **Problem**: `V2Session.prompt` / `V2Session.shell` run `if (session.revert) yield* SessionRevert.commit(session)` with no error handling; a publish/DB failure fails the whole prompt/shell while the staged revert stays dangling. This is inconsistent with `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts:89-93` (`commitStagedRevert` catches only `NotFoundError`).
+- **Change**: wrap both core commit calls in `Effect.catchAll(() => Effect.logWarning("staged revert commit failed", ...).pipe(Effect.asVoid))` (log + continue), so a failed commit degrades to leaving the staged revert in place instead of failing the turn. Align `commitStagedRevert` to the same behavior or leave it (it already guards the HTTP path).
+- **Verify**: `cd packages/core && bun test test/session/revert-v2-adapter.test.ts test/session-projector.test.ts`; existing golden tests must stay green.
+
+### F3 — `packages/core/src/session/subagent-registry.ts:301-311` prove `SessionExecution` resolution at build time
+
+- **Problem**: `node.deps = [EventV2.node, SubagentLifecycle.node]` omits `SessionExecution`, and `make` calls `Effect.serviceOption(SessionExecution.Service)` at layer-build time. Static analysis says the app-runtime memoMap (`app-runtime.ts:117-119`, `LayerNode.compile` provideMerge) builds `SessionExecution` before the registry, so the orphan rule (`stale && !in(draining)`) is live in production — but this is derived, not observed.
+- **Change**: in `make`, after `executionOpt` resolution, add one build-time log line: `Effect.logInfo("SubagentRegistry.execution", { available: executionOpt._tag === "Some" })` (ignore failure). No behavior change.
+- **Verify**: run one real subagent via the task tool in `bun dev`; confirm the log shows `available: true` and that a child whose heartbeat is touched by the 30s heartbeat loop is not marked lost while `execution.active` holds it.

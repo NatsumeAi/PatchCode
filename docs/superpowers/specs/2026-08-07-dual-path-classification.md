@@ -56,7 +56,8 @@
 
 | Signal | Role |
 |---|---|
-| `lastHeartbeatAt` / registry watcher | Subagent **liveness** signal |
-| `SessionV2.active` / `execution.active` | Session **drain busy** membership |
+| `lastHeartbeatAt` (progress-only) | Last time child **progress** counters grew (turns / tools / tokens) |
+| Observer poll loop | Reads child messages and calls `touchHeartbeat` — **does not** refresh progress unless counters grow |
+| `SessionV2.active` / `execution.active` | Session **drain busy** membership only (UI / busy checks) |
 
-Watcher rule after this pass: mark `lost` when status is `active` AND heartbeat is stale AND child is **not** in `execution.active` (orphan: drain no longer owns the child). If `SessionExecution` is unavailable in the watcher scope, fall back to heartbeat-only (legacy). While the child remains in an active drain, stale heartbeat alone does not mark lost (avoids false orphans during brief beat gaps).
+Watcher rule: mark `lost` when status is `active` AND `now - lastProgressAt > 180s`. Drain membership does **not** exempt stall — a hung drain with frozen progress must interrupt and notify the parent (same pipeline as cancel / HeartbeatLost).
