@@ -9,7 +9,7 @@ import {
   isContextOverflowFailure,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
-import { Cause, DateTime, Duration, Effect, FiberSet, Layer, Option, Scope, Semaphore, Stream } from "effect"
+import { Cause, DateTime, Duration, Effect, FiberSet, Layer, Option, Schema, Scope, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
 import { Catalog } from "../../catalog"
 import { Config } from "../../config"
@@ -22,6 +22,7 @@ import { ProviderV2 } from "../../provider"
 import { QuestionV2 } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
+import { MemoryRecall } from "../../memory/recall"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
@@ -481,6 +482,28 @@ const layer = Layer.effect(
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
 
+    // Epoch-only relevance recall: appended as a static source once per context
+    // epoch (initialize/prepare), preserving the prefix-cache invariant for
+    // recall. Empty when the memory system is absent or yields nothing.
+    const loadSystemContextAndRecall = (agent: AgentV2.Selection, sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        const context = yield* loadSystemContext(agent)
+        const recallOption = yield* Effect.serviceOption(MemoryRecall.Service)
+        if (Option.isNone(recallOption)) return context
+        const recall = yield* recallOption.value.recall(sessionID).pipe(Effect.catch(() => Effect.succeed("")))
+        if (recall === "") return context
+        return SystemContext.combine([
+          context,
+          SystemContext.make({
+            key: SystemContext.Key.make("core/memory-recall"),
+            codec: Schema.toCodecJson(Schema.String),
+            load: Effect.succeed(recall),
+            baseline: (text) => text,
+            update: (_previous, text) => text,
+          }),
+        ])
+      })
+
     /**
      * Per-drain loop-control context. Built once at the start of each `run`
      * drain from the session-keyed `SessionRuntime.Instance` bundle, so two
@@ -600,7 +623,7 @@ const layer = Layer.effect(
       if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id)))
         return { needsContinuation: false, step }
       const agent = yield* agents.select(session.agent)
-      const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
+      const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContextAndRecall(agent, session.id), session.id)
       const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
       let needsContinuation = false
       let currentStep = step
@@ -617,7 +640,7 @@ const layer = Layer.effect(
       // After Prompted projection: first user message is visible to ensureTitle.
       yield* scheduleTitle(session.id)
       const system =
-        initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
+        initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContextAndRecall(agent, session.id), session.id))
       const model = yield* models.resolve(session)
       const modelInfo = yield* models.resolveInfo(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
       // Drain any verifier rejection feedback captured for this session since
@@ -1019,9 +1042,9 @@ const layer = Layer.effect(
     const compact = Effect.fn("SessionRunner.compact")(function* (sessionID: SessionSchema.ID) {
       const session = yield* getSession(sessionID)
       const agent = yield* agents.select(session.agent)
-      const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id)
+      const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContextAndRecall(agent, session.id), session.id)
       const system =
-        initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id))
+        initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContextAndRecall(agent, session.id), session.id))
       const model = yield* models.resolve(session)
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
       // Budget must count real system context. Tools stay empty — manual compact
