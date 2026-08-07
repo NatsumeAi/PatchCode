@@ -824,6 +824,22 @@ export function Session() {
       },
     },
     {
+      title: "Export memory pack",
+      value: "session.memory.export",
+      category: "Session",
+      run: () => {
+        dialog.replace(() => <MemoryModal />)
+      },
+    },
+    {
+      title: "Import memory pack",
+      value: "session.memory.import",
+      category: "Session",
+      run: () => {
+        dialog.replace(() => <MemoryModal />)
+      },
+    },
+    {
       title: "Remember in memory",
       value: "session.memory.remember",
       category: "Session",
