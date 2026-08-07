@@ -46,6 +46,7 @@ import { useEditorContext } from "../../context/editor"
 import { openEditor } from "../../editor"
 import { useDialog } from "../../ui/dialog"
 import { DialogAlert } from "../../ui/dialog-alert"
+import { DialogSubagentList } from "./dialog-subagent"
 
 import { DialogMessage } from "./dialog-message"
 import type { PromptInfo } from "../../component/prompt/history"
@@ -557,10 +558,30 @@ export function Session() {
     if (status?.type === "retry") void DialogAlert.show(dialog, "Retry Error", status.message)
   }
 
+  function childSessions() {
+    return children().filter((x) => !!x.parentID)
+  }
+
   function moveFirstChild() {
-    if (children().length === 1) return
-    const next = children().find((x) => !!x.parentID)
-    if (next) enterChild(next.id)
+    const sessions = childSessions()
+    if (sessions.length === 0) {
+      toast.show({ message: "No subagents yet", variant: "info", duration: 2500 })
+      return
+    }
+    if (sessions.length === 1) {
+      enterChild(sessions[0]!.id)
+      return
+    }
+    dialog.replace(() => (
+      <DialogSubagentList
+        sessions={sessions.map((item) => ({
+          id: item.id,
+          title: item.title,
+          agent: item.agent,
+          busy: sync.data.session_status[item.id]?.type === "busy",
+        }))}
+      />
+    ))
   }
 
   function moveChild(direction: number) {
