@@ -75,6 +75,7 @@ describe("Memory recall", () => {
         Effect.gen(function* () {
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* fs.writeFileString(path.join(roots.globalDir, "MEMORY.md"), "auth uses session tokens for every request")
           const index = yield* openMemoryIndex(fs, roots)
           yield* index.insert("global", {
             path: "MEMORY.md",

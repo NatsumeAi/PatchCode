@@ -396,6 +396,30 @@ export const ensureIndexed = Effect.fn("Memory.ensureIndexed")(function* (
         indexedMtimes.set(full, mtime)
       }
     })
+  const seen = new Set<string>()
+  const mark = (dir: string, rootDir: string): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.succeed([])))
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.type === "directory") {
+          yield* mark(full, rootDir)
+        } else if (entry.type === "file" && entry.name.endsWith(".md")) {
+          seen.add(path.relative(rootDir, full).replace(/\\/g, "/"))
+        }
+      }
+    })
   yield* walk(roots.globalDir, roots.globalDir, "global", "global")
   if (roots.workspaceDir !== undefined) yield* walk(roots.workspaceDir, roots.workspaceDir, "workspace", "workspace")
+  yield* mark(roots.globalDir, roots.globalDir)
+  if (roots.workspaceDir !== undefined) yield* mark(roots.workspaceDir, roots.workspaceDir)
+  // Drop orphan chunks whose files were deleted since the last index pass.
+  const indexed = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
+  for (const chunk of indexed) {
+    if (!seen.has(chunk.path)) {
+      yield* index.deletePath(chunk.source === "workspace" ? "workspace" : "global", chunk.path).pipe(
+        Effect.catch(() => Effect.void),
+      )
+    }
+  }
 })
