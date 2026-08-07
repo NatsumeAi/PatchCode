@@ -86,13 +86,14 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   const input = included
     .map((candidate) => `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`)
     .join("\n\n---\n\n")
+  const boundedPruneList = pruneList.slice(0, 200)
   const pruneSection =
-    pruneList.length > 0
-      ? `\n\nPRUNE LIST (chunk excerpts to remove if no longer relevant):\n${pruneList
+    boundedPruneList.length > 0
+      ? `\n\nPRUNE LIST (chunk excerpts to remove if no longer relevant):\n${boundedPruneList
           .map((item) => `- ${item.chunkId} (${item.path}): ${item.excerpt}`)
           .join("\n")}\n`
       : ""
-  const system = pruneList.length > 0 ? `${PHASE2_SYSTEM}\n\n${PRUNE_SYSTEM}` : PHASE2_SYSTEM
+  const system = boundedPruneList.length > 0 ? `${PHASE2_SYSTEM}\n\n${PRUNE_SYSTEM}` : PHASE2_SYSTEM
   const request = LLM.request({
     model,
     system: [SystemPart.make(system)],

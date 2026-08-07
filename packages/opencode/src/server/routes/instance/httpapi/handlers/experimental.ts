@@ -229,17 +229,34 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return files.sort((a, b) => a.path.localeCompare(b.path))
     })
 
+    const resolveInRoots = (
+      fs: FSUtil.Interface,
+      roots: { globalDir: string; workspaceDir?: string },
+      relative: string,
+    ) =>
+      Effect.gen(function* () {
+        if (roots.workspaceDir !== undefined) {
+          const ws = yield* resolveScopedFile(fs, roots.workspaceDir, relative).pipe(
+            Effect.map(Option.some),
+            Effect.catch(() => Effect.succeed(Option.none())),
+          )
+          if (Option.isSome(ws)) return ws.value
+        }
+        const global = yield* resolveScopedFile(fs, roots.globalDir, relative).pipe(
+          Effect.map(Option.some),
+          Effect.catch(() => Effect.succeed(Option.none())),
+        )
+        if (Option.isSome(global)) return global.value
+        return undefined
+      })
+
     const readMemory = Effect.fn("ExperimentalHttpApi.memoryRead")(function* (ctx: { query: typeof MemoryReadQuery.Type }) {
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
-      const base = roots.workspaceDir ?? roots.globalDir
-      const resolved = yield* resolveScopedFile(fs, base, ctx.query.path).pipe(
-        Effect.map(Option.some),
-        Effect.catch(() => Effect.succeed(Option.none())),
-      )
-      if (Option.isNone(resolved)) return { content: "", truncated: false }
-      const text = yield* Effect.orElseSucceed(fs.readFileStringSafe(resolved.value), () => undefined)
+      const file = yield* resolveInRoots(fs, roots, ctx.query.path)
+      if (file === undefined) return { content: "", truncated: false }
+      const text = yield* Effect.orElseSucceed(fs.readFileStringSafe(file), () => undefined)
       const content = (text ?? "").slice(0, 40_000)
       return { content, truncated: (text?.length ?? 0) > 40_000 }
     })
@@ -292,14 +309,10 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
-      const base = roots.workspaceDir ?? roots.globalDir
       if (!ctx.query.path.startsWith("sessions/")) return false
-      const resolved = yield* resolveScopedFile(fs, base, ctx.query.path).pipe(
-        Effect.map(Option.some),
-        Effect.catch(() => Effect.succeed(Option.none())),
-      )
-      if (Option.isNone(resolved)) return false
-      yield* fs.remove(resolved.value).pipe(Effect.orDie)
+      const file = yield* resolveInRoots(fs, roots, ctx.query.path)
+      if (file === undefined) return false
+      yield* fs.remove(file).pipe(Effect.catch(() => Effect.succeed(false)))
       return true
     })
 
