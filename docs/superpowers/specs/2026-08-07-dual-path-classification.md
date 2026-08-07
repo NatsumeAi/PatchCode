@@ -32,9 +32,13 @@
 | Redo (jump to later user) | `revert` again | `stage` again |
 | Next prompt / summarize / shell | `cleanup` (hard-delete tail) | `commit` → `RevertEvent.Committed` |
 
-- `partID` mid-message trim is V1-only. Current TUI undo passes `messageID` only → **deferred**; not a migration blocker.
+- **Unknown `messageID`:** V1 returned the session unchanged (200 no-op). Instance adapter preserves that; do not map to 400.
+- **`partID`:** V1 mid-message trim is not in V2 stage. Instance adapter **rejects** `partID` with 400 (no silent widen to full-message revert). TUI undo only sends `messageID`.
+- **Commit boundary:** V2 deletes messages with `seq > boundary.seq` (**exclusive** boundary — boundary message kept). This differs from V1 cleanup which removed the boundary message itself; intentional V2 design, document in UI as possible dangling user turn after undo+commit.
+- **Missing boundary on commit:** projector clears `SessionTable.revert` (recoverable) instead of dying. Deleting the staged boundary message also clears staging first.
 - Adapter keeps Instance HTTP paths and `Session.Info` response shape; implementation calls V2.
 - Busy check: `SessionV2.active`, not `SessionRunState`.
+- Snapshot failures on stage/clear map to declared `BadRequest` (endpoint has no `InternalServerError` channel).
 
 ## Permission decision (locked for this pass)
 
