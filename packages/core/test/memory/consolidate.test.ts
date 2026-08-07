@@ -148,7 +148,7 @@ describe("Memory consolidation prune", () => {
             LLMClient.Service.of({
               stream: (request: unknown) => {
                 const req = request as { messages: Array<{ content: Array<{ text: string }> }> }
-                captured = req.messages[0]?.content[0]?.text ?? ""
+                if (captured === "") captured = req.messages[0]?.content[0]?.text ?? ""
                 return Stream.fromIterable([LLMEvent.textDelta({ id: "t1", text: "## Merged\n- x" })])
               },
               prepare: () => Effect.die("unused"),
