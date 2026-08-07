@@ -149,7 +149,7 @@ const taskHostLayer = Layer.effect(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             const childID = SessionSchema.ID.make(String(event.data.childSessionID))
-            yield* notifyParent(childID, "error", "Subagent lost (no heartbeat). It was cancelled.")
+            yield* notifyParent(childID, "error", "Subagent stalled (no progress). It was cancelled.")
             yield* background.cancel(childID).pipe(Effect.ignore)
             if (Option.isSome(executionOpt)) {
               yield* executionOpt.value.interrupt(childID).pipe(Effect.ignore)
@@ -266,9 +266,8 @@ const taskHostLayer = Layer.effect(
         ),
       )
 
-    // 30s heartbeat while waiting; the registry loss detector only fires after
-    // 90s without a beat, so any subagent running longer than that stays alive.
-    // Runs forever (never) so Effect.race with store.wait keeps wait's type.
+    // 30s progress poll while waiting. touchHeartbeat only refreshes lastProgressAt
+    // when turn/tool/token counters grow — keep-alive alone must not hide stalls.
     const heartbeatLoop = (childSessionID: SessionSchema.ID): Effect.Effect<never> =>
       Effect.repeat(
         Effect.gen(function* () {
@@ -368,8 +367,8 @@ const taskHostLayer = Layer.effect(
               return yield* Effect.die(new Error(`Cannot resume task session ${childID}: ${identity.reason}`))
             }
             // A still-running job owns the only wait/heartbeat channel for this
-            // child; relaunching would let the old wait settle on the old turn,
-            // drop heartbeats, and get the still-working child cancelled as lost.
+            // child. Do not start a second observer — return running status so the
+            // parent model waits for the existing completion notification.
             const runningGet =
               instanceCtx === undefined
                 ? background.get(String(childID))
@@ -379,11 +378,18 @@ const taskHostLayer = Layer.effect(
                     .pipe(Effect.provideService(WorkspaceRef, undefined))
             const running = yield* runningGet
             if (running?.status === "running") {
-              return yield* Effect.die(
-                new Error(
-                  `Task ${childID} is still running in the background. Wait for its completion notification; do not relaunch it.`,
-                ),
-              )
+              return {
+                title: input.description,
+                task_id: String(childID),
+                sessionID: String(childID),
+                background: true,
+                structured: { exit: "running" as const, resumeFrom: String(childID) },
+                output: [
+                  "The subagent is still running in the background. You will be notified when it finishes.",
+                  `task_id: ${childID}`,
+                  "Do not relaunch this task_id until you receive a completion notification (or cancel it first).",
+                ].join("\n"),
+              }
             }
           } else {
             const sessionID = SessionSchema.ID.create()
