@@ -166,6 +166,54 @@ describe("Memory index dual-root", () => {
 })
 
 describe("Memory index multi-chunk", () => {
+  it.effect("chunkIdsForPath attributes ids to their owning root", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), path.join(dir.path, "proj"))
+          const index = yield* openMemoryIndex(fs, roots)
+          // Same relative path in BOTH roots — ids must be attributed to their own root.
+          yield* index.insert("global", {
+            path: "MEMORY.md",
+            source: "global",
+            text: "global copy of MEMORY.md",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          yield* index.insert("workspace", {
+            path: "MEMORY.md",
+            source: "workspace",
+            text: "workspace copy of MEMORY.md",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          const hits = yield* index.chunkIdsForPath("MEMORY.md")
+          const sources = hits.map((hit) => hit.source).sort()
+          expect(sources).toEqual(["global", "workspace"])
+          // Per-root AUTOINCREMENT: both roots may assign the same numeric id,
+          // which is why attribution by root is required before bumping.
+          const workspaceHit = hits.find((hit) => hit.source === "workspace")!
+          const globalHit = hits.find((hit) => hit.source === "global")!
+          // Bump only the workspace hit; the global chunk's count must stay 0
+          // even though the numeric ids may collide.
+          yield* index.incrementAccess([{ id: workspaceHit.id, source: "workspace" }])
+          const chunks = yield* index.listChunks()
+          const workspaceChunk = chunks.find((c) => c.source === "workspace")!
+          const globalChunk = chunks.find((c) => c.source === "global")!
+          expect(workspaceChunk.accessCount).toBe(1)
+          expect(globalChunk.accessCount).toBe(0)
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
+
   it.effect("reindexes multi-chunk files and bumps multiple access ids", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

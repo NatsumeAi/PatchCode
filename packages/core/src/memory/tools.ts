@@ -110,11 +110,8 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           const index = yield* openMemoryIndex(fs, rootsOf()).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (index !== undefined) {
             try {
-              const ids = yield* index.chunkIdsForPath(relative).pipe(Effect.catch(() => Effect.succeed([])))
-              const source: "global" | "workspace" = rootsOf().workspaceDir === undefined ? "global" : "workspace"
-              yield* index
-                .incrementAccess(ids.map((id) => ({ id, source })))
-                .pipe(Effect.catch(() => Effect.void))
+              const hits = yield* index.chunkIdsForPath(relative).pipe(Effect.catch(() => Effect.succeed([])))
+              yield* index.incrementAccess(hits).pipe(Effect.catch(() => Effect.void))
             } finally {
               yield* index.close().pipe(Effect.catch(() => Effect.void))
             }

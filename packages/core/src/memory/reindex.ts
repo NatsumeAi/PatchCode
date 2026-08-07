@@ -51,7 +51,9 @@ export interface MemoryIndex {
   readonly incrementAccess: (
     hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,
   ) => Effect.Effect<void, IndexError>
-  readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
+  readonly chunkIdsForPath: (
+    filePath: string,
+  ) => Effect.Effect<Array<{ id: number; source: "global" | "workspace" }>, IndexError>
   readonly chunkHashesForPath: (root: "global" | "workspace", filePath: string) => Effect.Effect<Array<[string, number]>, IndexError>
   readonly removeChunks: (root: "global" | "workspace", ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
   readonly listChunks: () => Effect.Effect<Array<IndexChunk>, IndexError>
@@ -338,13 +340,13 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       )
     }),
     chunkIdsForPath: Effect.fn("MemoryIndex.chunkIdsForPath")(function* (filePath) {
-      const collect = (db: SyncDB) =>
+      const collect = (db: SyncDB, source: "global" | "workspace") =>
         q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
-          Effect.map((result) => rowsOf(result).map((row) => Number(row.id))),
+          Effect.map((result) => rowsOf(result).map((row) => ({ id: Number(row.id), source }))),
         )
       const [globalIds, workspaceIds] = yield* Effect.all([
-        collect(global.db),
-        workspace === undefined ? Effect.succeed([]) : collect(workspace.db),
+        collect(global.db, "global"),
+        workspace === undefined ? Effect.succeed([]) : collect(workspace.db, "workspace"),
       ])
       return [...globalIds, ...workspaceIds]
     }),
