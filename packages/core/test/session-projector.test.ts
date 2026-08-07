@@ -96,6 +96,35 @@ describe("SessionProjector", () => {
     }),
   )
 
+  it.effect("committed revert with missing boundary clears staged revert instead of dying", () =>
+    Effect.gen(function* () {
+      const db = (yield* Database.Service).db
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: Project.ID.global,
+          slug: "missing-boundary",
+          directory: "/project",
+          title: "missing-boundary",
+          version: "test",
+          revert: { messageID: SessionMessage.ID.make("msg_gone"), files: [] },
+        })
+        .run()
+      const events = yield* EventV2.Service
+      yield* events.publish(SessionEvent.RevertEvent.Committed, {
+        sessionID,
+        messageID: SessionMessage.ID.make("msg_gone"),
+        timestamp: DateTime.makeUnsafe(5),
+      })
+      expect((yield* db.select({ revert: SessionTable.revert }).from(SessionTable).get())?.revert).toBeNull()
+    }),
+  )
+
   it.effect("orders projected messages and context by durable aggregate sequence", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service

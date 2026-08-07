@@ -892,7 +892,17 @@ const layer = Layer.effectDiscard(
           )
           .get()
           .pipe(Effect.orDie)
-        if (!boundary) return yield* Effect.die(`Revert boundary message not found: ${event.data.messageID}`)
+        if (!boundary) {
+          // Boundary may have been deleted while revert stayed staged. Clear the
+          // stuck field instead of dying so later prompt/shell commit can proceed.
+          yield* db
+            .update(SessionTable)
+            .set({ revert: null, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+            .where(eq(SessionTable.id, event.data.sessionID))
+            .run()
+            .pipe(Effect.orDie, Effect.asVoid)
+          return
+        }
         const removed = yield* db
           .select()
           .from(SessionMessageTable)
