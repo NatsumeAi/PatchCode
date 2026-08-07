@@ -11,9 +11,10 @@ import { ToolRegistry } from "../tool/registry"
 import { Tool } from "../tool/tool"
 import { resolveRoots } from "./storage"
 import { readTextSafe } from "./storage"
-import { resolveScoped, resolveScopedFile, NotFileError, type ScopedPathError } from "./paths"
+import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type ScopedPathError } from "./paths"
 import { scanForThreats } from "./scan"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
+import { Option } from "effect"
 import { rankResults, isContentFree } from "./ranking"
 
 const MemoryListInput = Schema.Struct({ path: Schema.optional(Schema.String) })
@@ -60,7 +61,9 @@ const scopedFailure = (relative: string) => (error: ScopedPathError) =>
   new Tool.Failure({
     message: error instanceof NotFileError
       ? `Memory path is not a file: ${relative}`
-      : `Memory path rejected (${error._tag}): ${relative}`,
+      : error instanceof MissingError
+        ? `Memory path not found: ${relative}`
+        : `Memory path rejected (${error._tag}): ${relative}`,
   })
 
 export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(function* () {
@@ -112,7 +115,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
               yield* index.close().pipe(Effect.catch(() => Effect.void))
             }
           }
-          const max = (input.max_tokens ?? 1000) * 4
+          const max = Math.max(1, input.max_tokens ?? 1000) * 4
           const content = (text ?? "").slice(0, max)
           return { content, truncated: (text?.length ?? 0) > max }
         }),
@@ -153,16 +156,21 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
               for (const entry of entries) {
                 if (matches.length >= max) return
                 if (entry.type === "directory") {
+                  if (entry.name.startsWith(".")) continue
                   yield* walk(path.join(dir, entry.name))
-                } else if (entry.type === "file" && entry.name.endsWith(".md")) {
-                  const filePath = path.join(dir, entry.name)
-                  const text = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
-                  if (!text) continue
-                  for (const [index, line] of text.split("\n").entries()) {
-                    if (matches.length >= max) break
-                    if (line.toLowerCase().includes(query)) {
-                      matches.push({ path: path.relative(base, filePath), line: index + 1, text: line })
-                    }
+                  continue
+                }
+                if (entry.type !== "file" || !entry.name.endsWith(".md")) continue
+                const filePath = path.join(dir, entry.name)
+                const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                if (!info || Option.getOrElse(info.mtime, () => new Date(0)).getTime() === 0) continue
+                if (info.size > 1024 * 1024) continue
+                const text = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
+                if (!text) continue
+                for (const [index, line] of text.split("\n").entries()) {
+                  if (matches.length >= max) break
+                  if (line.toLowerCase().includes(query)) {
+                    matches.push({ path: path.relative(base, filePath), line: index + 1, text: line })
                   }
                 }
               }

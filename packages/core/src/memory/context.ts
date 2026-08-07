@@ -36,7 +36,7 @@ Decision boundary: should you use memory for a new user query?
 Memory layout (general -> specific):
 
 - memory_summary.md (already provided below; do NOT open it again)
-- MEMORY.md (searchable curated archive; primary file to query)
+- MEMORY.md (searchable curated archive; primary file to query; when a project is open, the workspace copy takes priority over the global copy)
 - extensions/ad_hoc/notes/ (append-only agent write zone; timestamped note files)
 - sessions/ (automatic session logs, metadata + content excerpts)
 
@@ -92,7 +92,7 @@ export const node = makeLocationNode({
         codec: Schema.toCodecJson(Schema.String),
         load: Effect.orElseSucceed(summaryBlock, () => ""),
         baseline: render,
-        update: (_previous, text) => render(text),
+        update: (_previous, text) => (text === "" ? "(memory summary cleared)" : text),
       })
 
       yield* registry.register({ key: MemoryContextKey, load: Effect.succeed(context) })
