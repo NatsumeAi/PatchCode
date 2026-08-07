@@ -61,7 +61,12 @@ export function openAIEmbeddingProvider(input: {
   }
 }
 
-/** Builds a provider from config; None when the model is unset. */
+/**
+ * Builds a provider from config; None when the model is unset.
+ * The vector tier is optional (architecture P7): callers pass the provider
+ * into openMemoryIndex; nothing constructs one until a memory embedding
+ * config surface exists. Until then the FTS path is the default.
+ */
 export const embeddingProviderFromConfig = Effect.fn("Memory.embeddingProviderFromConfig")(function* (
   config: { model?: string; dimensions?: number; apiBase?: string; apiKey?: string },
   client: HttpClient.HttpClient,

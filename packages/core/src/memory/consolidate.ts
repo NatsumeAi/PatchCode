@@ -18,6 +18,7 @@ import { AbsolutePath } from "../schema"
 import { resolveRoots } from "./storage"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { listCandidates, readCandidate, deleteCandidate, mergeKeyOf, NOISE_FLOOR_CHARS } from "./candidates"
+import type { IndexChunk } from "./reindex"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, shouldConsolidate } from "./merge-lock"
 import { PHASE2_SYSTEM } from "./merge-prompt"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
@@ -140,7 +141,9 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
     let pruneList: Array<{ chunkId: string; path: string; excerpt: string }> = []
     if (index !== undefined) {
       try {
-        const chunks = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
+        const chunks = yield* index
+          .listChunks()
+          .pipe(Effect.catch(() => Effect.succeed([] as Array<IndexChunk>)))
         pruneList = selectPruneCandidates(
           chunks.map((chunk) => ({
             chunkId: String(chunk.id),
@@ -188,14 +191,22 @@ const layer = Layer.effect(
       time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
       location: { directory: AbsolutePath.make(location.directory) },
     })
-    return Service.of({
-      consolidate: Effect.fn("MemoryConsolidation.consolidate")(function* () {
+    const svc = Service.of({
+      consolidate: Effect.fn("Memory.consolidate")(function* () {
         const model = yield* models.resolve(syntheticSession).pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (!model) return
         const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
         yield* runConsolidation({ fs, roots, llm, model }).pipe(Effect.catch(() => Effect.void))
       }),
     })
+    // Periodic trigger: the min_hours gate inside runConsolidation prevents
+    // over-runs, so a 30-minute tick only consolidates when due.
+    yield* svc.consolidate().pipe(
+      Effect.catch(() => Effect.void),
+      Effect.repeat(Schedule.spaced(Duration.minutes(30))),
+      Effect.forkScoped,
+    )
+    return svc
   }),
 )
 

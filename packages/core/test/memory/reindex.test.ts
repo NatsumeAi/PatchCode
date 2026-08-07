@@ -164,3 +164,41 @@ describe("Memory index dual-root", () => {
     ),
   )
 })
+
+describe("Memory index multi-chunk", () => {
+  it.effect("reindexes multi-chunk files and bumps multiple access ids", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const index = yield* openMemoryIndex(fs, roots)
+          const file = path.join(roots.globalDir, "MEMORY.md")
+          const longPara = (base: string) =>
+            Array.from({ length: 60 }, (_, i) => `${base} sentence ${i} with enough words to fill a chunk`).join(" ")
+          const content = `## Section one\n${longPara("alpha")}\n\n## Section two\n${longPara("beta")}`
+          yield* writeTextAtomic(fs, file, content)
+          const mtime = Date.now()
+          yield* reindexFile(index, "global", file, "global", content, mtime)
+          const chunks = yield* index.listChunks()
+          expect(chunks.length).toBeGreaterThanOrEqual(2)
+          const hits = yield* index.search("Section", 10)
+          expect(hits.length).toBeGreaterThanOrEqual(2)
+          // Multi-id access bump must not throw.
+          yield* index.incrementAccess(chunks.map((chunk) => chunk.id))
+          const after = yield* index.listChunks()
+          expect(after.every((chunk) => chunk.accessCount === 1)).toBe(true)
+          // Re-reindex preserves access counts (same content).
+          yield* reindexFile(index, "global", file, "global", content, mtime + 1)
+          const preserved = yield* index.listChunks()
+          expect(preserved.length).toBeGreaterThanOrEqual(2)
+          expect(preserved.every((chunk) => chunk.accessCount === 1)).toBe(true)
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
+})

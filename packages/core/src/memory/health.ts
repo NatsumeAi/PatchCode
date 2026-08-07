@@ -31,7 +31,7 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
         const full = path.join(dir, entry.name)
         if (entry.type === "directory") {
           yield* walk(full)
-        } else if (entry.type === "file") {
+        } else if (entry.type === "file" && entry.name.endsWith(".md")) {
           files++
           const info = yield* fs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (info) totalBytes += Number(info.size)

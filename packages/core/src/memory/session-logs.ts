@@ -1,5 +1,5 @@
 import path from "path"
-import { Effect } from "effect"
+import { Effect, Semaphore } from "effect"
 import { FSUtil } from "../fs-util"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 
@@ -19,6 +19,13 @@ export function isTrivialSession(input: { userPromptCount: number; userTextBytes
   return input.userPromptCount < MIN_SUBSTANTIVE_PROMPTS || input.userTextBytes < MIN_USER_TEXT_BYTES
 }
 
+// Serializes read-modify-write appends from the drain watcher and flush.
+const withAppendLock = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    const semaphore = yield* Semaphore.make(1)
+    return yield* semaphore.withPermits(1)(effect)
+  })
+
 /** Appends a block to the session log, creating the dated file on first write. */
 export const appendSessionLog = Effect.fn("Memory.appendSessionLog")(function* (
   fs: FSUtil.Interface,
@@ -27,8 +34,12 @@ export const appendSessionLog = Effect.fn("Memory.appendSessionLog")(function* (
   when: Date,
   content: string,
 ) {
-  const file = sessionLogPath(roots, sessionID, when)
-  const existing = yield* readTextSafe(fs, file)
-  const next = existing === undefined || existing === "" ? content : `${existing}\n\n---\n\n${content}`
-  yield* writeTextAtomic(fs, file, next)
+  yield* withAppendLock(
+    Effect.gen(function* () {
+      const file = sessionLogPath(roots, sessionID, when)
+      const existing = yield* readTextSafe(fs, file)
+      const next = existing === undefined || existing === "" ? content : `${existing}\n\n---\n\n${content}`
+      yield* writeTextAtomic(fs, file, next)
+    }),
+  )
 })

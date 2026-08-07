@@ -122,6 +122,7 @@ export const MemoryImportPayload = Schema.Struct({
 export const MemoryImportResponse = Schema.Struct({
   imported: Schema.Number,
   skipped: Schema.Number,
+  error: Schema.optional(Schema.String),
 }).annotate({ identifier: "MemoryImportResponse" })
 
 export const ExperimentalPaths = {

@@ -103,7 +103,7 @@ export function chunkMarkdown(content: string, maxChars: number): Array<{ text: 
     for (const para of paragraphs) {
       const paraLines = para.split("\n").length
       if (acc !== "" && (acc + "\n\n" + para).length > maxChars) {
-        chunks.push({ text: acc.trim(), startLine: accStart, endLine: line + paraLines - 1 })
+        chunks.push({ text: acc.trim(), startLine: accStart, endLine: Math.max(accStart, line - 1) })
         acc = `${header}\n\n${para}`
         accStart = line
       } else {
@@ -119,6 +119,8 @@ export function chunkMarkdown(content: string, maxChars: number): Array<{ text: 
 const openOne = (file: string) =>
   q(() => {
     const native = new Database(file, { create: true })
+    native.run("PRAGMA journal_mode = WAL")
+    native.run("PRAGMA busy_timeout = 5000")
     native.run(CREATE_CHUNKS)
     native.run(CREATE_PATH_INDEX)
     native.run(CREATE_HASH_PATH_UNIQUE)
@@ -127,6 +129,9 @@ const openOne = (file: string) =>
   })
 
 const rowsOf = (value: unknown): Row[] => (Array.isArray(value) ? (value as Row[]) : [value as Row])
+
+/** Safe multi-element IN clause (plain array binding renders as IN ((?, ?)) — broken). */
+const inClause = (ids: ReadonlyArray<number>) => sql.join(ids.map((id) => sql`${id}`), sql`, `)
 
 export class IndexError {
   constructor(readonly message: string) {}
@@ -142,8 +147,14 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
 ) {
   yield* fs.ensureDir(roots.globalDir)
   if (roots.workspaceDir !== undefined) yield* fs.ensureDir(roots.workspaceDir)
-  const global = yield* openOne(path.join(roots.globalDir, "index.sqlite"))
-  const workspace = roots.workspaceDir === undefined ? undefined : yield* openOne(path.join(roots.workspaceDir, "index.sqlite"))
+  const global = yield* openOne(path.join(roots.globalDir, "index.sqlite")).pipe(
+    Effect.catch(() => Effect.succeed(undefined)),
+  )
+  if (global === undefined) return yield* Effect.fail(new IndexError("cannot open memory index"))
+  const workspace =
+    roots.workspaceDir === undefined
+      ? undefined
+      : yield* openOne(path.join(roots.workspaceDir, "index.sqlite")).pipe(Effect.catch(() => Effect.succeed(undefined)))
 
   const sourceOf = (root: "global" | "workspace", pathInRoot: string): "global" | "workspace" | "session" => {
     if (pathInRoot.startsWith("sessions/")) return "session"
@@ -292,7 +303,9 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
     incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (ids: ReadonlyArray<number>) {
       if (ids.length === 0) return
       const bump = (db: SyncDB) =>
-        q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${ids})`)).pipe(Effect.asVoid)
+        q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${inClause(ids)})`)).pipe(
+          Effect.asVoid,
+        )
       yield* withBoth(bump, bump)
     }),
     chunkHashesForPath: Effect.fn("MemoryIndex.chunkHashesForPath")(function* (root, filePath) {
@@ -304,8 +317,8 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
     removeChunks: Effect.fn("MemoryIndex.removeChunks")(function* (root, ids) {
       if (ids.length === 0) return
       const db = pick(root)
-      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
-        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
+      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${inClause(ids)})`)).pipe(
+        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${inClause(ids)})`))),
         Effect.asVoid,
       )
     }),

@@ -8241,6 +8241,7 @@ export type MemoryHealth = {
 export type MemoryImportResult = {
   imported: number
   skipped: number
+  error?: string
 }
 
 export type MemoryHealthResponses = {

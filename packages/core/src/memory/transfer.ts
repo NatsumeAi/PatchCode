@@ -26,7 +26,7 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
   const manifest: TransferManifest = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    scopes: ["global"],
+    scopes: [roots.workspaceDir !== undefined ? "workspace" : "global"],
     includeRaw,
   }
   yield* writeTextAtomic(fs, path.join(target, "manifest.json"), JSON.stringify(manifest, null, 2))

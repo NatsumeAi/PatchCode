@@ -28,9 +28,9 @@ export const readTextSafe = Effect.fn("Memory.readTextSafe")(function* (fs: FSUt
 })
 
 /**
- * Writes a file, creating parent directories on demand. Not rename-atomic;
- * the exclusive-create invariant for notes is enforced separately with the
- * "wx" flag in the memory_add_note tool.
+ * Writes a file via temp-file + rename so a crash never leaves a half-written
+ * archive (MEMORY.md, memory_summary.md, session logs). The exclusive-create
+ * invariant for notes is enforced separately with the "wx" flag.
  */
 export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   fs: FSUtil.Interface,
@@ -38,5 +38,7 @@ export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   content: string,
 ) {
   yield* fs.ensureDir(path.dirname(filePath))
-  yield* fs.writeWithDirs(filePath, content)
+  const tmp = `${filePath}.tmp`
+  yield* fs.writeWithDirs(tmp, content)
+  yield* fs.rename(tmp, filePath).pipe(Effect.catch(() => Effect.void))
 })

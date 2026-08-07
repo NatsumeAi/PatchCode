@@ -288,10 +288,10 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
-      yield* exportMemory(fs, roots, ctx.payload.target, { includeRaw: ctx.payload.includeRaw ?? false }).pipe(
-        Effect.catch(() => Effect.void),
+      return yield* exportMemory(fs, roots, ctx.payload.target, { includeRaw: ctx.payload.includeRaw ?? false }).pipe(
+        Effect.map(() => true),
+        Effect.catch(() => Effect.succeed(false)),
       )
-      return true
     })
 
     const importMemoryPack = Effect.fn("ExperimentalHttpApi.memoryImport")(function* (ctx: {
@@ -301,7 +301,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
       return yield* importMemory(fs, roots, ctx.payload.source).pipe(
-        Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0 })),
+        Effect.map((result) => ({ ...result, error: undefined })),
+        Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0, error: "import failed" })),
       )
     })
 

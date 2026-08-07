@@ -19,7 +19,7 @@ export function normalize01(values: ReadonlyArray<number>): ReadonlyArray<number
   if (values.length === 0) return []
   const min = Math.min(...values)
   const max = Math.max(...values)
-  if (max === min) return values.map(() => 1)
+  if (max === min) return values.map(() => (values.length === 1 ? 1 : 0.5))
   return values.map((value) => (value - min) / (max - min))
 }
 

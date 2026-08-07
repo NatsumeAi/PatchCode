@@ -53,7 +53,11 @@ export function MemoryModal(props: { onClose?: () => void }) {
         onConfirm={(path) => {
           void sdk.client.experimental.memory
             .exportPack({ target: path })
-            .then(() => toast.show({ message: "Memory exported", variant: "success" }))
+            .then((response) =>
+              response.data === true
+                ? toast.show({ message: "Memory exported", variant: "success" })
+                : toast.show({ message: "Export failed", variant: "error" }),
+            )
             .catch(() => toast.show({ message: "Export failed", variant: "error" }))
           dialog.clear()
         }}
@@ -72,7 +76,9 @@ export function MemoryModal(props: { onClose?: () => void }) {
             .importPack({ source: path })
             .then((response) => {
               const result = response.data
-              if (result) {
+              if (result?.error) {
+                toast.show({ message: `Import failed: ${result.error}`, variant: "error" })
+              } else if (result) {
                 toast.show({ message: `Imported ${result.imported}, skipped ${result.skipped}`, variant: "success" })
                 void load()
               }
