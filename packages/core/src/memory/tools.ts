@@ -13,6 +13,8 @@ import { resolveRoots } from "./storage"
 import { readTextSafe } from "./storage"
 import { resolveScoped, resolveScopedFile, NotFileError, type ScopedPathError } from "./paths"
 import { scanForThreats } from "./scan"
+import { openMemoryIndex, ensureIndexed } from "./reindex"
+import { rankResults, isContentFree } from "./ranking"
 
 const MemoryListInput = Schema.Struct({ path: Schema.optional(Schema.String) })
 const MemoryListOutput = Schema.Struct({
@@ -100,6 +102,16 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           const base = rootsOf().workspaceDir ?? rootsOf().globalDir
           const file = yield* resolveScopedFile(fs, base, input.path).pipe(Effect.mapError(scopedFailure(input.path)))
           const text = yield* Effect.orElseSucceed(readTextSafe(fs, file), () => undefined)
+          const relative = path.relative(base, file).replace(/\\/g, "/")
+          const index = yield* openMemoryIndex(fs, rootsOf()).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (index !== undefined) {
+            try {
+              const ids = yield* index.chunkIdsForPath(relative).pipe(Effect.catch(() => Effect.succeed([])))
+              yield* index.incrementAccess(ids).pipe(Effect.catch(() => Effect.void))
+            } finally {
+              yield* index.close().pipe(Effect.catch(() => Effect.void))
+            }
+          }
           const max = (input.max_tokens ?? 1000) * 4
           const content = (text ?? "").slice(0, max)
           return { content, truncated: (text?.length ?? 0) > max }
@@ -107,15 +119,32 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
     }),
     memory_search: Tool.make({
       description:
-        "Search memory files for a query substring. Returns matching lines with relative path and line numbers (max_results optional, default 20, max 50).",
+        "Search memory files for a query. Returns ranked matching chunks with relative path and line numbers (max_results optional, default 20, max 50).",
       input: MemorySearchInput,
       output: MemorySearchOutput,
       toModelOutput: ({ output }) => [{ type: "text", text: JSON.stringify(output.matches) }],
       execute: (input) =>
         Effect.gen(function* () {
-          const base = rootsOf().workspaceDir ?? rootsOf().globalDir
-          const query = input.query.toLowerCase()
+          const root = rootsOf()
+          const base = root.workspaceDir ?? root.globalDir
           const max = Math.min(input.max_results ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS)
+          const index = yield* openMemoryIndex(fs, root).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (index !== undefined) {
+            try {
+              yield* ensureIndexed(index, fs, root).pipe(Effect.catch(() => Effect.void))
+              const hits = yield* index.search(input.query, max * 4).pipe(Effect.catch(() => Effect.succeed([])))
+              const ranked = rankResults(
+                hits
+                  .filter((hit) => !isContentFree(hit.text))
+                  .map((hit) => ({ ...hit, source: hit.source })),
+              ).slice(0, max)
+              yield* index.incrementAccess(ranked.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
+              return { matches: ranked.map((hit) => ({ path: hit.path, line: hit.line, text: hit.text })) }
+            } finally {
+              yield* index.close().pipe(Effect.catch(() => Effect.void))
+            }
+          }
+          const query = input.query.toLowerCase()
           const matches: Array<{ path: string; line: number; text: string }> = []
 
           const walk = (dir: string): Effect.Effect<void> =>

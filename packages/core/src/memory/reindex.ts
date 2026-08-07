@@ -42,6 +42,7 @@ export interface MemoryIndex {
   readonly deletePath: (filePath: string) => Effect.Effect<void, IndexError>
   readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
   readonly incrementAccess: (ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
+  readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
   readonly listChunks: () => Effect.Effect<Array<IndexChunk>, IndexError>
   readonly close: () => Effect.Effect<void>
 }
@@ -121,8 +122,7 @@ export class IndexError {
 const q = <A>(fn: () => A): Effect.Effect<A, IndexError> => Effect.try({ try: fn, catch: (cause) => new IndexError(String(cause)) })
 
 /** Opens per-root index databases (dual-root: global always, workspace when present). */
-export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (roots: MemoryRoots) {
-  const fs = yield* FSUtil.Service
+export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
   yield* fs.ensureDir(roots.globalDir)
   if (roots.workspaceDir !== undefined) yield* fs.ensureDir(roots.workspaceDir)
   const global = yield* openOne(path.join(roots.globalDir, "index.sqlite"))
@@ -207,6 +207,17 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (ro
       const bump = (db: SyncDB) =>
         q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${ids})`)).pipe(Effect.asVoid)
       yield* withBoth(bump, bump)
+    }),
+    chunkIdsForPath: Effect.fn("MemoryIndex.chunkIdsForPath")(function* (filePath) {
+      const collect = (db: SyncDB) =>
+        q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
+          Effect.map((result) => rowsOf(result).map((row) => Number(row.id))),
+        )
+      const [globalIds, workspaceIds] = yield* Effect.all([
+        collect(global.db),
+        workspace === undefined ? Effect.succeed([]) : collect(workspace.db),
+      ])
+      return [...globalIds, ...workspaceIds]
     }),
     listChunks: Effect.fn("MemoryIndex.listChunks")(function* () {
       const collect = (db: SyncDB): Effect.Effect<Array<IndexChunk>, IndexError> =>
