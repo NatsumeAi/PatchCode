@@ -13,3 +13,11 @@ describe("Memory wiring", () => {
     expect(MemoryTools.node.name).toBe("memory-tools")
   })
 })
+
+test("location services group includes memory nodes", () => {
+  const { locationServices } = require("../../src/location-services")
+  const names = locationServices.dependencies.map((d: { name: string }) => d.name)
+  expect(names).toContain("memory-context")
+  expect(names).toContain("memory-drain-watcher")
+  expect(names).toContain("memory-flush")
+})

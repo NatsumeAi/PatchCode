@@ -14,6 +14,7 @@ import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2 } from "./event"
 import { Database } from "./database/database"
 import { SessionProjector } from "./session/projector"
+import { MemoryFlush } from "./memory/flush"
 import { SessionMessageTable, SessionTable } from "./session/sql"
 import { SessionSchema } from "./session/schema"
 import { AbsolutePath, PositiveInt, RelativePath } from "./schema"
@@ -567,6 +568,13 @@ const layer = Layer.effect(
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         const session = yield* result.get(input.sessionID)
+        // Memory flush hook: guarded optional service; no-op when memory is not wired.
+        yield* Effect.serviceOption(MemoryFlush.Service).pipe(
+          Effect.flatMap((option) =>
+            option._tag === "Some" ? option.value.flush(input.sessionID).pipe(Effect.catch(() => Effect.void)) : Effect.void,
+          ),
+          Effect.provide(locations.get(session.location)),
+        )
         yield* SessionRunner.Service.use((runner) => runner.compact(input.sessionID)).pipe(
           Effect.provide(locations.get(session.location)),
         )
