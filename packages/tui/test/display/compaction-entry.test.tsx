@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test"
 import { createSignal } from "solid-js"
 import { Renderable, RGBA } from "@opentui/core"
+import type { FilePart } from "@opencode-ai/sdk/v2"
 import { testRender } from "@opentui/solid"
 // Side effect: Flock.setGlobal() so KVProvider's async lock can settle.
 import "@opencode-ai/core/global"
@@ -51,6 +52,7 @@ function anchor() {
 
 async function renderEntry(overrides: {
   summary?: string
+  files?: FilePart[]
   onMouseUp?: () => void
 } = {}) {
   const onMouseUp = overrides.onMouseUp ?? (() => {})
@@ -66,7 +68,7 @@ async function renderEntry(overrides: {
                 messageID={MESSAGE_ID}
                 marginTop={0}
                 summary={overrides.summary ?? SUMMARY}
-                files={[]}
+                files={overrides.files ?? []}
                 queued={false}
                 created={0}
                 showTimestamp={false}
@@ -156,13 +158,31 @@ describe("CompactionEntry", () => {
     }
   })
 
-  test("empty summary stays render-safe and keeps the header", async () => {
+  test("empty summary still expands to a render-safe body", async () => {
     const { app } = await renderEntry({ summary: "" })
     try {
       expect(anchor().height).toBe(1)
       await clickDivider(app)
-      await Bun.sleep(50)
-      expect(anchor().height).toBe(1)
+      await wait(() => anchor().height > 1)
+      expect(anchor().height).toBeGreaterThan(1)
+    } finally {
+      app.renderer.destroy()
+    }
+  })
+
+  test("empty summary with files renders the file chips when expanded", async () => {
+    const filePart = {
+      id: "prt_notes",
+      sessionID: "ses_x",
+      messageID: MESSAGE_ID,
+      type: "file",
+      mime: "text/plain",
+      url: "notes.txt",
+    } satisfies FilePart
+    const { app } = await renderEntry({ summary: "", files: [filePart] })
+    try {
+      await clickDivider(app)
+      await app.waitForFrame((frame) => frame.includes("notes.txt"))
     } finally {
       app.renderer.destroy()
     }

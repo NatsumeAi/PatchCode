@@ -87,7 +87,7 @@ export function CompactionEntry(props: {
           <text fg={theme.textMuted}>⋯</text>
         </box>
       </box>
-      <Show when={expanded() && props.summary}>
+      <Show when={expanded()}>
         <box
           border={["left"]}
           borderColor={props.color}
@@ -104,7 +104,9 @@ export function CompactionEntry(props: {
             backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
             flexShrink={0}
           >
-            <text fg={theme.text}>{props.summary}</text>
+            <Show when={props.summary}>
+              <text fg={theme.text}>{props.summary}</text>
+            </Show>
             <Show when={props.files.length}>
               <box
                 flexDirection="row"
