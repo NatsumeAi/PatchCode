@@ -58,6 +58,7 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
       ].join("\n")
       const roots = yield* rootsOf(id)
       yield* appendSessionLog(fs, roots, id, new Date(), lines)
+      state.seen.delete(id)
     }
   }
   for (const id of active) state.seen.add(id)
@@ -86,6 +87,7 @@ export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; i
     })
 
     yield* tick.pipe(
+      Effect.catch(() => Effect.void),
       Effect.repeat(Schedule.spaced(options.pollInterval ?? POLL_INTERVAL)),
       Effect.forkScoped,
     )

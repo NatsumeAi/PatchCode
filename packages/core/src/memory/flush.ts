@@ -54,7 +54,11 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   )
   const cleaned = text.trim()
   if (cleaned.length === 0) return
-  if (scanForThreats(cleaned).length > 0) return
+  const threatIds = scanForThreats(cleaned)
+  if (threatIds.length > 0) {
+    yield* Effect.logWarning("memory flush blocked: threat patterns " + threatIds.join(", "))
+    return
+  }
 
   const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
   yield* appendSessionLog(fs, roots, String(session.id), new Date(), cleaned)
@@ -70,7 +74,7 @@ const layer = Layer.effect(
     const global = yield* Global.Service
     const location = yield* Location.Service
     return Service.of({
-      flush: Effect.fn("MemoryFlush.flush")(function* (sessionID) {
+      flush: Effect.fn("Memory.flush")(function* (sessionID) {
         const session = yield* Effect.orElseSucceed(store.get(sessionID), () => undefined)
         if (!session) return
         yield* flushSession(session, store, llm, models, fs, global, location).pipe(Effect.catch(() => Effect.void))

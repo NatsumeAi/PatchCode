@@ -126,6 +126,13 @@ describe("Memory drain watcher", () => {
             .readDirectoryEntries(path.join(roots.workspaceDir!, "sessions"))
             .pipe(Effect.catch(() => Effect.succeed([])))
           expect(JSON.stringify({ polls: active.polls, text, files: files.map((f) => f.name) })).toContain("# Session")
+          // The session must not be re-logged on subsequent polls (single block).
+          const blockCount = (text ?? "").split("# Session").length - 1
+          expect(blockCount).toBe(1)
+          // Extra polling time must not add duplicate blocks.
+          yield* Effect.sleep(Duration.millis(400))
+          const text2 = yield* readTextSafe(fs, sessionLogPath(roots, String(sessionID), new Date()))
+          expect((text2 ?? "").split("# Session").length - 1).toBe(1)
           yield* Fiber.interrupt(fiber)
         }).pipe(Effect.provide(layer(dir.path))),
       ),
