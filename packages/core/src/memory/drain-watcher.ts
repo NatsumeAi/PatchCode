@@ -4,8 +4,7 @@ import { Clock, Duration, Effect, Layer, Schedule } from "effect"
 import path from "path"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
-import { Location } from "../location"
-import { makeLocationNode } from "../effect/app-node"
+import { makeGlobalNode } from "../effect/app-node"
 import { SessionExecution } from "../session/execution"
 import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
@@ -33,7 +32,7 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
   now: number,
   active: ReadonlySet<string>,
   store: SessionStore.Interface,
-  roots: MemoryRoots,
+  rootsOf: (sessionID: string) => Effect.Effect<MemoryRoots>,
   fs: FSUtil.Interface,
   idleDebounce: Duration.Duration = IDLE_DEBOUNCE,
 ) {
@@ -57,9 +56,8 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
         `- tool results: ${meta.toolResults}`,
         ...(meta.topics.length > 0 ? [`- topics: ${meta.topics.join(" | ")}`] : []),
       ].join("\n")
-      console.log("APPEND-CALL", JSON.stringify({ roots, id }))
+      const roots = yield* rootsOf(id)
       yield* appendSessionLog(fs, roots, id, new Date(), lines)
-      console.log("APPEND-DONE")
     }
   }
   for (const id of active) state.seen.add(id)
@@ -68,27 +66,30 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
 /** Forks a scoped poller that saves session metadata after each drain end. */
 export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; idleDebounce?: Duration.Duration } = {}) =>
   Effect.gen(function* () {
-  const execution = yield* SessionExecution.Service
-  const store = yield* SessionStore.Service
-  const fs = yield* FSUtil.Service
-  const global = yield* Global.Service
-  const location = yield* Location.Service
-  const rootsOf = () => resolveRoots(path.join(global.data, "memory"), location.directory)
-  const state = makeDrainState()
+    const execution = yield* SessionExecution.Service
+    const store = yield* SessionStore.Service
+    const fs = yield* FSUtil.Service
+    const global = yield* Global.Service
+    const rootsOf = (id: string): Effect.Effect<MemoryRoots> =>
+      Effect.gen(function* () {
+        const session = yield* Effect.orElseSucceed(store.get(SessionSchema.ID.make(id)), () => undefined)
+        return resolveRoots(path.join(global.data, "memory"), session?.location?.directory)
+      })
+    const state = makeDrainState()
 
-  const tick = Effect.gen(function* () {
-    const [now, active] = yield* Effect.all([
-      Clock.currentTimeMillis,
-      execution.active.pipe(Effect.map((ids) => new Set([...ids].map((id) => String(id))))),
-    ])
-    yield* drainTick(state, now, active, store, rootsOf(), fs, options.idleDebounce ?? IDLE_DEBOUNCE)
+    const tick = Effect.gen(function* () {
+      const [now, active] = yield* Effect.all([
+        Clock.currentTimeMillis,
+        execution.active.pipe(Effect.map((ids) => new Set([...ids].map((id) => String(id))))),
+      ])
+      yield* drainTick(state, now, active, store, rootsOf, fs, options.idleDebounce ?? IDLE_DEBOUNCE)
+    })
+
+    yield* tick.pipe(
+      Effect.repeat(Schedule.spaced(options.pollInterval ?? POLL_INTERVAL)),
+      Effect.forkScoped,
+    )
   })
-
-  yield* tick.pipe(
-    Effect.repeat(Schedule.spaced(options.pollInterval ?? POLL_INTERVAL)),
-    Effect.forkScoped,
-  )
-})
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -96,8 +97,8 @@ const layer = Layer.effectDiscard(
   }),
 )
 
-export const node = makeLocationNode({
+export const node = makeGlobalNode({
   name: "memory-drain-watcher",
   layer,
-  deps: [SessionExecution.node, SessionStore.node, Global.node, Location.node, FSUtil.node],
+  deps: [SessionExecution.node, SessionStore.node, Global.node, FSUtil.node],
 })

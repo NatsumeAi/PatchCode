@@ -59,6 +59,7 @@ import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
 import { TaskTool } from "@opencode-ai/core/tool/task"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { MemoryDrainWatcher } from "@opencode-ai/core/memory/drain-watcher"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 
@@ -117,6 +118,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     SessionV2.node,
     ToolHostBridges.node,
     SubagentRegistry.node,
+    MemoryDrainWatcher.node,
   ]),
   [
     [LocationServiceMap.node, locationServiceMapV2],

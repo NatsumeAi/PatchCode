@@ -3,7 +3,7 @@ import { DateTime, Duration, Effect, Fiber, Layer } from "effect"
 import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
-import { Location } from "@opencode-ai/core/location"
+
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
@@ -12,11 +12,13 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { ProjectV2 } from "@opencode-ai/core/project"
+import { SessionV2 } from "@opencode-ai/core/session"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { MemoryDrainWatcher } from "../../src/memory/drain-watcher"
 import { readTextSafe, resolveRoots } from "../../src/memory/storage"
 import { sessionLogPath } from "../../src/memory/session-logs"
-import { location } from "../fixture/location"
+
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 
@@ -37,11 +39,24 @@ const execution = Layer.succeed(
 )
 
 const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
-const store = Layer.succeed(
-  SessionStore.Service,
-  SessionStore.Service.of({
-    context: () =>
-      Effect.succeed([
+const sessionFor = (dir: string) =>
+  SessionV2.Info.make({
+    id: sessionID,
+    projectID: ProjectV2.ID.global,
+    title: "test",
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+    location: { directory: AbsolutePath.make(path.join(dir, "proj")) },
+  })
+
+const storeFor = (dir: string) =>
+  Layer.succeed(
+    SessionStore.Service,
+    SessionStore.Service.of({
+      get: () => Effect.succeed(sessionFor(dir)),
+      context: () =>
+        Effect.succeed([
         SessionMessage.User.make({
           id: SessionMessage.ID.make("msg_m1"),
           type: "user",
@@ -69,21 +84,19 @@ const store = Layer.succeed(
           time: { created: DateTime.makeUnsafe(0) },
         }),
       ]),
-    get: () => Effect.die("unused"),
-    sessionPermission: () => Effect.die("unused"),
-    runnerContext: () => Effect.die("unused"),
-    message: () => Effect.die("unused"),
-    wait: () => Effect.die("unused"),
-  }),
-)
+      sessionPermission: () => Effect.die("unused"),
+      runnerContext: () => Effect.die("unused"),
+      message: () => Effect.die("unused"),
+      wait: () => Effect.die("unused"),
+    }),
+  )
 
 const layer = (dir: string, storeOverride?: Layer.Layer<SessionStore.Service>) =>
   Layer.mergeAll(
     LayerNode.compile(FSUtil.node),
     Global.layerWith({ data: path.join(dir, "global") }),
-    Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(path.join(dir, "proj")) }))),
     execution,
-    storeOverride ?? store,
+    storeOverride ?? storeFor(dir),
   )
 
 const it = testEffect(Layer.empty)
@@ -105,7 +118,7 @@ describe("Memory drain watcher", () => {
           yield* Effect.sleep(Duration.millis(300))
           active.current = new Set()
           // Poll marks it pending; debounce passes; log is written.
-          yield* Effect.sleep(Duration.millis(500))
+          yield* Effect.sleep(Duration.millis(700))
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))
           const text = yield* readTextSafe(fs, sessionLogPath(roots, String(sessionID), new Date()))
@@ -133,7 +146,7 @@ describe("Memory drain watcher", () => {
           }).pipe(Effect.forkScoped)
           yield* Effect.sleep(Duration.millis(300))
           active.current = new Set()
-          yield* Effect.sleep(Duration.millis(500))
+          yield* Effect.sleep(Duration.millis(700))
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))
           const text = yield* readTextSafe(fs, sessionLogPath(roots, String(sessionID), new Date()))
@@ -146,6 +159,7 @@ describe("Memory drain watcher", () => {
               Layer.succeed(
                 SessionStore.Service,
                 SessionStore.Service.of({
+                  get: () => Effect.succeed(sessionFor(dir.path)),
                   context: () =>
                     Effect.succeed([
                       SessionMessage.User.make({
@@ -155,7 +169,6 @@ describe("Memory drain watcher", () => {
                         time: { created: DateTime.makeUnsafe(0) },
                       }),
                     ]),
-                  get: () => Effect.die("unused"),
                   sessionPermission: () => Effect.die("unused"),
                   runnerContext: () => Effect.die("unused"),
                   message: () => Effect.die("unused"),
