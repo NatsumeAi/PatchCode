@@ -7,6 +7,7 @@ import { EventBus } from "../../src/session/loop-control/event-bus"
 import { IterationBudget } from "../../src/session/loop-control/iteration-budget"
 import { TimerDaemon } from "../../src/session/loop-control/timer-daemon"
 import { TerminalController } from "../../src/session/loop-control/terminal-controller"
+import { CircuitBreaker } from "../../src/session/loop-control/circuit-breaker"
 import { GoalStore } from "../../src/session/loop-control/goal-store"
 import { TurnRetryState } from "../../src/session/runner/turn-retry-state"
 import { VerifierBiDirectional } from "../../src/session/runner/verifier-bi-directional"
@@ -32,6 +33,7 @@ const program = <A, E, R>(effect: Effect.Effect<A, E, R>, client: LLMClientShape
       Effect.provide(EventBus.layerForTest),
       Effect.provide(WorkerState.layerForTest),
       Effect.provide(TerminalController.layerForTest),
+      Effect.provide(CircuitBreaker.layerForTest),
     ) as Effect.Effect<A, E, never>,
   )
 

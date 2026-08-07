@@ -26,4 +26,13 @@ describe("GoalStore", () => {
       expect(yield* GoalStore.get).toBe("second goal")
     }),
   )
+
+  it.effect("setIfEmpty only writes when empty", () =>
+    Effect.gen(function* () {
+      expect(yield* GoalStore.setIfEmpty("seeded from user")).toBe(true)
+      expect(yield* GoalStore.get).toBe("seeded from user")
+      expect(yield* GoalStore.setIfEmpty("should not replace")).toBe(false)
+      expect(yield* GoalStore.get).toBe("seeded from user")
+    }),
+  )
 })

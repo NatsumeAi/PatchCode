@@ -23,6 +23,14 @@ import { validateResumeIdentity } from "@opencode-ai/core/session/subagent-ident
 import { projectParentTrace } from "@opencode-ai/core/session/fork-mode"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { EventV2 } from "@opencode-ai/core/event"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { EventBridge } from "@opencode-ai/core/session/loop-control/event-bridge"
+import { SpawnEdge } from "@opencode-ai/core/session/loop-control/spawn-edge"
+import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
+import { WorktreePool } from "@opencode-ai/core/session/worktree-pool"
+import { PersonaLoader } from "@opencode-ai/core/session/persona/loader"
+import { PersonaResolve } from "@opencode-ai/core/session/persona/resolve"
+import { PersonaStore } from "@opencode-ai/core/session/persona/store"
 import { Database } from "@opencode-ai/core/database/database"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
@@ -135,8 +143,30 @@ const taskHostLayer = Layer.effect(
     const background = yield* BackgroundJob.Service
     const registryOpt = yield* Effect.serviceOption(SubagentRegistry.Service)
     const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
+    const runtimeOpt = yield* Effect.serviceOption(SessionRuntime.Service)
+    const personaStoreOpt = yield* Effect.serviceOption(PersonaStore.Service)
     const scope = yield* Scope.Scope
     const db = database.db
+
+    const bridgeParentLoop = (
+      parentSessionID: SessionSchema.ID,
+      childSessionID: SessionSchema.ID,
+      ok: boolean,
+      error?: string,
+    ) =>
+      Effect.gen(function* () {
+        if (runtimeOpt._tag !== "Some") return
+        const inst = yield* runtimeOpt.value.getOrCreate(parentSessionID)
+        yield* EventBridge.publishSubagentTerminal({
+          eventBus: inst.eventBus,
+          parentSessionID: String(parentSessionID),
+          childSessionID: String(childSessionID),
+          ok,
+          error,
+        })
+        const edge = inst.spawnEdges.get(String(childSessionID))
+        if (edge) yield* SpawnEdge.close(edge).pipe(Effect.ignore)
+      })
 
     // On heartbeat loss: notify the parent session and cancel the child so a
     // lost subagent does not linger as active in the registry. Interrupting
@@ -176,11 +206,16 @@ const taskHostLayer = Layer.effect(
             : "task"
         const messageID = SessionMessage.ID.create()
         const tag = state === "error" ? "task_error" : "task_result"
+        const structured =
+          state === "completed"
+            ? `<structured exit="completed" resumeFrom="${childSessionID}" />`
+            : `<structured exit="failed" resumeFrom="${childSessionID}" />`
         const body = [
           `<task id="${childSessionID}" state="${state}">`,
           `<${tag}>`,
           text,
           `</${tag}>`,
+          structured,
           "</task>",
         ].join("\n")
         yield* SessionInput.admit(db, events, {
@@ -214,6 +249,20 @@ const taskHostLayer = Layer.effect(
             { location: parent?.location },
           )
           .pipe(Effect.ignore)
+        yield* bridgeParentLoop(parentID, childSessionID, state === "completed", state === "error" ? text : undefined)
+        // Release active-agent guard
+        if (runtimeOpt._tag === "Some") {
+          const parentRt = yield* runtimeOpt.value.getOrCreate(parentID)
+          const g = parentRt.agentGuards.get(String(childSessionID))
+          if (g) {
+            yield* g.release
+            parentRt.agentGuards.delete(String(childSessionID))
+          }
+        }
+        // Best-effort worktree cleanup
+        if (parent) {
+          yield* WorktreePool.release(parent.location.directory, String(childSessionID)).pipe(Effect.ignore)
+        }
       })
 
     const observeBackground = (childSessionID: SessionSchema.ID) =>
@@ -318,6 +367,21 @@ const taskHostLayer = Layer.effect(
           if (!parent) return yield* Effect.die(new Error(`Parent session not found: ${parentID}`))
           const parentPermission = (yield* store.sessionPermission(parentID).pipe(Effect.orDie)) ?? []
 
+          // Active agent guard (parent session budget) — released when child terminates.
+          let agentGuard: IterationBudget.AgentGuard | undefined
+          if (runtimeOpt._tag === "Some") {
+            const parentRt = yield* runtimeOpt.value.getOrCreate(parentID)
+            const guardExit = yield* parentRt.budget.acquireAgentGuard.pipe(Effect.exit)
+            if (guardExit._tag === "Failure") {
+              return yield* Effect.die(
+                new Error(
+                  `Too many active agents under parent (active cap). Wait for a subagent to finish.`,
+                ),
+              )
+            }
+            agentGuard = guardExit.value
+          }
+
           // InstanceState (used by the background job registry) dies without
           // InstanceRef; construct one from the parent session's location so
           // the job's fiber — forked outside the tool execution context —
@@ -358,12 +422,20 @@ const taskHostLayer = Layer.effect(
             childID = SessionSchema.ID.make(input.taskID)
             const existing = yield* store.get(childID)
             if (!existing) return yield* Effect.die(new Error(`Task session not found: ${childID}`))
+            const priorPersona =
+              personaStoreOpt._tag === "Some"
+                ? yield* personaStoreOpt.value.get(childID)
+                : undefined
             const identity = validateResumeIdentity({
               child: existing,
               parentSessionID: parentID,
               subagentType: input.subagentType,
+              requestedPersona: input.persona,
+              priorPersonaName: priorPersona?.personaName,
+              priorFingerprint: priorPersona?.fingerprint,
             })
             if (!identity.ok) {
+              if (agentGuard) yield* agentGuard.release
               return yield* Effect.die(new Error(`Cannot resume task session ${childID}: ${identity.reason}`))
             }
             // A still-running job owns the only wait/heartbeat channel for this
@@ -402,12 +474,40 @@ const taskHostLayer = Layer.effect(
               .pipe(Effect.orDie)
             const now = Date.now()
             const agentID = AgentV2.ID.make(String(agentInfo.id))
-            const childDirectory = resolveChildDirectory({
+            let childDirectory = resolveChildDirectory({
               projectDirectory: project.directory,
               parentDirectory: parent.location.directory,
               requestedCwd: input.cwd,
               agentWorkspace: agentInfo.workspace,
             })
+            if (input.isolation === "worktree") {
+              const wt = yield* WorktreePool.acquire(project.directory, String(sessionID)).pipe(Effect.either)
+              if (wt._tag === "Left") {
+                if (agentGuard) yield* agentGuard.release
+                return yield* Effect.die(wt.left)
+              }
+              childDirectory = wt.right
+            }
+
+            // Persona resolve + store
+            const catalog = yield* PersonaLoader.loadCatalog({ projectDirectory: project.directory }).pipe(
+              Effect.catch(() => Effect.succeed(new Map())),
+            )
+            const agentPersona = (agentInfo as { persona?: string }).persona
+            const effective = yield* PersonaResolve.resolve({
+              taskPersona: input.persona,
+              agentDefaultPersona: agentPersona,
+              catalog,
+              readFile: (p) => PersonaLoader.safeReadInstructionsFile(project.directory, p),
+            })
+            if (personaStoreOpt._tag === "Some") {
+              yield* personaStoreOpt.value.put(sessionID, effective)
+            }
+            // Capability tighten only
+            const capability =
+              effective.capabilityTighten && agentInfo.capability
+                ? effective.capabilityTighten
+                : (effective.capabilityTighten ?? agentInfo.capability)
             const info = SessionV1.SessionInfo.make({
               id: sessionID,
               slug: slug.create(),
@@ -434,7 +534,7 @@ const taskHostLayer = Layer.effect(
               permission: deriveSubagentPermission({
                 parentPermissions: parentPermission.map((rule) => toCurrentRule(rule)),
                 subagent: agentInfo,
-                capability: agentInfo.capability,
+                capability,
               }).map((rule) => toLegacyRule(rule)),
             })
             yield* events
@@ -458,6 +558,17 @@ const taskHostLayer = Layer.effect(
               })
               .pipe(Effect.ignore)
             yield* registryOpt.value.transition(childID, "active").pipe(Effect.ignore)
+          }
+          // SpawnEdge Open on parent runtime
+          if (runtimeOpt._tag === "Some" && !input.taskID) {
+            const parentRt = yield* runtimeOpt.value.getOrCreate(parentID)
+            const edge = yield* SpawnEdge.make(String(parentID), String(childID))
+            parentRt.spawnEdges.set(String(childID), edge)
+          }
+          // Stash guard on parent runtime (released in notifyParent / foreground settle).
+          if (agentGuard && runtimeOpt._tag === "Some") {
+            const parentRt = yield* runtimeOpt.value.getOrCreate(parentID)
+            parentRt.agentGuards.set(String(childID), agentGuard)
           }
           yield* events
             .publish(SessionEvent.Subagent.Started, {
@@ -654,6 +765,18 @@ const taskHostLayer = Layer.effect(
               })
               .pipe(Effect.ignore)
           }
+          yield* bridgeParentLoop(parentID, childID, exit !== "failed", failed)
+          if (runtimeOpt._tag === "Some") {
+            const parentRt = yield* runtimeOpt.value.getOrCreate(parentID)
+            const g = parentRt.agentGuards.get(String(childID))
+            if (g) {
+              yield* g.release
+              parentRt.agentGuards.delete(String(childID))
+            }
+          }
+          if (input.isolation === "worktree") {
+            yield* WorktreePool.release(parent.location.directory, String(childID)).pipe(Effect.ignore)
+          }
 
           const assistants = msgs.filter((m): m is SessionMessage.Assistant => m.type === "assistant")
           const turns = record?.turnCount ?? assistants.length
@@ -701,6 +824,8 @@ export const taskHostNode = makeGlobalNode({
     Database.node,
     ProjectV2.node,
     SubagentRegistry.node,
+    SessionRuntime.node,
+    PersonaStore.node,
   ],
 })
 

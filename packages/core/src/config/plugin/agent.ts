@@ -44,6 +44,7 @@ const agentKeys = new Set([
   "extends",
   "capability",
   "workspace",
+  "persona",
 ])
 
 export const Plugin = define({
@@ -134,6 +135,10 @@ export const Plugin = define({
                 agent.workspace = inheritedItem.workspace
               }
               if (item.workspace !== undefined) agent.workspace = item.workspace
+              if (inheritedItem?.persona !== undefined && agent.persona === undefined) {
+                agent.persona = inheritedItem.persona
+              }
+              if (item.persona !== undefined) agent.persona = item.persona
               if (inheritedItem?.permissions !== undefined && inheritedItem.permissions.length > 0) {
                 agent.permissions.push(...expandPermissions(inheritedItem.permissions, global.home))
               }

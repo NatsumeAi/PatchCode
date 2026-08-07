@@ -14,6 +14,8 @@ export const name = "task"
 
 export const CONCURRENCY_SOFT_CAP = 4
 export const CONCURRENCY_HARD_CAP = 7
+/** Max concurrent subagents of the same subagent_type. */
+export const CONCURRENCY_SAME_TYPE_CAP = 2
 
 export const description = `Launch a new agent to handle complex, multistep tasks autonomously.
 
@@ -48,6 +50,12 @@ export const Input = Schema.Struct({
     description:
       "How much of the parent session trace the subagent receives. PromptOnly (default): no parent trace, only the prompt. LastNTurns: last 50 parent messages. FullHistory: entire parent trace.",
   }),
+  persona: Schema.String.pipe(Schema.optional).annotate({
+    description: "Named persona override for this spawn (identity instructions for the child)",
+  }),
+  isolation: Schema.optional(Schema.Literals(["none", "worktree"])).annotate({
+    description: "none (default): share project directory. worktree: git worktree under .opencode/worktrees/",
+  }),
 })
 
 export const Structured = Schema.Struct({
@@ -80,6 +88,8 @@ export interface Host {
     readonly background?: boolean
     readonly cwd?: string
     readonly forkMode?: "PromptOnly" | "LastNTurns" | "FullHistory"
+    readonly persona?: string
+    readonly isolation?: "none" | "worktree"
     readonly agent: string
     readonly assistantMessageID: string
     readonly toolCallID: string
@@ -146,18 +156,25 @@ const layer = Layer.effectDiscard(
                 })
                 .pipe(Effect.mapError(() => new ToolFailure({ message: "Permission denied: task" })))
 
-              // Concurrency soft/hard cap — registry is optional (thin-shell testability).
-              // Soft tier (4-6 active) intentionally has no in-execute rejection:
-              // the dynamic-description soft prompt is deferred (plan Task 3
-              // "dynamic description postponed"); only the hard cap (7+) rejects.
+              // Concurrency: same-type cap → hard cap → soft advisory embedded in failure-free path.
               const registryOpt = yield* Effect.serviceOption(SubagentRegistry.Service)
+              let softAdvisory: string | undefined
               if (Option.isSome(registryOpt)) {
                 const registry = registryOpt.value
                 const active = yield* registry.activeCount
+                const byType = yield* registry.activeCountByType(input.subagent_type)
+                if (byType >= CONCURRENCY_SAME_TYPE_CAP) {
+                  return yield* new ToolFailure({
+                    message: `Too many active "${input.subagent_type}" subagents (${byType}, max ${CONCURRENCY_SAME_TYPE_CAP}). Wait for one to finish or use another type.`,
+                  })
+                }
                 if (active >= CONCURRENCY_HARD_CAP) {
                   return yield* new ToolFailure({
                     message: `Too many active subagents (${active}). Solve the task yourself or wait for some to finish.`,
                   })
+                }
+                if (active >= CONCURRENCY_SOFT_CAP) {
+                  softAdvisory = `Note: ${active} subagents are already active; prefer fewer parallel tasks unless necessary.`
                 }
               }
 
@@ -172,7 +189,7 @@ const layer = Layer.effectDiscard(
                 })
               }
 
-              return yield* hostOpt.value
+              const result = yield* hostOpt.value
                 .run({
                   parentSessionID: context.sessionID,
                   description: input.description,
@@ -183,6 +200,8 @@ const layer = Layer.effectDiscard(
                   background: input.background,
                   cwd: input.cwd,
                   forkMode: input.fork_mode,
+                  persona: input.persona,
+                  isolation: input.isolation,
                   agent: context.agent,
                   assistantMessageID: context.assistantMessageID,
                   toolCallID: context.toolCallID,
@@ -196,6 +215,10 @@ const layer = Layer.effectDiscard(
                       : Effect.fail(new ToolFailure({ message: `Task failed: ${Cause.squash(cause)}` })),
                   ),
                 )
+              if (softAdvisory && result.output) {
+                return { ...result, output: `${softAdvisory}\n\n${result.output}` }
+              }
+              return result
             }),
         }),
       })

@@ -52,9 +52,14 @@ import { LoopControlHost, type LoopControlHooks } from "./loop-control-host"
 import { IterationBudget } from "../loop-control/iteration-budget"
 import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
+import { GoalStore } from "../loop-control/goal-store"
 import { VerifierBiDirectional, type NextTurnSystemContext } from "./verifier-bi-directional"
+import { ContextEngine } from "./context-engine"
 import { SessionRuntime, type Instance } from "../runtime"
+import { TreeBudget } from "../tree-budget"
+import { SubagentLifecycle } from "../subagent-lifecycle"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
+import { PersonaInject } from "../persona/inject"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -490,6 +495,10 @@ const layer = Layer.effect(
       readonly budget: IterationBudget.Interface
       readonly terminal: TerminalController.Interface
       readonly verifierBiDirectional: VerifierBiDirectional.Interface
+      readonly goalStore: GoalStore.Interface
+      readonly contextEngine: ContextEngine.Interface
+      readonly treeBudget: TreeBudget.Interface
+      readonly instance: Instance
     }
 
     /**
@@ -527,16 +536,38 @@ const layer = Layer.effect(
     ) {
       const instance: Instance = yield* runtime.getOrCreate(sessionID)
       yield* runtime.resetForDrain(sessionID)
+      // Child sessions use independent iteration cap (hermes parent 90 / child 50).
+      const sessionRow = yield* store.get(sessionID)
+      if (sessionRow?.parentID) {
+        yield* instance.budget.setCap(IterationBudget.defaultChildCap).pipe(Effect.ignore)
+      }
       const hooks = yield* LoopControlHost.makeSessionHooks(sessionID, instance).pipe(
         Effect.provideService(LLMClient.Service, llm),
       )
       yield* instance.timerDaemon.start.pipe(Effect.forkScoped)
+      // D1: auto-seed goal from first user message when empty (once per drain).
+      // Avoid SessionHistory.entriesForRunner here — use lightweight store.context only.
+      if (!(yield* instance.goalStore.get).trim()) {
+        const msgs = yield* store.context(sessionID).pipe(
+          Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])),
+        )
+        const firstUser = msgs.find(
+          (m) => m.type === "user" && typeof m.text === "string" && m.text.trim().length > 0,
+        )
+        if (firstUser && firstUser.type === "user") {
+          yield* instance.goalStore.setIfEmpty(firstUser.text)
+        }
+      }
       return {
         hooks,
         timerDaemon: instance.timerDaemon,
         budget: instance.budget,
         terminal: instance.terminal,
         verifierBiDirectional: instance.verifierBiDirectional,
+        goalStore: instance.goalStore,
+        contextEngine: instance.contextEngine,
+        treeBudget: instance.treeBudget,
+        instance,
       }
     })
 
@@ -550,6 +581,7 @@ const layer = Layer.effect(
       const session = yield* getSession(sessionID)
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
+      // D1: auto-seed goal once at drain start is done in buildDrainContext (step-independent).
       yield* drain.hooks.onTurnStart({ sessionID: session.id, step })
       if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id)))
         return { needsContinuation: false, step }
@@ -606,10 +638,14 @@ const layer = Layer.effect(
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
+      // Persona system part (child identity) — never paste into user admit text.
+      const personaSystem = yield* PersonaInject.systemTextForSession(session.id).pipe(
+        Effect.catch(() => Effect.succeed(undefined as string | undefined)),
+      )
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline, verifierFeedback]
+        system: [agent.info?.system, system.baseline, personaSystem, verifierFeedback]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
@@ -928,12 +964,21 @@ const layer = Layer.effect(
         }
       }).pipe(
         Effect.ensuring(
-          events
-            .publish(SessionStatusEvent.Status, {
-              sessionID: input.sessionID,
-              status: { type: "idle" },
-            })
-            .pipe(Effect.catchCause(() => Effect.void)),
+          Effect.gen(function* () {
+            yield* events
+              .publish(SessionStatusEvent.Status, {
+                sessionID: input.sessionID,
+                status: { type: "idle" },
+              })
+              .pipe(Effect.catchCause(() => Effect.void))
+            // SessionIdle lifecycle for subagent contributor hooks
+            const lifeOpt = yield* Effect.serviceOption(SubagentLifecycle.Service)
+            if (Option.isSome(lifeOpt)) {
+              yield* lifeOpt.value
+                .dispatch({ _tag: "SessionIdle", sessionID: input.sessionID })
+                .pipe(Effect.ignore)
+            }
+          }),
         ),
       )
     }, Effect.scoped)

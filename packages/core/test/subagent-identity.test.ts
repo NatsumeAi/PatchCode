@@ -68,4 +68,25 @@ describe("validateResumeIdentity", () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(String(result.childModel?.id)).toBe("model-a")
   })
+
+  test("rejects persona name mismatch on resume", () => {
+    const result = validateResumeIdentity({
+      child: child(),
+      parentSessionID: parentID,
+      subagentType: "explore",
+      requestedPersona: "other",
+      priorPersonaName: "researcher",
+    })
+    expect(result.ok).toBe(false)
+  })
+
+  test("allows resume without explicit persona (inherits prior)", () => {
+    const result = validateResumeIdentity({
+      child: child(),
+      parentSessionID: parentID,
+      subagentType: "explore",
+      priorPersonaName: "researcher",
+    })
+    expect(result.ok).toBe(true)
+  })
 })

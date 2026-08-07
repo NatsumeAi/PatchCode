@@ -25,4 +25,5 @@ export class Info extends Schema.Class<Info>("ConfigV2.Agent")({
   extends: Schema.String.pipe(Schema.optional),
   capability: Schema.Literals(["read-only", "read-write", "execute", "all"]).pipe(Schema.optional),
   workspace: Schema.String.pipe(Schema.optional),
+  persona: Schema.String.pipe(Schema.optional),
 }) {}

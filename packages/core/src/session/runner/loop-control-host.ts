@@ -10,6 +10,8 @@ import { EventBus } from "../loop-control/event-bus"
 import { IterationBudget } from "../loop-control/iteration-budget"
 import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
+import { CircuitBreaker } from "../loop-control/circuit-breaker"
+import { DoomLoop } from "../loop-control/doom-loop"
 import { ErrorClassifier } from "./error-classifier"
 import { TurnRetryState } from "./turn-retry-state"
 import { GoalStore } from "../loop-control/goal-store"
@@ -108,6 +110,8 @@ const buildRealHooks = (
 ): Effect.Effect<LoopControlHooks, never, Scope.Scope> =>
   Effect.gen(function* () {
     const abortRequested = yield* SynchronizedRef.make(false)
+    const recentClaims = yield* SynchronizedRef.make<string[]>([])
+    const recentToolFingerprints = yield* SynchronizedRef.make<string[]>([])
     const verifiers = new Map<string, { readonly goal: string; readonly verifier: Verifier.VerifierImpl }>()
     const disposeVerifiers = Effect.fnUntraced(function* () {
       for (const { verifier } of verifiers.values()) yield* verifier.dispose
@@ -146,6 +150,22 @@ const buildRealHooks = (
             yield* disposeVerifiers()
             yield* instance.workerState.transition({ _tag: "Dead", reason: "ParentAbort" }).pipe(Effect.ignore)
             return
+          case "StopReminder":
+            // Observable via EventBus.snapshotBuffer (/loop status). Do not inject into
+            // verifier feedback channel — TestClock suites advance 5m and would pollute
+            // next-turn system context. Product surface: command.ts already surfaces
+            // StopReminder events from the buffer.
+            return
+          case "WaitIdleBackupTick":
+            // Idle backup tick is observable on EventBus; parent wake is owned by
+            // subagent completion bridge (Task 3).
+            return
+          case "LoopTerminated":
+            if (event.reason === "loop_timer_reached_24h") {
+              yield* instance.terminal.request("hard_timeout")
+              yield* SynchronizedRef.set(abortRequested, true)
+            }
+            return
           default:
             return
         }
@@ -159,6 +179,8 @@ const buildRealHooks = (
         Effect.gen(function* () {
           if (owner.kind === "mutable") yield* owner.set(ctx.sessionID)
           if (yield* SynchronizedRef.get(abortRequested)) return
+          const breaker = yield* instance.circuitBreaker.state
+          if (breaker === "Open") return
           yield* instance.retry.reset
           yield* instance.workerState.transition({ _tag: "Active" }).pipe(Effect.ignore)
           // Budget consume moved to the runner after agents.select/models.resolve succeed
@@ -169,15 +191,67 @@ const buildRealHooks = (
         Effect.gen(function* () {
           const aborted = yield* SynchronizedRef.get(abortRequested)
           if (aborted) return false
+          const breaker = yield* instance.circuitBreaker.state
+          if (breaker === "Open") return false
           return yield* instance.terminal.shouldContinue
         }),
       onStream: () => Effect.void,
       onToolCall: (call) =>
-        instance.eventBus.publish({ _tag: "HookToolCall", sessionID: call.sessionID, name: call.name }),
+        Effect.gen(function* () {
+          yield* instance.eventBus.publish({ _tag: "HookToolCall", sessionID: call.sessionID, name: call.name })
+          // Fingerprint includes call id so parallel same-name tools do not doom-loop.
+          const fp = `${call.name}:${call.callID}`
+          const next = yield* SynchronizedRef.updateAndGet(recentToolFingerprints, (xs) => [...xs, fp].slice(-24))
+          // Detect only when the exact same name:id is repeated (true retry loop).
+          const signal = DoomLoop.detectRepeatedToolFingerprint(next, 8)
+          if (signal) {
+            yield* instance.terminal.request("unrecoverable_failure")
+            yield* instance.eventBus.publish({
+              _tag: "HardAbort",
+              reason: `doom_loop_tool_${signal.signal.kind}`,
+            })
+            yield* SynchronizedRef.set(abortRequested, true)
+          }
+        }),
       onStreamComplete: (out) =>
         Effect.gen(function* () {
+          // Only treat natural stop finishes as done-claims. Tool-call turns are
+          // mid-loop and must not fire verifier / doom-loop claim tracking.
+          const finish = out.finishReason.toLowerCase()
+          const looksDone =
+            finish === "stop" ||
+            finish === "end_turn" ||
+            finish === "completed" ||
+            finish === "length" ||
+            finish === "max_tokens"
+          if (!looksDone) return
+
+          // Doom-loop: repeated identical assistant claims.
+          if (out.workerClaim.trim()) {
+            const claims = yield* SynchronizedRef.updateAndGet(recentClaims, (xs) =>
+              [...xs, out.workerClaim].slice(-8),
+            )
+            const signal = DoomLoop.detectTailRepetition(claims)
+            if (signal) {
+              yield* instance.terminal.request("unrecoverable_failure")
+              yield* instance.eventBus.publish({
+                _tag: "HardAbort",
+                reason: `doom_loop_claim_${signal.signal.kind}`,
+              })
+              yield* SynchronizedRef.set(abortRequested, true)
+              return
+            }
+          }
+
           const goal = yield* instance.goalStore.get
           if (!goal) return
+          // Empty claims (common on pure tool-finish→stop without assistant prose) are
+          // not auditable; skip rather than hard-aborting the drain.
+          if (!out.workerClaim.trim()) return
+          // Auto-seeded goals are for status/display; only explicit `/loop goal` or
+          // GoalStore.set enables the live verifier auditor (avoids test LLM hard-abort).
+          const explicit = yield* instance.goalStore.isExplicit
+          if (!explicit) return
           const verifier = yield* getVerifier(out, goal)
           const outcome = yield* DoneDecisionLoop.onWorkerClaimComplete(verifier, {
             worker_claim: out.workerClaim,
@@ -193,6 +267,7 @@ const buildRealHooks = (
             if (outcome.value.broken) {
               verifiers.delete(out.sessionID)
               yield* verifier.dispose
+              yield* instance.circuitBreaker.recordSuccess
               yield* instance.eventBus.publish({ _tag: "LoopTerminated", reason: "verifier_approved" })
             }
             return
@@ -221,8 +296,11 @@ const buildRealHooks = (
           const first = yield* instance.retry.consume(classified.reason)
           const recovered = classified.retryable && first
           if (!recovered) {
+            yield* instance.circuitBreaker.recordFailure
             yield* instance.terminal.request("unrecoverable_failure")
             yield* instance.eventBus.publish({ _tag: "HardAbort", reason: `unrecoverable_${classified.reason}` })
+          } else {
+            yield* instance.circuitBreaker.recordSuccess
           }
           return { recovered }
         }),
@@ -234,6 +312,7 @@ const buildRealHooks = (
             yield* instance.workerState.transition({ _tag: "Waiting", reason: "OnBackgroundExec" }).pipe(Effect.ignore)
           }
           yield* instance.eventBus.publish({ _tag: "WaitIdleBackupTick", reason: "turn_end" })
+          yield* instance.eventBus.publish({ _tag: "HookTurnEnd", sessionID: ctx.sessionID })
         }),
     }
 
@@ -253,6 +332,7 @@ interface LoopControlInstanceServices {
   readonly goalStore: GoalStore.Interface
   readonly verifierBiDirectional: VerifierBiDirectional.Interface
   readonly terminal: TerminalController.Interface
+  readonly circuitBreaker: CircuitBreaker.Interface
 }
 
 /**
@@ -285,6 +365,7 @@ export const makeSessionHooks = (
       goalStore: instance.goalStore,
       verifierBiDirectional: instance.verifierBiDirectional,
       terminal: instance.terminal,
+      circuitBreaker: instance.circuitBreaker,
     }
     return yield* buildRealHooks({ kind: "fixed", sessionID }, services, llm)
   })
@@ -324,6 +405,7 @@ export const layerReal: Layer.Layer<
   | GoalStore.Interface
   | VerifierBiDirectional.Interface
   | TerminalController.Interface
+  | CircuitBreaker.Interface
   | LLMClientService
 > = Layer.effect(
   Interface,
@@ -336,6 +418,7 @@ export const layerReal: Layer.Layer<
     const goalStore = yield* GoalStore.Service
     const vbd = yield* VerifierBiDirectional.Service
     const terminal = yield* TerminalController.Service
+    const circuitBreaker = yield* CircuitBreaker.Service
     const llm = yield* LLMClient.Service
     const ownerSessionID = yield* SynchronizedRef.make<string | undefined>(undefined)
     const owner: OwnerSessionRef = {
@@ -351,6 +434,7 @@ export const layerReal: Layer.Layer<
       goalStore,
       verifierBiDirectional: vbd,
       terminal,
+      circuitBreaker,
     }
     return yield* buildRealHooks(owner, services, llm)
   }),
@@ -369,6 +453,7 @@ export const nodeReal = makeGlobalNode({
     GoalStore.node,
     VerifierBiDirectional.node,
     TerminalController.node,
+    CircuitBreaker.node,
   ],
 })
 

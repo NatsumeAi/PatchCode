@@ -7,10 +7,12 @@ import { EventBus } from "./loop-control/event-bus"
 import { IterationBudget } from "./loop-control/iteration-budget"
 import { TerminalController } from "./loop-control/terminal-controller"
 import { TimerDaemon } from "./loop-control/timer-daemon"
+import { CircuitBreaker } from "./loop-control/circuit-breaker"
 import { TurnRetryState } from "./runner/turn-retry-state"
 import { GoalStore } from "./loop-control/goal-store"
 import { VerifierBiDirectional } from "./runner/verifier-bi-directional"
 import { ContextEngine } from "./runner/context-engine"
+import { TreeBudget } from "./tree-budget"
 
 /**
  * SessionRuntime — process-local, session-ID-keyed registry of mutable
@@ -46,6 +48,12 @@ export interface Instance {
   readonly verifierBiDirectional: VerifierBiDirectional.Interface
   readonly timerDaemon: TimerDaemon.Interface
   readonly contextEngine: ContextEngine.Interface
+  readonly circuitBreaker: CircuitBreaker.Interface
+  readonly treeBudget: TreeBudget.Interface
+  /** Open SpawnEdges for children of this session (childSessionID → edge). */
+  readonly spawnEdges: Map<string, import("./loop-control/spawn-edge").SpawnEdge>
+  /** Active agent guards for in-flight children (released on child terminal). */
+  readonly agentGuards: Map<string, IterationBudget.AgentGuard>
 }
 
 export interface Interface {
@@ -102,9 +110,12 @@ const makeInstance = (sessionID: string): Effect.Effect<Instance> =>
     const workerState = yield* WorkerState.make
     const eventBus = yield* EventBus.make
     const terminal = yield* TerminalController.make
+    // Cap is parent default; child sessions call budget.setCap(defaultChildCap) at drain start.
     const budget = yield* IterationBudget.make(IterationBudget.defaultParentCap)
     const retry = yield* TurnRetryState.make
     const goalStore = yield* GoalStore.make
+    const circuitBreaker = yield* CircuitBreaker.make()
+    const treeBudget = yield* TreeBudget.make()
 
     const verifierBiDirectional = yield* VerifierBiDirectional.make.pipe(
       Effect.provideService(EventBus.Service, eventBus),
@@ -129,6 +140,10 @@ const makeInstance = (sessionID: string): Effect.Effect<Instance> =>
       verifierBiDirectional,
       timerDaemon,
       contextEngine,
+      circuitBreaker,
+      treeBudget,
+      spawnEdges: new Map(),
+      agentGuards: new Map(),
     }
   })
 
@@ -137,6 +152,7 @@ const resetInstance = (instance: Instance): Effect.Effect<void> =>
     yield* instance.terminal.reset
     yield* instance.budget.reset()
     yield* instance.retry.reset
+    yield* instance.circuitBreaker.reset
     // Force-set Active; intentional drain reset, not a guarded transition.
     yield* instance.workerState.reset
     // Deliberately NOT reset: timer pause/goal outlive a drain across the same

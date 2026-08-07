@@ -30,6 +30,7 @@ export const Info = Schema.Struct({
   permissions: Permission.Ruleset,
   capability: Schema.Literals(["read-only", "read-write", "execute", "all"]).pipe(optional),
   workspace: Schema.String.pipe(optional),
+  persona: Schema.String.pipe(optional),
   source: Schema.Record(Schema.String, Schema.Literals(["explicit", "inherited", "default"])).pipe(optional),
 })
   .annotate({ identifier: "AgentV2.Info" })
