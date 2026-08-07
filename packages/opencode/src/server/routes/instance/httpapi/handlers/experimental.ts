@@ -17,6 +17,9 @@ import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { resolveRoots } from "@opencode-ai/core/memory/storage"
 import { resolveScopedFile } from "@opencode-ai/core/memory/paths"
+import { collectHealth } from "@opencode-ai/core/memory/health"
+import { openMemoryIndex } from "@opencode-ai/core/memory/reindex"
+import { exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -24,6 +27,10 @@ import { WorkspaceRouteContext } from "../middleware/workspace-routing"
 import {
   ConsoleSwitchPayload,
   MemoryFileList,
+  MemoryExportPayload,
+  MemoryHealthResponse,
+  MemoryImportPayload,
+  MemoryImportResponse,
   MemoryReadQuery,
   MemoryReadResponse,
   MemorySessionLogDeleteQuery,
@@ -237,6 +244,50 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return { content, truncated: (text?.length ?? 0) > 40_000 }
     })
 
+    const memoryHealth = Effect.fn("ExperimentalHttpApi.memoryHealth")(function* () {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (index === undefined)
+        return {
+          files: 0,
+          totalBytes: 0,
+          chunks: 0,
+          bySource: { global: 0, workspace: 0, session: 0 },
+          zeroAccessChunks: 0,
+          pruneCandidates: 0,
+        }
+      try {
+        return yield* collectHealth(fs, roots, index)
+      } finally {
+        yield* index.close().pipe(Effect.catch(() => Effect.void))
+      }
+    })
+
+    const exportMemoryPack = Effect.fn("ExperimentalHttpApi.memoryExport")(function* (ctx: {
+      payload: typeof MemoryExportPayload.Type
+    }) {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      yield* exportMemory(fs, roots, ctx.payload.target, { includeRaw: ctx.payload.includeRaw ?? false }).pipe(
+        Effect.catch(() => Effect.void),
+      )
+      return true
+    })
+
+    const importMemoryPack = Effect.fn("ExperimentalHttpApi.memoryImport")(function* (ctx: {
+      payload: typeof MemoryImportPayload.Type
+    }) {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      return yield* importMemory(fs, roots, ctx.payload.source).pipe(
+        Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0 })),
+      )
+    })
+
     const deleteSessionLog = Effect.fn("ExperimentalHttpApi.memorySessionLog")(function* (ctx: { query: typeof MemorySessionLogDeleteQuery.Type }) {
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
@@ -269,5 +320,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("memory", listMemory)
       .handle("memoryRead", readMemory)
       .handle("memorySessionLog", deleteSessionLog)
+      .handle("memoryHealth", memoryHealth)
+      .handle("memoryExport", exportMemoryPack)
+      .handle("memoryImport", importMemoryPack)
   }),
 )

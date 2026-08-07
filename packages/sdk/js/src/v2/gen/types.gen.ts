@@ -8224,6 +8224,52 @@ export type MemorySessionLogDeleteResponses = {
 
 export type MemorySessionLogDeleteResponse = MemorySessionLogDeleteResponses[keyof MemorySessionLogDeleteResponses]
 
+export type MemoryHealth = {
+  files: number
+  totalBytes: number
+  chunks: number
+  bySource: {
+    global: number
+    workspace: number
+    session: number
+  }
+  zeroAccessChunks: number
+  pruneCandidates: number
+  lastConsolidatedAt?: number
+}
+
+export type MemoryImportResult = {
+  imported: number
+  skipped: number
+}
+
+export type MemoryHealthResponses = {
+  /**
+   * Memory health
+   */
+  200: MemoryHealth
+}
+
+export type MemoryHealthResponse = MemoryHealthResponses[keyof MemoryHealthResponses]
+
+export type MemoryExportResponses = {
+  /**
+   * Memory exported
+   */
+  200: boolean
+}
+
+export type MemoryExportResponse = MemoryExportResponses[keyof MemoryExportResponses]
+
+export type MemoryImportResponses = {
+  /**
+   * Memory imported
+   */
+  200: MemoryImportResult
+}
+
+export type MemoryImportResponse = MemoryImportResponses[keyof MemoryImportResponses]
+
 export type MemoryListErrors = {
   /**
    * Invalid request
@@ -8239,6 +8285,27 @@ export type MemoryReadErrors = {
 }
 
 export type MemorySessionLogDeleteErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
+export type MemoryHealthErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
+export type MemoryExportErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
+export type MemoryImportErrors = {
   /**
    * Invalid request
    */

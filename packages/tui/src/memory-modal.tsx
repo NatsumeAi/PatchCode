@@ -2,8 +2,10 @@ import { TextAttributes } from "@opentui/core"
 import { createMemo, createSignal } from "solid-js"
 import { useDialog } from "./ui/dialog"
 import { DialogConfirm } from "./ui/dialog-confirm"
+import { DialogPrompt } from "./ui/dialog-prompt"
 import { useTheme } from "./context/theme"
 import { useSDK } from "./context/sdk"
+import { useToast } from "./ui/toast"
 import { useBindings } from "./keymap"
 
 export type MemoryFileEntry = {
@@ -17,23 +19,70 @@ export function MemoryModal(props: { onClose?: () => void }) {
   const dialog = useDialog()
   const sdk = useSDK()
   const { theme } = useTheme()
+  const toast = useToast()
   const [files, setFiles] = createSignal<MemoryFileEntry[]>([])
   const [selected, setSelected] = createSignal(0)
   const [preview, setPreview] = createSignal("")
   const [error, setError] = createSignal("")
+  const [stats, setStats] = createSignal("")
 
   const load = async () => {
-    console.log("MEMORY-MODAL load called")
     try {
       const response = await sdk.client.experimental.memory.list()
-      console.log("MEMORY-MODAL list resolved", response.data?.length)
       const list = response.data ?? []
       setFiles(list)
       setSelected(0)
       if (list.length > 0) await previewFile(list[0]!.path)
+      const health = await sdk.client.experimental.memory.health()
+      const h = health.data
+      if (h) {
+        setStats(
+          `files ${h.files} · chunks ${h.chunks} (g${h.bySource.global}/w${h.bySource.workspace}/s${h.bySource.session}) · zero-access ${h.zeroAccessChunks} · prune candidates ${h.pruneCandidates}`,
+        )
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
+  }
+
+  const exportPack = async () => {
+    dialog.replace(() => (
+      <DialogPrompt
+        title="Export memory"
+        value={`${new Date().toISOString().slice(0, 10)}-memory-pack`}
+        onConfirm={(path) => {
+          void sdk.client.experimental.memory
+            .exportPack({ target: path })
+            .then(() => toast.show({ message: "Memory exported", variant: "success" }))
+            .catch(() => toast.show({ message: "Export failed", variant: "error" }))
+          dialog.clear()
+        }}
+        onCancel={() => dialog.clear()}
+      />
+    ))
+  }
+
+  const importPack = async () => {
+    dialog.replace(() => (
+      <DialogPrompt
+        title="Import memory"
+        placeholder="path to a memory pack directory"
+        onConfirm={(path) => {
+          void sdk.client.experimental.memory
+            .importPack({ source: path })
+            .then((response) => {
+              const result = response.data
+              if (result) {
+                toast.show({ message: `Imported ${result.imported}, skipped ${result.skipped}`, variant: "success" })
+                void load()
+              }
+            })
+            .catch(() => toast.show({ message: "Import failed", variant: "error" }))
+          dialog.clear()
+        }}
+        onCancel={() => dialog.clear()}
+      />
+    ))
   }
 
   void load()
@@ -102,6 +151,18 @@ export function MemoryModal(props: { onClose?: () => void }) {
         group: "Memory",
         cmd: () => void removeSelected(),
       },
+      {
+        key: "e",
+        desc: "Export memory pack",
+        group: "Memory",
+        cmd: () => void exportPack(),
+      },
+      {
+        key: "i",
+        desc: "Import memory pack",
+        group: "Memory",
+        cmd: () => void importPack(),
+      },
     ],
   }))
 
@@ -129,10 +190,13 @@ export function MemoryModal(props: { onClose?: () => void }) {
       <box width="50%" height="70%" left="50%">
         <text style={{ fg: theme.text, bg: theme.backgroundPanel }}>{preview().slice(0, 4000)}</text>
       </box>
-      <box width="100%" height={1} bottom={0}>
+      <box width="100%" height={1} bottom={1}>
         <text style={{ fg: theme.textMuted }}>
-          ↑/↓ select · d delete session log · esc close
+          ↑/↓ select · d delete session log · e export · i import · esc close
         </text>
+      </box>
+      <box width="100%" height={1} bottom={0}>
+        <text style={{ fg: theme.textMuted }}>{stats()}</text>
       </box>
     </box>
   )

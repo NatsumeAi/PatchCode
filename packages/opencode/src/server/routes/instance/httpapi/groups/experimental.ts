@@ -103,6 +103,26 @@ export const MemoryReadResponse = Schema.Struct({
 export const MemorySessionLogDeleteQuery = Schema.Struct({
   path: Schema.String,
 }).annotate({ identifier: "MemorySessionLogDeleteQuery" })
+export const MemoryHealthResponse = Schema.Struct({
+  files: Schema.Number,
+  totalBytes: Schema.Number,
+  chunks: Schema.Number,
+  bySource: Schema.Struct({ global: Schema.Number, workspace: Schema.Number, session: Schema.Number }),
+  zeroAccessChunks: Schema.Number,
+  pruneCandidates: Schema.Number,
+  lastConsolidatedAt: Schema.optional(Schema.Number),
+}).annotate({ identifier: "MemoryHealthResponse" })
+export const MemoryExportPayload = Schema.Struct({
+  target: Schema.String,
+  includeRaw: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "MemoryExportPayload" })
+export const MemoryImportPayload = Schema.Struct({
+  source: Schema.String,
+}).annotate({ identifier: "MemoryImportPayload" })
+export const MemoryImportResponse = Schema.Struct({
+  imported: Schema.Number,
+  skipped: Schema.Number,
+}).annotate({ identifier: "MemoryImportResponse" })
 
 export const ExperimentalPaths = {
   capabilities: "/experimental/capabilities",
@@ -119,6 +139,9 @@ export const ExperimentalPaths = {
   memory: "/experimental/memory",
   memoryRead: "/experimental/memory/read",
   memorySessionLog: "/experimental/memory/session-log",
+  memoryHealth: "/experimental/memory/health",
+  memoryExport: "/experimental/memory/export",
+  memoryImport: "/experimental/memory/import",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -293,6 +316,38 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "memory.session-log.delete",
             summary: "Delete a session log",
             description: "Delete a session log file (only paths under sessions/).",
+          }),
+        ),
+        HttpApiEndpoint.get("memoryHealth", ExperimentalPaths.memoryHealth, {
+          query: WorkspaceRoutingQuery,
+          success: described(MemoryHealthResponse, "Memory health stats"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.health",
+            summary: "Memory health",
+            description: "Aggregated memory usage stats for the current project.",
+          }),
+        ),
+        HttpApiEndpoint.post("memoryExport", ExperimentalPaths.memoryExport, {
+          query: WorkspaceRoutingQuery,
+          payload: MemoryExportPayload,
+          success: described(Schema.Boolean, "Memory exported"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.export",
+            summary: "Export memory",
+            description: "Export curated memory (optionally raw notes) into a pack directory.",
+          }),
+        ),
+        HttpApiEndpoint.post("memoryImport", ExperimentalPaths.memoryImport, {
+          query: WorkspaceRoutingQuery,
+          payload: MemoryImportPayload,
+          success: described(MemoryImportResponse, "Memory imported"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.import",
+            summary: "Import memory",
+            description: "Import a memory pack (never overwrites newer-or-equal local curated files).",
           }),
         ),
         HttpApiEndpoint.get("resource", ExperimentalPaths.resource, {

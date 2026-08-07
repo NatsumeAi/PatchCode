@@ -412,6 +412,12 @@ import type {
   MemoryReadErrors,
   MemorySessionLogDeleteResponses,
   MemorySessionLogDeleteErrors,
+  MemoryHealthResponses,
+  MemoryHealthErrors,
+  MemoryExportResponses,
+  MemoryExportErrors,
+  MemoryImportResponses,
+  MemoryImportErrors,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -1368,6 +1374,112 @@ export class Memory extends HeyApiClient {
       url: "/experimental/memory/session-log",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Memory health
+   *
+   * Aggregated memory usage stats for the current project.
+   */
+  public health<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryHealthResponses, MemoryHealthErrors, ThrowOnError>({
+      url: "/experimental/memory/health",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Export memory
+   *
+   * Export curated memory (optionally raw notes) into a pack directory.
+   */
+  public exportPack<ThrowOnError extends boolean = false>(
+    parameters: {
+      target: string
+      includeRaw?: boolean
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "target" },
+            { in: "body", key: "includeRaw" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryExportResponses, MemoryExportErrors, ThrowOnError>({
+      url: "/experimental/memory/export",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Import memory
+   *
+   * Import a memory pack (never overwrites newer-or-equal local curated files).
+   */
+  public importPack<ThrowOnError extends boolean = false>(
+    parameters: {
+      source: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryImportResponses, MemoryImportErrors, ThrowOnError>({
+      url: "/experimental/memory/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

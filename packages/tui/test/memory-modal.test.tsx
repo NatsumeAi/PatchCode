@@ -26,7 +26,6 @@ test("memory modal lists files and previews the selected one", async () => {
 
   const memoryCalls: string[] = []
   const fetchMock = createFetch((url) => {
-    console.log("FETCH-URL:", url.pathname)
     if (url.pathname === "/experimental/memory/read") {
       memoryCalls.push(url.pathname)
       return json({ content: "hello memory content", truncated: false })
@@ -37,6 +36,17 @@ test("memory modal lists files and previews the selected one", async () => {
         { path: "MEMORY.md", name: "MEMORY.md", kind: "workspace" },
         { path: "sessions/2026-08-07-x.md", name: "2026-08-07-x.md", kind: "session" },
       ])
+    }
+    if (url.pathname === "/experimental/memory/health") {
+      memoryCalls.push(url.pathname)
+      return json({
+        files: 2,
+        totalBytes: 10,
+        chunks: 2,
+        bySource: { global: 1, workspace: 1, session: 0 },
+        zeroAccessChunks: 1,
+        pruneCandidates: 0,
+      })
     }
     return undefined
   })
@@ -95,6 +105,7 @@ test("memory modal lists files and previews the selected one", async () => {
   try {
     await wait(() => memoryCalls.includes("/experimental/memory"))
     await wait(() => memoryCalls.includes("/experimental/memory/read"))
+    await wait(() => memoryCalls.includes("/experimental/memory/health"))
   } finally {
     app.renderer.destroy()
   }
