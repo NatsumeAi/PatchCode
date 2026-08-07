@@ -80,3 +80,28 @@ describe("Memory transfer", () => {
     ),
   )
 })
+
+describe("Memory transfer force", () => {
+  it.live("force overwrites a newer local curated entry", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "local newer")
+          const pack = path.join(dir.path, "pack")
+          yield* exportMemory(fs, roots, pack, { includeRaw: false })
+          yield* Effect.sleep(50)
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "local newest")
+          const result = yield* importMemory(fs, roots, pack, { force: true })
+          expect(result.imported).toBeGreaterThan(0)
+          const text = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(text).toContain("local newer")
+        }),
+      ),
+    ),
+  )
+})

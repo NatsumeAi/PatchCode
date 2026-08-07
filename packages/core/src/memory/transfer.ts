@@ -61,7 +61,9 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
   source: string,
+  opts: { force?: boolean } = {},
 ) {
+  const force = opts.force ?? false
   const manifestText = yield* readTextSafe(fs, path.join(source, "manifest.json"))
   if (manifestText === undefined) return { imported: 0, skipped: 0 }
   const manifest = JSON.parse(manifestText) as TransferManifest
@@ -80,7 +82,7 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
       const localMtime = yield* mtimeOf(fs, target)
       const srcMtime = yield* mtimeOf(fs, path.join(source, relative))
       const existing = yield* readTextSafe(fs, target)
-      if (existing !== undefined && localMtime >= srcMtime) {
+      if (!force && existing !== undefined && localMtime >= srcMtime) {
         skipped++
         return
       }
