@@ -5,6 +5,7 @@ import {
   LLMEvent,
   Message,
   SystemPart,
+  UnknownProviderReason,
   isContextOverflowFailure,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
@@ -635,7 +636,23 @@ const layer = Layer.effect(
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
         withPublication(publisher.publish(event, outputPaths))
       let overflowFailure: ProviderErrorEvent | undefined
+      // Abort hung provider pulls: no chunk for STREAM_IDLE_TIMEOUT ends the turn so
+      // child drains settle instead of sitting forever in execution.active.
+      const STREAM_IDLE_TIMEOUT = Duration.seconds(120)
       const providerStream = llm.stream(request).pipe(
+        Stream.timeoutOrElse({
+          duration: STREAM_IDLE_TIMEOUT,
+          orElse: () =>
+            Stream.fail(
+              new LLMError({
+                module: "SessionRunner",
+                method: "stream",
+                reason: new UnknownProviderReason({
+                  message: "LLM stream idle timeout (no chunk for 120s)",
+                }),
+              }),
+            ),
+        }),
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             if (overflowFailure || publisher.hasProviderError()) return
