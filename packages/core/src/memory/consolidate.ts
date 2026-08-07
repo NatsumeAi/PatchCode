@@ -20,6 +20,8 @@ import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { listCandidates, readCandidate, deleteCandidate, mergeKeyOf, NOISE_FLOOR_CHARS } from "./candidates"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, shouldConsolidate } from "./merge-lock"
 import { PHASE2_SYSTEM } from "./merge-prompt"
+import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
+import { openMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
 
@@ -54,6 +56,7 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   llm: LLMClientShape,
   model: Model,
   contents: ReadonlyArray<{ id: string; text: string }>,
+  pruneList: ReadonlyArray<{ chunkId: string; path: string; excerpt: string }> = [],
 ) {
   const target = memoryPath(roots)
   const existing = (yield* readTextSafe(fs, target)) ?? ""
@@ -70,12 +73,19 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   const input = pending
     .map((candidate) => `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`)
     .join("\n\n---\n\n")
+  const pruneSection =
+    pruneList.length > 0
+      ? `\n\nPRUNE LIST (chunk excerpts to remove if no longer relevant):\n${pruneList
+          .map((item) => `- ${item.chunkId} (${item.path}): ${item.excerpt}`)
+          .join("\n")}\n`
+      : ""
+  const system = pruneList.length > 0 ? `${PHASE2_SYSTEM}\n\n${PRUNE_SYSTEM}` : PHASE2_SYSTEM
   const request = LLM.request({
     model,
-    system: [SystemPart.make(PHASE2_SYSTEM)],
+    system: [SystemPart.make(system)],
     messages: [
       Message.user(
-        `EXISTING MEMORY:\n${existing.slice(0, MEMORY_CAP_CHARS)}\n\nCANDIDATES:\n${input.slice(0, MERGE_INPUT_CAP_CHARS)}`,
+        `EXISTING MEMORY:\n${existing.slice(0, MEMORY_CAP_CHARS)}\n\nCANDIDATES:\n${input.slice(0, MERGE_INPUT_CAP_CHARS)}${pruneSection}`,
       ),
     ],
     tools: [],
@@ -111,7 +121,26 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       contents.push({ id: candidate.id, text })
     }
     if (contents.length === 0) return
-    yield* mergeCandidates(fs, roots, llm, model, contents)
+    const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+    let pruneList: Array<{ chunkId: string; path: string; excerpt: string }> = []
+    if (index !== undefined) {
+      try {
+        const chunks = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
+        pruneList = selectPruneCandidates(
+          chunks.map((chunk) => ({
+            chunkId: String(chunk.id),
+            path: chunk.path,
+            excerpt: chunk.text.slice(0, 200),
+            accessCount: chunk.accessCount,
+            mtimeMs: chunk.mtimeMs,
+          })),
+          Date.now(),
+        )
+      } finally {
+        yield* index.close().pipe(Effect.catch(() => Effect.void))
+      }
+    }
+    yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
     yield* markConsolidated(fs, roots)
     yield* regenerateSummary(fs, roots, llm, model)
   } finally {

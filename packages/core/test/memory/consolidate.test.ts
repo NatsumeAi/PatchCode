@@ -7,6 +7,7 @@ import { LLMClient, LLMEvent, Model } from "@opencode-ai/llm"
 import { routes as openAICompatibleRoutes } from "@opencode-ai/llm/providers/openai-compatible"
 import { readTextSafe, resolveRoots } from "../../src/memory/storage"
 import { runConsolidation } from "../../src/memory/consolidate"
+import { openMemoryIndex } from "../../src/memory/reindex"
 import { writeCandidate } from "../../src/memory/candidates"
 import { acquireMergeLock, releaseMergeLock, markConsolidated } from "../../src/memory/merge-lock"
 import { tmpdir } from "../fixture/tmpdir"
@@ -124,6 +125,53 @@ describe("Memory consolidation", () => {
           yield* runConsolidation({ fs: yield* FSUtil.Service, roots, llm: yield* LLMClient.Service, model })
           const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
           expect(mem).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+})
+
+describe("Memory consolidation prune", () => {
+  it.effect("consolidation includes the prune list in the merge prompt", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeCandidate(fs, roots, "c1", "## Decision\nUse effect layers for memory consolidation")
+          let captured = ""
+          const capturing = Layer.succeed(
+            LLMClient.Service,
+            LLMClient.Service.of({
+              stream: (request: unknown) => {
+                const req = request as { messages: Array<{ content: Array<{ text: string }> }> }
+                captured = req.messages[0]?.content[0]?.text ?? ""
+                return Stream.fromIterable([LLMEvent.textDelta({ id: "t1", text: "## Merged\n- x" })])
+              },
+              prepare: () => Effect.die("unused"),
+              generate: () => Effect.die("unused"),
+            }),
+          )
+          // Seed an index with an old zero-access chunk so a prune candidate exists.
+          const index = yield* openMemoryIndex(fs, roots)
+          yield* index.insert({
+            path: "MEMORY.md",
+            source: "global",
+            text: "stale entry no one reads anymore",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now() - 100 * 24 * 60 * 60 * 1000,
+          })
+          yield* index.close()
+          yield* Effect.gen(function* () {
+            const llm = yield* LLMClient.Service
+            yield* runConsolidation({ fs, roots, llm, model })
+          }).pipe(Effect.provide(capturing))
+          expect(captured).toContain("PRUNE LIST")
+          expect(captured).toContain("stale entry no one reads anymore")
         }),
       ),
     ),
