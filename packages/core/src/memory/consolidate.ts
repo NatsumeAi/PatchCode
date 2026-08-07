@@ -68,9 +68,22 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
     }
     pending.push(candidate)
   }
-  if (pending.length === 0) return
+  if (pending.length === 0) return false
 
-  const input = pending
+  // Budget the input candidate-by-candidate: only candidates whose text made it
+  // into the prompt may be deleted after a successful merge; overflow stays on
+  // disk for the next run (idempotency invariant).
+  const included: Array<{ id: string; text: string }> = []
+  let budget = 0
+  for (const candidate of pending) {
+    const block = `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`
+    if (budget + block.length > MERGE_INPUT_CAP_CHARS) break
+    budget += block.length + 4
+    included.push(candidate)
+  }
+  if (included.length === 0) return false
+
+  const input = included
     .map((candidate) => `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`)
     .join("\n\n---\n\n")
   const pruneSection =
@@ -91,12 +104,13 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
     tools: [],
   })
   const merged = (yield* streamText(llm, request)).trim()
-  if (merged.length === 0 || merged === "NO_REPLY") return
-  if (merged.length > MEMORY_CAP_CHARS) return
-  if (scanForThreats(merged).length > 0) return
+  if (merged.length === 0 || merged === "NO_REPLY") return false
+  if (merged.length > MEMORY_CAP_CHARS) return false
+  if (scanForThreats(merged).length > 0) return false
 
   yield* writeTextAtomic(fs, target, merged)
-  for (const candidate of pending) yield* deleteCandidate(fs, roots, candidate.id)
+  for (const candidate of included) yield* deleteCandidate(fs, roots, candidate.id)
+  return true
 })
 
 /** Gated consolidation: lock + min interval + noise/threat filtering + merge + summary regen. */
@@ -140,9 +154,11 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         yield* index.close().pipe(Effect.catch(() => Effect.void))
       }
     }
-    yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
-    yield* markConsolidated(fs, roots)
-    yield* regenerateSummary(fs, roots, llm, model)
+    const merged = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
+    if (merged) {
+      yield* markConsolidated(fs, roots)
+      yield* regenerateSummary(fs, roots, llm, model)
+    }
   } finally {
     yield* releaseMergeLock(fs, roots)
   }

@@ -1,5 +1,3 @@
-export const STAGE1_SYSTEM = `Extract durable memories from the following notes/session fragments. For each: a one-line topic, the key decision/pattern/fact, and why it matters later. Output ONLY markdown with ## headers. If nothing durable, output "NO_REPLY".`
-
 export const PHASE2_SYSTEM = `Merge the following memory candidates into the existing MEMORY.md archive.
 1. Merge related info into coherent topic summaries.
 2. Resolve contradictions — newer facts win.

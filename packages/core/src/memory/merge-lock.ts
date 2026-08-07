@@ -28,7 +28,7 @@ export const acquireMergeLock = Effect.fn("Memory.acquireMergeLock")(function* (
   const acquired = yield* tryCreate()
   if (acquired) return true
   const mtime = yield* fileMtime(fs, target)
-  if (mtime !== undefined && Date.now() - mtime > STALE_LOCK_SECS * 1000) {
+  if (mtime !== undefined && Date.now() - mtime >= STALE_LOCK_SECS * 1000) {
     yield* fs.remove(target).pipe(Effect.catch(() => Effect.void))
     return yield* tryCreate()
   }

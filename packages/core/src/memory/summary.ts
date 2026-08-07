@@ -74,5 +74,5 @@ export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function*
   const cleaned = text.trim()
   if (cleaned.length === 0) return
   if (scanForThreats(cleaned).length > 0) return
-  yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned)
+  yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned.slice(0, SUMMARY_BUDGETS.global))
 })
