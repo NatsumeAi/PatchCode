@@ -14,6 +14,7 @@ import { readTextSafe } from "./storage"
 import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type ScopedPathError } from "./paths"
 import { scanForThreats } from "./scan"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
+import { ftsQuery } from "./recall"
 import { Option } from "effect"
 import { rankResults, isContentFree, staleNote } from "./ranking"
 
@@ -135,7 +136,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           if (index !== undefined) {
             try {
               yield* ensureIndexed(index, fs, root).pipe(Effect.catch(() => Effect.void))
-              const hits = yield* index.search(input.query, max * 4).pipe(Effect.catch(() => Effect.succeed([])))
+              const hits = yield* index.search(ftsQuery(input.query), max * 4).pipe(Effect.catch(() => Effect.succeed([])))
               const ranked = rankResults(
                 hits
                   .filter((hit) => !isContentFree(hit.text))
