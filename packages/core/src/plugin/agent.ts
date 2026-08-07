@@ -12,6 +12,11 @@ const TRUNCATION_GLOB = path.join(Global.Path.data, "tool-output", "*")
 const BUILD_SYSTEM =
   "You are an AI coding agent. Help the user accomplish software engineering tasks by inspecting the workspace, making targeted changes, and using tools according to the configured permissions."
 
+const TASK_COACHING = `When work fits a specialized subagent, use the Task tool.
+Read the Task tool description for available subagent_type values and capability tags.
+Match the task to the agent description/capability, and prefer specialized agents over doing everything yourself.
+Do not duplicate work the subagent is doing.`
+
 const PROMPT_EXPLORE = `You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
 
 Your strengths:
@@ -124,7 +129,7 @@ export const Plugin = define({
     yield* ctx.agent.transform((draft) => {
       draft.update(AgentV2.defaultID, (item) => {
         item.description = "The default agent. Executes tools based on configured permissions."
-        item.system ??= BUILD_SYSTEM
+        item.system ??= `${BUILD_SYSTEM}\n\n${TASK_COACHING}`
         item.mode = "primary"
         item.permissions.push(
           ...PermissionV2.merge(defaults, [
@@ -165,6 +170,7 @@ export const Plugin = define({
           'Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.'
         item.system = PROMPT_EXPLORE
         item.mode = "subagent"
+        item.capability = "read-only"
         item.permissions.push(
           ...PermissionV2.merge(
             defaults,

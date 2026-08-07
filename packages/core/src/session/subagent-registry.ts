@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Schedule, Schema, Synchroni
 import { makeGlobalNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { SessionEvent } from "./event"
+import { SessionExecution } from "./execution"
 import { SubagentLifecycle } from "./subagent-lifecycle"
 import { SessionSchema } from "./schema"
 
@@ -232,23 +233,38 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
 
   const startWatcher: Interface["startWatcher"] = Effect.gen(function* () {
     const events = yield* EventV2.Service
+    // Authority (locked): heartbeat = subagent liveness; execution.active = drain membership.
+    // Mark lost only when heartbeat is stale AND the child is not in an active drain
+    // (orphan). If Execution is unavailable in this scope, fall back to heartbeat-only.
+    const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
     const check = Effect.gen(function* () {
-      const active = yield* SynchronizedRef.get(records).pipe(
+      const activeRecords = yield* SynchronizedRef.get(records).pipe(
         Effect.map((map) => Array.from(map.values()).filter((r) => r.status === "active")),
       )
+      const draining =
+        executionOpt._tag === "Some" ? yield* executionOpt.value.active : undefined
       const now = Date.now()
-      for (const record of active) {
-        if (now - record.lastHeartbeatAt > HEARTBEAT_LOSS_TIMEOUT_MS) {
-          const outcome = yield* transition(record.childSessionID, "lost").pipe(Effect.exit)
-          if (outcome._tag === "Failure") continue
-          yield* events
-            .publish(SubagentHeartbeatLost, {
-              timestamp: yield* DateTime.now,
-              sessionID: record.parentSessionID,
-              childSessionID: String(record.childSessionID),
-            })
-            .pipe(Effect.ignore)
+      for (const record of activeRecords) {
+        if (
+          !shouldMarkHeartbeatLost({
+            status: record.status,
+            lastHeartbeatAt: record.lastHeartbeatAt,
+            now,
+            childSessionID: record.childSessionID,
+            draining,
+          })
+        ) {
+          continue
         }
+        const outcome = yield* transition(record.childSessionID, "lost").pipe(Effect.exit)
+        if (outcome._tag === "Failure") continue
+        yield* events
+          .publish(SubagentHeartbeatLost, {
+            timestamp: yield* DateTime.now,
+            sessionID: record.parentSessionID,
+            childSessionID: String(record.childSessionID),
+          })
+          .pipe(Effect.ignore)
       }
     })
     yield* check.pipe(
@@ -263,6 +279,22 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
 
 const HEARTBEAT_LOSS_TIMEOUT_MS = 90_000
 const WATCHER_INTERVAL = Duration.seconds(30)
+
+/** Pure orphan rule used by the registry watcher (exported for tests). */
+export function shouldMarkHeartbeatLost(input: {
+  readonly status: SubagentStatus
+  readonly lastHeartbeatAt: number
+  readonly now: number
+  readonly childSessionID: SessionSchema.ID
+  /** Undefined = Execution unavailable → heartbeat-only fallback. */
+  readonly draining: ReadonlySet<SessionSchema.ID> | undefined
+  readonly timeoutMs?: number
+}): boolean {
+  if (input.status !== "active") return false
+  if (input.now - input.lastHeartbeatAt <= (input.timeoutMs ?? HEARTBEAT_LOSS_TIMEOUT_MS)) return false
+  if (input.draining?.has(input.childSessionID)) return false
+  return true
+}
 
 export const layerForTest: Layer.Layer<Service, never, SubagentLifecycle.Service> = Layer.effect(Service, make)
 

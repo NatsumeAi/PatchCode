@@ -38,4 +38,26 @@ describe("TaskTool structured result contract", () => {
     expect(decoded.structured?.turns).toBe(12)
     expect(decoded.structured?.usage?.cost).toBe(0.01)
   })
+
+  test("host fills turns/usage from assistant messages (contract)", () => {
+    // tool-host-bridges foreground completion sets:
+    //   turns: record?.turnCount ?? assistants.length
+    //   usage: { input, output, cost } summed from assistant tokens/cost
+    // This schema round-trip locks the wire shape those fields must satisfy.
+    const filled = Schema.decodeUnknownSync(TaskTool.Output)({
+      title: "explore",
+      output: "done",
+      task_id: "ses_child",
+      sessionID: "ses_child",
+      background: false,
+      structured: {
+        exit: "completed",
+        turns: 2,
+        usage: { input: 10, output: 20, cost: 0 },
+        resumeFrom: "ses_child",
+      },
+    })
+    expect(filled.structured?.turns).toBe(2)
+    expect(filled.structured?.usage).toEqual({ input: 10, output: 20, cost: 0 })
+  })
 })

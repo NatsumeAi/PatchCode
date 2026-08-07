@@ -1,7 +1,7 @@
 export * as ToolRegistry from "./registry"
 
-import { ToolOutput, type ToolCall, type ToolDefinition, type ToolResultValue } from "@opencode-ai/llm"
-import { Context, Effect, Layer, Scope } from "effect"
+import { ToolOutput, ToolDefinition, type ToolCall, type ToolResultValue } from "@opencode-ai/llm"
+import { Context, Effect, Layer, Option, Scope } from "effect"
 import { AgentV2 } from "../agent"
 import { PermissionV2 } from "../permission"
 import { SessionMessage } from "../session/message"
@@ -120,8 +120,28 @@ const registryLayer = Layer.effect(
             if (!capabilityAllows(name, agent.capability)) registrations.delete(name)
           }
         }
+        const definitions = Array.from(registrations, ([name, registration]) => definition(name, registration.tool))
+        // Restore V1 describeTask: append callable subagent catalog to task tool description.
+        if (registrations.has("task")) {
+          const appendix = yield* describeTaskAgents(permissions)
+          if (appendix) {
+            const idx = definitions.findIndex((item) => item.name === "task")
+            if (idx >= 0) {
+              const base = definitions[idx]!
+              definitions[idx] = new ToolDefinition({
+                name: base.name,
+                description: `${base.description}\n\n${appendix}`,
+                inputSchema: base.inputSchema,
+                outputSchema: base.outputSchema,
+                cache: base.cache,
+                metadata: base.metadata,
+                native: base.native,
+              })
+            }
+          }
+        }
         return {
-          definitions: Array.from(registrations, ([name, registration]) => definition(name, registration.tool)),
+          definitions,
           settle: (input) => {
             const registration = registrations.get(input.call.name)
             if (registration) return settleWith(input, registration.identity)
@@ -132,6 +152,29 @@ const registryLayer = Layer.effect(
     })
   }),
 )
+
+/**
+ * Parent-facing subagent catalog (V1 describeTask port).
+ * Filters: not primary, not hidden, parent may call task on that agent id.
+ * Capability tag included when set (Tier 2).
+ */
+const describeTaskAgents = Effect.fn("ToolRegistry.describeTaskAgents")(function* (
+  parentPermissions: PermissionV2.Ruleset,
+) {
+  const agentsOpt = yield* Effect.serviceOption(AgentV2.Service)
+  if (Option.isNone(agentsOpt)) return undefined
+  const items = (yield* agentsOpt.value.all())
+    .filter((item) => item.mode !== "primary" && !item.hidden)
+    .filter((item) => PermissionV2.evaluate("task", String(item.id), parentPermissions).effect !== "deny")
+    .toSorted((a, b) => String(a.id).localeCompare(String(b.id)))
+  if (items.length === 0) return undefined
+  const lines = items.map((item) => {
+    const tag = item.capability ? ` [${item.capability}]` : ""
+    const blurb = item.description ?? "This subagent should only be called manually by the user."
+    return `- ${item.id}${tag}: ${blurb}`
+  })
+  return ["Available agent types and the tools they have access to:", ...lines].join("\n")
+})
 
 const layer = Layer.effect(
   Tools.Service,

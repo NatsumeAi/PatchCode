@@ -158,6 +158,47 @@ describe("SubagentRegistry", () => {
     }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(SubagentLifecycle.layerForTest))))
     await Effect.runPromise(program)
   })
+  it("shouldMarkHeartbeatLost: stale + not draining → lost; draining protects", () => {
+    const id = SessionSchema.ID.make("ses_child_test")
+    const now = 200_000
+    expect(
+      SubagentRegistry.shouldMarkHeartbeatLost({
+        status: "active",
+        lastHeartbeatAt: 0,
+        now,
+        childSessionID: id,
+        draining: new Set(),
+      }),
+    ).toBe(true)
+    expect(
+      SubagentRegistry.shouldMarkHeartbeatLost({
+        status: "active",
+        lastHeartbeatAt: 0,
+        now,
+        childSessionID: id,
+        draining: new Set([id]),
+      }),
+    ).toBe(false)
+    expect(
+      SubagentRegistry.shouldMarkHeartbeatLost({
+        status: "active",
+        lastHeartbeatAt: now - 1_000,
+        now,
+        childSessionID: id,
+        draining: new Set(),
+      }),
+    ).toBe(false)
+    // Execution unavailable → heartbeat-only
+    expect(
+      SubagentRegistry.shouldMarkHeartbeatLost({
+        status: "active",
+        lastHeartbeatAt: 0,
+        now,
+        childSessionID: id,
+        draining: undefined,
+      }),
+    ).toBe(true)
+  })
 })
 
 describe("SubagentRegistry node", () => {

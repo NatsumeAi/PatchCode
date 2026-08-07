@@ -1203,3 +1203,19 @@ Run the TUI, open a session with tools, verify: Read toggles Collapsed→Truncat
 git add -A
 git commit -m "fix(tui): polish from verification pass"
 ```
+
+---
+
+## Revision log — 2026-08-07 (as-shipped product defaults)
+
+These override earlier plan locks where product decisions landed later. Do not “fix” code back to old locks without a new product decision.
+
+| Topic | Plan / early lock | As shipped | Notes |
+|---|---|---|---|
+| `groupToolVerbs` | often false in early drafts | `true` (`session-display` `DEFAULT_CONFIG`) | Verb-group approved |
+| Reasoning streaming | `truncated` in some drafts | `expanded` while streaming; `collapsed` when finished | Auto preference |
+| Fold keys `e`/`h`/`l`/`E` | default bound | default `none` (`keybind.ts`) | Bare letters steal prompt input; mouse fold still works; user-configurable |
+| j/k entry navigation | Grok C1 acceptance | Selection API (`display/selection.ts`) exists; **no default keybind** | Separate from fold=none. Decision: keep unbound until prompt-focus-safe wiring lands |
+| list/execute descriptors | completeness DoD | Not present; unknown tools use `genericDescriptor` | **Sufficient** — drop dedicated list/execute descriptors from DoD |
+| Glyphs | Grok Unicode set | ASCII / terminal-safe set in TUI | Intentional port compromise |
+| Sidebar | see sidebar-rail design revision | 34 / 20 / handle 2 | Spec updated 2026-08-07 |

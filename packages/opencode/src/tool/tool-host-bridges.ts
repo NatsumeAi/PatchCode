@@ -638,6 +638,8 @@ const taskHostLayer = Layer.effect(
             : failed
               ? "failed"
               : "completed"
+          const record =
+            registryOpt._tag === "Some" ? yield* registryOpt.value.get(childID) : undefined
           if (registryOpt._tag === "Some") {
             yield* registryOpt.value
               .transition(childID, exit === "failed" ? "failed" : "completed", {
@@ -647,6 +649,14 @@ const taskHostLayer = Layer.effect(
               .pipe(Effect.ignore)
           }
 
+          const assistants = msgs.filter((m): m is SessionMessage.Assistant => m.type === "assistant")
+          const turns = record?.turnCount ?? assistants.length
+          const usage = {
+            input: assistants.reduce((sum, m) => sum + (m.tokens?.input ?? 0), 0),
+            output: assistants.reduce((sum, m) => sum + (m.tokens?.output ?? 0), 0),
+            cost: assistants.reduce((sum, m) => sum + (m.cost ?? 0), 0),
+          }
+
           return {
             title: input.description,
             task_id: String(childID),
@@ -654,6 +664,8 @@ const taskHostLayer = Layer.effect(
             background: false,
             structured: {
               exit,
+              turns,
+              usage,
               ...(failed ? { error: failed } : {}),
               resumeFrom: String(childID),
             },

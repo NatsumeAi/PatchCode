@@ -11,7 +11,6 @@ import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
-import { SessionRevert } from "@/session/revert"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
@@ -70,7 +69,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
   Effect.gen(function* () {
     const session = yield* Session.Service
     const shareSvc = yield* SessionShare.Service
-    const revertSvc = yield* SessionRevert.Service
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
@@ -78,6 +76,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const events = yield* EventV2Bridge.Service
     const v2Svc = yield* SessionV2.Service
     const scope = yield* Scope.Scope
+
+    // One busy source: session drain (execution.active). Used by revert + mutations.
+    const assertNotBusy = Effect.fn("SessionHttpApi.assertNotBusy")(function* (sessionID: SessionID) {
+      const active = yield* v2Svc.active
+      if (active.has(sessionID)) {
+        yield* SessionError.mapBusy(Effect.fail(new Session.BusyError({ sessionID })))
+      }
+    })
+
+    /** V1 cleanup parity: commit staged V2 revert before continuing the session. */
+    const commitStagedRevert = Effect.fn("SessionHttpApi.commitStagedRevert")(function* (sessionID: SessionID) {
+      yield* v2Svc.revert.commit(sessionID).pipe(
+        Effect.catchTag("Session.NotFoundError", () => Effect.void),
+      )
+    })
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
       const directory = ctx.query.directory ? yield* InstanceState.directory : undefined
@@ -347,7 +360,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof SummarizePayload.Type
     }) {
-      yield* revertSvc.cleanup(yield* requireSession(ctx.params.sessionID))
+      yield* requireSession(ctx.params.sessionID)
+      yield* commitStagedRevert(ctx.params.sessionID)
       // V2 primary path: switch model and run one explicit compaction so the
       // runner's SessionCompaction emits a durable Compaction.Ended checkpoint
       // (summary + selection + keptFrom). No parallel summary prompt: the
@@ -473,6 +487,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
+      yield* commitStagedRevert(ctx.params.sessionID)
       yield* switchTo(ctx.params.sessionID, ctx.payload)
       const message = yield* runV2Prompt(ctx.params.sessionID, ctx.payload)
       return HttpServerResponse.stream(Stream.make(JSON.stringify(message)).pipe(Stream.encodeText), {
@@ -485,6 +500,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
+      yield* commitStagedRevert(ctx.params.sessionID)
       yield* switchTo(ctx.params.sessionID, ctx.payload)
       yield* runV2Prompt(ctx.params.sessionID, ctx.payload).pipe(
         Effect.catchCause((cause) =>
@@ -662,6 +678,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof ShellPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
+      yield* commitStagedRevert(ctx.params.sessionID)
       const messageID =
         ctx.payload.messageID === undefined
           ? undefined
@@ -691,12 +708,46 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof RevertPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* SessionError.mapBusy(revertSvc.revert({ sessionID: ctx.params.sessionID, ...ctx.payload }))
+      yield* assertNotBusy(ctx.params.sessionID)
+      // V2 stage is messageID-only; partID mid-message trim stays deferred (TUI undo omits it).
+      if (ctx.payload.partID) {
+        yield* Effect.logWarning("Instance revert partID ignored; V2 stage is messageID-only", {
+          sessionID: ctx.params.sessionID,
+          partID: String(ctx.payload.partID),
+        })
+      }
+      const messageID = yield* Effect.try({
+        try: () => SessionMessage.ID.make(String(ctx.payload.messageID)),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      yield* v2Svc.revert
+        .stage({ sessionID: ctx.params.sessionID, messageID })
+        .pipe(
+          Effect.mapError((error) => {
+            if (error instanceof SessionV2.NotFoundError) {
+              return new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+            }
+            if (error._tag === "Session.MessageNotFoundError") {
+              return new HttpApiError.BadRequest({})
+            }
+            return new HttpApiError.InternalServerError({})
+          }),
+        )
+      return yield* requireSession(ctx.params.sessionID)
     })
 
     const unrevert = Effect.fn("SessionHttpApi.unrevert")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* SessionError.mapBusy(revertSvc.unrevert({ sessionID: ctx.params.sessionID }))
+      yield* assertNotBusy(ctx.params.sessionID)
+      yield* v2Svc.revert.clear(ctx.params.sessionID).pipe(
+        Effect.mapError((error) => {
+          if (error instanceof SessionV2.NotFoundError) {
+            return new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+          }
+          return new HttpApiError.InternalServerError({})
+        }),
+      )
+      return yield* requireSession(ctx.params.sessionID)
     })
 
     const permissionRespond = Effect.fn("SessionHttpApi.permissionRespond")(function* (ctx: {
@@ -704,6 +755,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PermissionResponsePayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
+      // Deprecated Instance compat: shared V1 Permission.Service (see dual-path classification).
+      // Live TUI/tools ask+reply use PermissionV2; do not dual-write.
       yield* permissionSvc.reply({ requestID: ctx.params.permissionID, reply: ctx.payload.response }).pipe(
         Effect.catchTag("Permission.NotFoundError", (error) =>
           Effect.fail(
@@ -715,14 +768,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         ),
       )
       return true
-    })
-
-    const assertNotBusy = Effect.fn("SessionHttpApi.assertNotBusy")(function* (sessionID: SessionID) {
-      // One busy source: session drain (execution.active).
-      const active = yield* v2Svc.active
-      if (active.has(sessionID)) {
-        yield* SessionError.mapBusy(Effect.fail(new Session.BusyError({ sessionID })))
-      }
     })
 
     const deleteMessage = Effect.fn("SessionHttpApi.deleteMessage")(function* (ctx: {

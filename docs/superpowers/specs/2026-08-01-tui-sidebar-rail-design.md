@@ -468,3 +468,17 @@ The design is successfully implemented when all of the following are true:
 - This document intentionally does not commit to implementation-specific helper names beyond the suggested boundaries; the implementation plan may consolidate a state module if the resulting API remains equivalent.
 - The exact OpenTUI mouse event payload fields must be confirmed against the installed version when implementation begins. The interaction contract is fixed, but the low-level event field names are not part of this design document.
 - No code changes are included in this design step.
+
+---
+
+## Revision log — 2026-08-07 (as-shipped)
+
+Intentional product drift from the original defaults above:
+
+| Spec (this doc) | Implementation | Reason |
+|---|---|---|
+| Default width 42 | `DEFAULT_SIDEBAR_WIDTH = 34` | Product tweak after dock usability |
+| Min width 28 | `MIN_SIDEBAR_WIDTH = 20` | Allow tighter rails on mid-size terminals |
+| Handle 1 column | `RESIZE_HANDLE_WIDTH = 2` | Hit target: second column transparent so first drag still lands |
+
+Source of truth: `packages/tui/src/util/sidebar-layout.ts`.

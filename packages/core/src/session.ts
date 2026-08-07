@@ -391,7 +391,11 @@ const layer = Layer.effect(
       prompt: Effect.fn("V2Session.prompt")((input) =>
         Effect.uninterruptible(
           Effect.gen(function* () {
-            yield* result.get(input.sessionID)
+            const session = yield* result.get(input.sessionID)
+            // V1 SessionPrompt cleanup parity: hard-delete staged undo tail before a new turn.
+            if (session.revert) {
+              yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
+            }
             const prompt = resolvePrompt(input.prompt)
             const messageID = input.id ?? SessionMessage.ID.create()
             const delivery = input.delivery ?? "steer"
@@ -426,6 +430,9 @@ const layer = Layer.effect(
             const active = yield* execution.active
             if (active.has(input.sessionID)) return yield* new SessionBusyError({ sessionID: input.sessionID })
             const session = yield* result.get(input.sessionID)
+            if (session.revert) {
+              yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
+            }
             const started = yield* DateTime.now
             const callID = Identifier.create("tool", "ascending")
             const messageID = input.messageID ?? SessionMessage.ID.create()
