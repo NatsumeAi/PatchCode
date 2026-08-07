@@ -9,14 +9,14 @@ import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
-import { memoryContextNode } from "../../src/memory/context"
+import { MemoryContext } from "../../src/memory/context"
 import { writeTextAtomic } from "../../src/memory/storage"
 import { location } from "../fixture/location"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 
 const layer = (tmp: string) =>
-  AppNodeBuilder.build(LayerNode.group([memoryContextNode, SystemContextRegistry.node, FSUtil.node]), [
+  AppNodeBuilder.build(LayerNode.group([MemoryContext.node, SystemContextRegistry.node, FSUtil.node]), [
     [
       Location.node,
       Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(`${tmp}/proj`) }))),

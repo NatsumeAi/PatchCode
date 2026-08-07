@@ -189,7 +189,7 @@ const layer = Layer.effect(
  */
 function capabilityAllows(toolName: string, capability: "read-only" | "read-write" | "execute" | "all"): boolean {
   if (capability === "all") return true
-  const WRITE_TOOLS = new Set(["edit", "write", "apply_patch", "bash"])
+  const WRITE_TOOLS = new Set(["edit", "write", "apply_patch", "bash", "memory_add_note"])
   if (capability === "read-only") {
     if (WRITE_TOOLS.has(toolName)) return false
     return true
@@ -200,7 +200,7 @@ function capabilityAllows(toolName: string, capability: "read-only" | "read-writ
   }
   // execute: bash allowed, file mutation denied
   if (capability === "execute") {
-    if (toolName === "edit" || toolName === "write" || toolName === "apply_patch") return false
+    if (toolName === "edit" || toolName === "write" || toolName === "apply_patch" || toolName === "memory_add_note") return false
     return true
   }
   return true

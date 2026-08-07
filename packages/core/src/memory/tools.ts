@@ -174,7 +174,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           return { filename }
         }),
     }),
-  })
+  }).pipe(Effect.orDie)
 })
 
 export const node = makeLocationNode({

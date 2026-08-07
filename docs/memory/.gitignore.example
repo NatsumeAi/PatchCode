@@ -1,0 +1,5 @@
+# Commit curated memory; ignore personal runtime artifacts.
+*
+!.gitignore
+!MEMORY.md
+!memory_summary.md

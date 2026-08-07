@@ -18,6 +18,7 @@ import { TodoWriteTool } from "./todowrite"
 import { WebFetchTool } from "./webfetch"
 import { WebSearchTool } from "./websearch"
 import { WriteTool } from "./write"
+import { MemoryTools } from "../memory/tools"
 
 /**
  * Composes the shipped Location-scoped built-in tool transforms.
@@ -51,6 +52,7 @@ export const node = makeLocationNode({
     SkillTool.node,
     TaskTool.node,
     TodoWriteTool.node,
+    MemoryTools.node,
     WebFetchTool.node,
     WebSearchTool.node,
     WriteTool.node,

@@ -67,3 +67,15 @@ describe("ToolRegistry capability filter", () => {
     expect(result).toContain("bash")
   })
 })
+
+test("read-only and execute exclude memory_add_note; read-write and all include it", async () => {
+  const readOnly = await Effect.runPromise(names("read-only"))
+  const execute = await Effect.runPromise(names("execute"))
+  const readWrite = await Effect.runPromise(names("read-write"))
+  const all = await Effect.runPromise(names("all"))
+  expect(readOnly).not.toContain("memory_add_note")
+  expect(execute).not.toContain("memory_add_note")
+  expect(readWrite).toContain("memory_add_note")
+  expect(all).toContain("memory_add_note")
+  expect(readOnly).toContain("memory_read")
+})

@@ -1,3 +1,5 @@
+export * as MemoryContext from "./context"
+
 import { Effect, Layer, Schema } from "effect"
 import path from "path"
 import { Global } from "../global"
@@ -70,7 +72,7 @@ Updating memories:
 - Update memories ONLY when the user explicitly asks you to remember, forget, or update something.
 - Write each update as one small file under extensions/ad_hoc/notes/ via memory_add_note; never edit MEMORY.md or memory_summary.md directly (they are consolidated by a background process).`
 
-export const memoryContextNode = makeLocationNode({
+export const node = makeLocationNode({
   name: "memory-context",
   layer: Layer.effectDiscard(
     Effect.gen(function* () {
