@@ -555,6 +555,10 @@ export const {
           }
           break
         }
+        // Child sessions are published as session.created (with parentID) at spawn time.
+        // Without this case the sidebar Subagents list and ctrl+x down stay empty until a
+        // later session.updated or full list refresh — App already handles created.
+        case "session.created":
         case "session.updated": {
           const result = search(store.session, event.properties.info.id, (s) => s.id)
           if (result.found) {
