@@ -39,9 +39,10 @@ describe("Memory index", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
-          const index = yield* openMemoryIndex(roots)
-          yield* index.insert({
+          const index = yield* openMemoryIndex(fs, roots)
+          yield* index.insert("global", {
             path: "MEMORY.md",
             source: "global",
             text: "remember to verify",
@@ -67,12 +68,12 @@ describe("Memory index", () => {
         Effect.gen(function* () {
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
-          const index = yield* openMemoryIndex(roots)
+          const index = yield* openMemoryIndex(fs, roots)
           const file = path.join(roots.globalDir, "MEMORY.md")
           yield* writeTextAtomic(fs, file, "## Decisions\nremember to verify everything")
           const mtime = Date.now()
-          yield* reindexFile(index, file, "global", "## Decisions\nremember to verify everything", mtime)
-          yield* reindexFile(index, file, "global", "## Decisions\nremember to verify everything", mtime)
+          yield* reindexFile(index, "global", file, "global", "## Decisions\nremember to verify everything", mtime)
+          yield* reindexFile(index, "global", file, "global", "## Decisions\nremember to verify everything", mtime)
           const hits = yield* index.search("verify", 10)
           expect(hits.length).toBeGreaterThan(0)
           const chunks = yield* index.listChunks()
@@ -90,9 +91,10 @@ describe("Memory index", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
-          const index = yield* openMemoryIndex(roots)
-          yield* index.insert({
+          const index = yield* openMemoryIndex(fs, roots)
+          yield* index.insert("global", {
             path: "MEMORY.md",
             source: "global",
             text: "unique token for access test",
@@ -105,6 +107,57 @@ describe("Memory index", () => {
           yield* index.incrementAccess([hits[0]!.id])
           const chunks = yield* index.listChunks()
           expect(chunks[0]!.accessCount).toBe(1)
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
+})
+
+describe("Memory index dual-root", () => {
+  it.effect("chunks are not mirrored across roots; search merges both", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), path.join(dir.path, "proj"))
+          const index = yield* openMemoryIndex(fs, roots)
+          yield* index.insert("global", {
+            path: "MEMORY.md",
+            source: "global",
+            text: "global-only fact about the architecture",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          yield* index.insert("workspace", {
+            path: "TASKS.md",
+            source: "workspace",
+            text: "workspace-only task list entry",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          // Workspace index must not contain the global chunk and vice versa.
+          const chunks = yield* index.listChunks()
+          expect(chunks.filter((chunk) => chunk.path === "MEMORY.md").length).toBe(1)
+          expect(chunks.filter((chunk) => chunk.path === "TASKS.md").length).toBe(1)
+          // Search across both roots finds each once.
+          const globalHits = yield* index.search("architecture", 10)
+          expect(globalHits.length).toBe(1)
+          expect(globalHits[0]!.path).toBe("MEMORY.md")
+          expect(globalHits[0]!.source).toBe("global")
+          const taskHits = yield* index.search("task", 10)
+          expect(taskHits.length).toBe(1)
+          expect(taskHits[0]!.source).toBe("workspace")
+          // Deleting from one root leaves the other untouched.
+          yield* index.deletePath("workspace", "TASKS.md")
+          const remaining = yield* index.listChunks()
+          expect(remaining.filter((chunk) => chunk.path === "MEMORY.md").length).toBe(1)
+          expect(remaining.filter((chunk) => chunk.path === "TASKS.md").length).toBe(0)
           yield* index.close()
         }),
       ),

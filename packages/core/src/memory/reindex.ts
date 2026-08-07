@@ -31,15 +31,18 @@ export interface IndexChunk {
 }
 
 export interface MemoryIndex {
-  readonly insert: (input: {
-    path: string
-    source: string
-    text: string
-    startLine: number
-    endLine: number
-    mtimeMs: number
-  }) => Effect.Effect<void, IndexError>
-  readonly deletePath: (filePath: string) => Effect.Effect<void, IndexError>
+  readonly insert: (
+    root: "global" | "workspace",
+    input: {
+      path: string
+      source: string
+      text: string
+      startLine: number
+      endLine: number
+      mtimeMs: number
+    },
+  ) => Effect.Effect<void, IndexError>
+  readonly deletePath: (root: "global" | "workspace", filePath: string) => Effect.Effect<void, IndexError>
   readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
   readonly incrementAccess: (ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
   readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
@@ -49,7 +52,7 @@ export interface MemoryIndex {
 
 const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  hash TEXT NOT NULL UNIQUE,
+  hash TEXT NOT NULL,
   path TEXT NOT NULL,
   start_line INTEGER NOT NULL,
   end_line INTEGER NOT NULL,
@@ -59,6 +62,7 @@ const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
   mtime_ms INTEGER NOT NULL DEFAULT 0
 )`
 const CREATE_PATH_INDEX = `CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)`
+const CREATE_HASH_PATH_UNIQUE = `CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash_path ON chunks(hash, path)`
 const CREATE_FTS = `CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text)`
 
 /** Stable content hash for dedup (sha256 hex; Bun.hash is not stable across versions). */
@@ -105,10 +109,11 @@ export function chunkMarkdown(content: string, maxChars: number): Array<{ text: 
 }
 
 const openOne = (file: string) =>
-  Effect.sync(() => {
+  q(() => {
     const native = new Database(file, { create: true })
     native.run(CREATE_CHUNKS)
     native.run(CREATE_PATH_INDEX)
+    native.run(CREATE_HASH_PATH_UNIQUE)
     native.run(CREATE_FTS)
     return { native, db: drizzle({ client: native }) }
   })
@@ -128,9 +133,9 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
   const global = yield* openOne(path.join(roots.globalDir, "index.sqlite"))
   const workspace = roots.workspaceDir === undefined ? undefined : yield* openOne(path.join(roots.workspaceDir, "index.sqlite"))
 
-  const sourceOf = (pathInRoot: string): "global" | "workspace" | "session" => {
+  const sourceOf = (root: "global" | "workspace", pathInRoot: string): "global" | "workspace" | "session" => {
     if (pathInRoot.startsWith("sessions/")) return "session"
-    return workspace === undefined ? "global" : "workspace"
+    return root
   }
 
   const withBoth = (
@@ -142,39 +147,37 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
       if (workspace !== undefined) yield* onWorkspace(workspace.db)
     })
 
+  const pick = (root: "global" | "workspace") => {
+    if (root === "workspace" && workspace !== undefined) return workspace.db
+    return global.db
+  }
   return {
-    insert: Effect.fn("MemoryIndex.insert")(function* (input) {
-      const insertChunk = (db: SyncDB) =>
-        q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms)
-          VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs})
-          ON CONFLICT(hash) DO NOTHING RETURNING id`)).pipe(
-          Effect.flatMap((result) => {
-            const id = rowsOf(result)[0]?.id
-            if (id === undefined) return Effect.void
-            return q(() => db.run(sql`INSERT INTO chunks_fts (rowid, text) VALUES (${Number(id)}, ${input.text})`)).pipe(
-              Effect.asVoid,
-            )
-          }),
-        )
-      yield* withBoth(insertChunk, insertChunk)
+    insert: Effect.fn("MemoryIndex.insert")(function* (root, input) {
+      const db = pick(root)
+      const id = yield* q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms)
+        VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs})
+        ON CONFLICT(hash, path) DO NOTHING RETURNING id`)).pipe(
+        Effect.map((result) => rowsOf(result)[0]?.id),
+      )
+      if (id === undefined) return
+      yield* q(() => db.run(sql`INSERT INTO chunks_fts (rowid, text) VALUES (${Number(id)}, ${input.text})`)).pipe(
+        Effect.asVoid,
+      )
     }),
-    deletePath: Effect.fn("MemoryIndex.deletePath")(function* (filePath) {
-      const remove = (db: SyncDB) =>
-        q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
-          Effect.flatMap((result) => {
-            const ids = rowsOf(result).map((row) => Number(row.id))
-            if (ids.length === 0) return Effect.void
-            return q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
-              Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
-              Effect.asVoid,
-            )
-          }),
-        )
-      yield* withBoth(remove, remove)
+    deletePath: Effect.fn("MemoryIndex.deletePath")(function* (root, filePath) {
+      const db = pick(root)
+      const ids = yield* q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
+        Effect.map((result) => rowsOf(result).map((row) => Number(row.id))),
+      )
+      if (ids.length === 0) return
+      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
+        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
+        Effect.asVoid,
+      )
     }),
     search: Effect.fn("MemoryIndex.search")(function* (query: string, limit: number) {
       const hits: ChunkHit[] = []
-      const searchOne = (db: SyncDB): Effect.Effect<void, IndexError> =>
+      const searchOne = (db: SyncDB, root: "global" | "workspace"): Effect.Effect<void, IndexError> =>
         q(() =>
           db.all(
             sql`SELECT c.id, c.path, c.start_line, c.text, c.source, c.mtime_ms, -bm25(chunks_fts) AS score
@@ -191,15 +194,15 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
                   line: Number(row.start_line),
                   text: String(row.text),
                   score: Number(row.score),
-                  source: sourceOf(String(row.path)),
+                  source: sourceOf(root, String(row.path)),
                   ageDays: (Date.now() - Number(row.mtime_ms)) / (24 * 60 * 60 * 1000),
                 })
               }
               return Effect.void
             }),
           )
-      yield* searchOne(global.db)
-      if (workspace !== undefined) yield* searchOne(workspace.db)
+      yield* searchOne(global.db, "global")
+      if (workspace !== undefined) yield* searchOne(workspace.db, "workspace")
       return hits
     }),
     incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (ids: ReadonlyArray<number>) {
@@ -251,15 +254,16 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
 /** Chunks a file and indexes it with hash dedup; stale chunks for the path are removed. */
 export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   index: MemoryIndex,
+  root: "global" | "workspace",
   filePath: string,
   source: "global" | "workspace" | "session",
   text: string,
   mtimeMs: number,
 ) {
   const relative = filePath.replace(/\\/g, "/")
-  yield* index.deletePath(relative)
+  yield* index.deletePath(root, relative)
   for (const chunk of chunkMarkdown(text, 1500)) {
-    yield* index.insert({
+    yield* index.insert(root, {
       path: relative,
       source,
       text: chunk.text,
@@ -270,30 +274,38 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   }
 })
 
-/** Walks the memory roots and (re)indexes .md files (lazy, before search). */
+// Process-lifetime cache of the last indexed mtime per file path, so unchanged
+// files are skipped and access_count is never reset by reindexing.
+const indexedMtimes = new Map<string, number>()
+
+/** Walks the memory roots and (re)indexes changed .md files (lazy, before search). */
 export const ensureIndexed = Effect.fn("Memory.ensureIndexed")(function* (
   index: MemoryIndex,
   fs: FSUtil.Interface,
   roots: MemoryRoots,
 ) {
-  const walk = (dir: string, rootDir: string, source: "global" | "workspace"): Effect.Effect<void, IndexError> =>
+  const walk = (dir: string, rootDir: string, root: "global" | "workspace", source: "global" | "workspace"): Effect.Effect<void, IndexError> =>
     Effect.gen(function* () {
       const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.succeed([])))
       for (const entry of entries) {
         const full = path.join(dir, entry.name)
         if (entry.type === "directory") {
-          yield* walk(full, rootDir, source)
-        } else if (entry.type === "file" && entry.name.endsWith(".md")) {
-          const info = yield* fs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
-          if (!info) continue
-          const text = yield* fs.readFileStringSafe(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
-          if (text === undefined) continue
-          const mtime = Option.getOrElse(info.mtime, () => new Date(0)).getTime()
-          const relative = path.relative(rootDir, full).replace(/\\/g, "/")
-          yield* reindexFile(index, relative, relative.startsWith("sessions/") ? "session" : source, text, mtime)
+          if (entry.name.startsWith(".")) continue
+          yield* walk(full, rootDir, root, source)
+          continue
         }
+        if (entry.type !== "file" || !entry.name.endsWith(".md")) continue
+        const info = yield* fs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (!info) continue
+        const mtime = Option.getOrElse(info.mtime, () => new Date(0)).getTime()
+        if (indexedMtimes.get(full) === mtime) continue
+        const text = yield* fs.readFileStringSafe(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (text === undefined) continue
+        const relative = path.relative(rootDir, full).replace(/\\/g, "/")
+        yield* reindexFile(index, root, relative, relative.startsWith("sessions/") ? "session" : source, text, mtime)
+        indexedMtimes.set(full, mtime)
       }
     })
-  yield* walk(roots.globalDir, roots.globalDir, "global")
-  if (roots.workspaceDir !== undefined) yield* walk(roots.workspaceDir, roots.workspaceDir, "workspace")
+  yield* walk(roots.globalDir, roots.globalDir, "global", "global")
+  if (roots.workspaceDir !== undefined) yield* walk(roots.workspaceDir, roots.workspaceDir, "workspace", "workspace")
 })

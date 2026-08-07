@@ -167,10 +167,10 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                 if (info.size > 1024 * 1024) continue
                 const text = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
                 if (!text) continue
-                for (const [index, line] of text.split("\n").entries()) {
+                for (const [lineIndex, line] of text.split("\n").entries()) {
                   if (matches.length >= max) break
                   if (line.toLowerCase().includes(query)) {
-                    matches.push({ path: path.relative(base, filePath), line: index + 1, text: line })
+                    matches.push({ path: path.relative(base, filePath), line: lineIndex + 1, text: line })
                   }
                 }
               }
