@@ -1,0 +1,288 @@
+export * as MemoryReindex from "./reindex"
+
+import { Database } from "bun:sqlite"
+import { drizzle } from "drizzle-orm/bun-sqlite"
+import { sql } from "drizzle-orm"
+import { Effect, Option } from "effect"
+import path from "path"
+import { FSUtil } from "../fs-util"
+import type { MemoryRoots } from "./storage"
+
+type SyncDB = ReturnType<typeof drizzle>
+type Row = Record<string, unknown>
+
+export interface ChunkHit {
+  readonly id: number
+  readonly path: string
+  readonly line: number
+  readonly text: string
+  readonly score: number
+  readonly source: "global" | "workspace" | "session"
+  readonly ageDays: number
+}
+
+export interface IndexChunk {
+  readonly id: number
+  readonly path: string
+  readonly source: string
+  readonly accessCount: number
+  readonly mtimeMs: number
+  readonly text: string
+}
+
+export interface MemoryIndex {
+  readonly insert: (input: {
+    path: string
+    source: string
+    text: string
+    startLine: number
+    endLine: number
+    mtimeMs: number
+  }) => Effect.Effect<void, IndexError>
+  readonly deletePath: (filePath: string) => Effect.Effect<void, IndexError>
+  readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
+  readonly incrementAccess: (ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
+  readonly listChunks: () => Effect.Effect<Array<IndexChunk>, IndexError>
+  readonly close: () => Effect.Effect<void>
+}
+
+const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hash TEXT NOT NULL UNIQUE,
+  path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  source TEXT NOT NULL,
+  access_count INTEGER NOT NULL DEFAULT 0,
+  mtime_ms INTEGER NOT NULL DEFAULT 0
+)`
+const CREATE_PATH_INDEX = `CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)`
+const CREATE_FTS = `CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text)`
+
+/** Stable content hash for dedup (sha256 hex; Bun.hash is not stable across versions). */
+export const chunkHash = (text: string): string => {
+  const hasher = new Bun.CryptoHasher("sha256")
+  hasher.update(text)
+  return hasher.digest("hex")
+}
+
+/**
+ * Markdown-aware chunking: split on `##` sections, then paragraphs, then lines.
+ * Continuation chunks keep their section's header so context survives splitting.
+ */
+export function chunkMarkdown(content: string, maxChars: number): Array<{ text: string; startLine: number; endLine: number }> {
+  if (content.length <= maxChars) return [{ text: content, startLine: 1, endLine: content.split("\n").length }]
+  const chunks: Array<{ text: string; startLine: number; endLine: number }> = []
+  const sections = content.split(/(?=^## )/m)
+  let line = 1
+  for (const section of sections) {
+    const sectionLines = section.split("\n").length
+    if (section.length <= maxChars) {
+      chunks.push({ text: section.trim(), startLine: line, endLine: line + sectionLines - 1 })
+      line += sectionLines
+      continue
+    }
+    const header = section.split("\n")[0] ?? ""
+    const paragraphs = section.split(/\n\n+/)
+    let acc = ""
+    let accStart = line
+    for (const para of paragraphs) {
+      const paraLines = para.split("\n").length
+      if (acc !== "" && (acc + "\n\n" + para).length > maxChars) {
+        chunks.push({ text: acc.trim(), startLine: accStart, endLine: line + paraLines - 1 })
+        acc = `${header}\n\n${para}`
+        accStart = line
+      } else {
+        acc = acc === "" ? para : acc + "\n\n" + para
+      }
+      line += paraLines + 1
+    }
+    if (acc !== "") chunks.push({ text: acc.trim(), startLine: accStart, endLine: line - 1 })
+  }
+  return chunks
+}
+
+const openOne = (file: string) =>
+  Effect.sync(() => {
+    const native = new Database(file, { create: true })
+    native.run(CREATE_CHUNKS)
+    native.run(CREATE_PATH_INDEX)
+    native.run(CREATE_FTS)
+    return { native, db: drizzle({ client: native }) }
+  })
+
+const rowsOf = (value: unknown): Row[] => (Array.isArray(value) ? (value as Row[]) : [value as Row])
+
+export class IndexError {
+  constructor(readonly message: string) {}
+}
+
+const q = <A>(fn: () => A): Effect.Effect<A, IndexError> => Effect.try({ try: fn, catch: (cause) => new IndexError(String(cause)) })
+
+/** Opens per-root index databases (dual-root: global always, workspace when present). */
+export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (roots: MemoryRoots) {
+  const fs = yield* FSUtil.Service
+  yield* fs.ensureDir(roots.globalDir)
+  if (roots.workspaceDir !== undefined) yield* fs.ensureDir(roots.workspaceDir)
+  const global = yield* openOne(path.join(roots.globalDir, "index.sqlite"))
+  const workspace = roots.workspaceDir === undefined ? undefined : yield* openOne(path.join(roots.workspaceDir, "index.sqlite"))
+
+  const sourceOf = (pathInRoot: string): "global" | "workspace" | "session" => {
+    if (pathInRoot.startsWith("sessions/")) return "session"
+    return workspace === undefined ? "global" : "workspace"
+  }
+
+  const withBoth = (
+    onGlobal: (db: SyncDB) => Effect.Effect<unknown, IndexError>,
+    onWorkspace: (db: SyncDB) => Effect.Effect<unknown, IndexError>,
+  ): Effect.Effect<void, IndexError> =>
+    Effect.gen(function* () {
+      yield* onGlobal(global.db)
+      if (workspace !== undefined) yield* onWorkspace(workspace.db)
+    })
+
+  return {
+    insert: Effect.fn("MemoryIndex.insert")(function* (input) {
+      const insertChunk = (db: SyncDB) =>
+        q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms)
+          VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs})
+          ON CONFLICT(hash) DO NOTHING RETURNING id`)).pipe(
+          Effect.flatMap((result) => {
+            const id = rowsOf(result)[0]?.id
+            if (id === undefined) return Effect.void
+            return q(() => db.run(sql`INSERT INTO chunks_fts (rowid, text) VALUES (${Number(id)}, ${input.text})`)).pipe(
+              Effect.asVoid,
+            )
+          }),
+        )
+      yield* withBoth(insertChunk, insertChunk)
+    }),
+    deletePath: Effect.fn("MemoryIndex.deletePath")(function* (filePath) {
+      const remove = (db: SyncDB) =>
+        q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
+          Effect.flatMap((result) => {
+            const ids = rowsOf(result).map((row) => Number(row.id))
+            if (ids.length === 0) return Effect.void
+            return q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
+              Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
+              Effect.asVoid,
+            )
+          }),
+        )
+      yield* withBoth(remove, remove)
+    }),
+    search: Effect.fn("MemoryIndex.search")(function* (query: string, limit: number) {
+      const hits: ChunkHit[] = []
+      const searchOne = (db: SyncDB): Effect.Effect<void, IndexError> =>
+        q(() =>
+          db.all(
+            sql`SELECT c.id, c.path, c.start_line, c.text, c.source, c.mtime_ms, -bm25(chunks_fts) AS score
+              FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
+              WHERE chunks_fts MATCH ${query}
+              ORDER BY score DESC LIMIT ${limit}`,
+          ),
+        ).pipe(
+          Effect.flatMap((result) => {
+              for (const row of rowsOf(result)) {
+                hits.push({
+                  id: Number(row.id),
+                  path: String(row.path),
+                  line: Number(row.start_line),
+                  text: String(row.text),
+                  score: Number(row.score),
+                  source: sourceOf(String(row.path)),
+                  ageDays: (Date.now() - Number(row.mtime_ms)) / (24 * 60 * 60 * 1000),
+                })
+              }
+              return Effect.void
+            }),
+          )
+      yield* searchOne(global.db)
+      if (workspace !== undefined) yield* searchOne(workspace.db)
+      return hits
+    }),
+    incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (ids: ReadonlyArray<number>) {
+      if (ids.length === 0) return
+      const bump = (db: SyncDB) =>
+        q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${ids})`)).pipe(Effect.asVoid)
+      yield* withBoth(bump, bump)
+    }),
+    listChunks: Effect.fn("MemoryIndex.listChunks")(function* () {
+      const collect = (db: SyncDB): Effect.Effect<Array<IndexChunk>, IndexError> =>
+        q(() => db.all(sql`SELECT id, path, source, access_count, mtime_ms, text FROM chunks`)).pipe(
+          Effect.map((result) =>
+              rowsOf(result).map((row) => ({
+                id: Number(row.id),
+                path: String(row.path),
+                source: String(row.source),
+                accessCount: Number(row.access_count),
+                mtimeMs: Number(row.mtime_ms),
+                text: String(row.text),
+              })),
+            ),
+          )
+      const [globalChunks, workspaceChunks] = yield* Effect.all([
+        collect(global.db),
+        workspace === undefined ? Effect.succeed([]) : collect(workspace.db),
+      ])
+      return [...globalChunks, ...workspaceChunks]
+    }),
+    close: Effect.fn("MemoryIndex.close")(function* () {
+      yield* Effect.sync(() => {
+        global.native.close()
+        workspace?.native.close()
+      })
+    }),
+  }
+})
+
+/** Chunks a file and indexes it with hash dedup; stale chunks for the path are removed. */
+export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
+  index: MemoryIndex,
+  filePath: string,
+  source: "global" | "workspace" | "session",
+  text: string,
+  mtimeMs: number,
+) {
+  const relative = filePath.replace(/\\/g, "/")
+  yield* index.deletePath(relative)
+  for (const chunk of chunkMarkdown(text, 1500)) {
+    yield* index.insert({
+      path: relative,
+      source,
+      text: chunk.text,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+      mtimeMs,
+    })
+  }
+})
+
+/** Walks the memory roots and (re)indexes .md files (lazy, before search). */
+export const ensureIndexed = Effect.fn("Memory.ensureIndexed")(function* (
+  index: MemoryIndex,
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+) {
+  const walk = (dir: string, rootDir: string, source: "global" | "workspace"): Effect.Effect<void, IndexError> =>
+    Effect.gen(function* () {
+      const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.succeed([])))
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.type === "directory") {
+          yield* walk(full, rootDir, source)
+        } else if (entry.type === "file" && entry.name.endsWith(".md")) {
+          const info = yield* fs.stat(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (!info) continue
+          const text = yield* fs.readFileStringSafe(full).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (text === undefined) continue
+          const mtime = Option.getOrElse(info.mtime, () => new Date(0)).getTime()
+          const relative = path.relative(rootDir, full).replace(/\\/g, "/")
+          yield* reindexFile(index, relative, relative.startsWith("sessions/") ? "session" : source, text, mtime)
+        }
+      }
+    })
+  yield* walk(roots.globalDir, roots.globalDir, "global")
+  if (roots.workspaceDir !== undefined) yield* walk(roots.workspaceDir, roots.workspaceDir, "workspace")
+})
