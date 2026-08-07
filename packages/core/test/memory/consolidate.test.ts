@@ -157,7 +157,7 @@ describe("Memory consolidation prune", () => {
           )
           // Seed an index with an old zero-access chunk so a prune candidate exists.
           const index = yield* openMemoryIndex(fs, roots)
-          yield* index.insert({
+          yield* index.insert("global", {
             path: "MEMORY.md",
             source: "global",
             text: "stale entry no one reads anymore",
