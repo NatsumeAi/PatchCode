@@ -54,7 +54,11 @@ async function renderTool(overrides: Partial<ToolViewModel> = {}) {
       </KVProvider>
     </TuiPathsProvider>
   ))
-  return app
+  try {
+    await app.flush()
+  } finally {
+    app.renderer.destroy()
+  }
 }
 
 describe("ToolEntry render safety", () => {
@@ -135,6 +139,7 @@ describe("ReasoningEntry render safety", () => {
       </TuiPathsProvider>
     ))
     expect(app).toBeDefined()
+    app.renderer.destroy()
   })
 
   test("done with title and empty body", async () => {
@@ -154,6 +159,7 @@ describe("ReasoningEntry render safety", () => {
       </TuiPathsProvider>
     ))
     expect(app).toBeDefined()
+    app.renderer.destroy()
   })
 
   test("expanded truncated body", async () => {
@@ -173,6 +179,7 @@ describe("ReasoningEntry render safety", () => {
       </TuiPathsProvider>
     ))
     expect(app).toBeDefined()
+    app.renderer.destroy()
   })
 })
 
@@ -251,5 +258,6 @@ describe("dirty data safety (non-string fields never reach text nodes)", () => {
       </TuiPathsProvider>
     ))
     expect(app).toBeDefined()
+    app.renderer.destroy()
   })
 })

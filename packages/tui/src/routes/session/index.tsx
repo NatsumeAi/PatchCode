@@ -107,6 +107,7 @@ import {
   type VerbRun,
 } from "@opencode-ai/session-display"
 import { ToolEntry } from "../../display/ToolEntry"
+import { CompactionEntry } from "../../display/CompactionEntry"
 import { ReasoningEntry } from "../../display/ReasoningEntry"
 import { VerbGroupHeader } from "../../display/VerbGroupHeader"
 import {
@@ -1606,7 +1607,7 @@ function UserMessage(props: {
 
   return (
     <>
-      <Show when={text()}>
+      <Show when={text() && !compaction()}>
         <box
           id={props.message.id}
           ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
@@ -1631,7 +1632,13 @@ function UserMessage(props: {
           >
             <text fg={theme.text}>{text()}</text>
             <Show when={files().length}>
-              <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
+              <box
+                flexDirection="row"
+                paddingBottom={metadataVisible() ? 1 : 0}
+                paddingTop={1}
+                gap={1}
+                flexWrap="wrap"
+              >
                 <For each={files()}>
                   {(file) => {
                     const directory = file.mime === "application/x-directory"
@@ -1670,12 +1677,17 @@ function UserMessage(props: {
         </box>
       </Show>
       <Show when={compaction()}>
-        <box
-          marginTop={1}
-          border={["top"]}
-          title=" Compaction "
-          titleAlignment="center"
-          borderColor={theme.borderActive}
+        <CompactionEntry
+          messageID={props.message.id}
+          marginTop={props.index === 0 ? 0 : 1}
+          summary={text()}
+          files={files()}
+          queued={Boolean(queued())}
+          created={props.message.time.created}
+          showTimestamp={ctx.showTimestamps()}
+          color={color()}
+          onMouseUp={props.onMouseUp}
+          registerAnchor={(el: BoxRenderable) => alwaysSeparate.add(el)}
         />
       </Show>
     </>
