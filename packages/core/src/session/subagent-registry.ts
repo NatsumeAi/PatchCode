@@ -4,7 +4,6 @@ import { Context, DateTime, Duration, Effect, Layer, Schedule, Schema, Synchroni
 import { makeGlobalNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { SessionEvent } from "./event"
-import { SessionExecution } from "./execution"
 import { SubagentLifecycle } from "./subagent-lifecycle"
 import { SessionSchema } from "./schema"
 
@@ -162,13 +161,19 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
     SynchronizedRef.modify(records, (map) => {
       const current = map.get(childSessionID)
       if (!current) return [undefined, map] as const
+      // Progress-only: observer keep-alive must NOT refresh lastHeartbeatAt.
+      // Stall detection uses this timestamp as lastProgressAt.
+      const progressed =
+        snapshot.turnCount > current.turnCount ||
+        snapshot.toolCallCount > current.toolCallCount ||
+        snapshot.tokensUsed > current.tokensUsed
       const next = new Map(map)
       const record: SubagentRecord = {
         ...current,
-        lastHeartbeatAt: Date.now(),
         turnCount: snapshot.turnCount,
         toolCallCount: snapshot.toolCallCount,
         tokensUsed: snapshot.tokensUsed,
+        ...(progressed ? { lastHeartbeatAt: Date.now() } : {}),
       }
       next.set(childSessionID, record)
       return [record, next] as const
@@ -233,25 +238,19 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
 
   const startWatcher: Interface["startWatcher"] = Effect.gen(function* () {
     const events = yield* EventV2.Service
-    // Authority (locked): heartbeat = subagent liveness; execution.active = drain membership.
-    // Mark lost only when heartbeat is stale AND the child is not in an active drain
-    // (orphan). If Execution is unavailable in this scope, fall back to heartbeat-only.
-    const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
+    // Authority: lastHeartbeatAt is progress-only. Drain membership (execution.active)
+    // does NOT exempt stall — a hung drain with frozen progress must be marked lost.
     const check = Effect.gen(function* () {
       const activeRecords = yield* SynchronizedRef.get(records).pipe(
         Effect.map((map) => Array.from(map.values()).filter((r) => r.status === "active")),
       )
-      const draining =
-        executionOpt._tag === "Some" ? yield* executionOpt.value.active : undefined
       const now = Date.now()
       for (const record of activeRecords) {
         if (
-          !shouldMarkHeartbeatLost({
+          !shouldMarkStalled({
             status: record.status,
-            lastHeartbeatAt: record.lastHeartbeatAt,
+            lastProgressAt: record.lastHeartbeatAt,
             now,
-            childSessionID: record.childSessionID,
-            draining,
           })
         ) {
           continue
@@ -277,23 +276,37 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
   return { register, transition, touchHeartbeat, get, list, snapshot, activeCount, activeCountByType, cancel, startWatcher }
 })
 
-const HEARTBEAT_LOSS_TIMEOUT_MS = 90_000
+/** Default progress-stall window before an active subagent is marked lost. */
+export const PROGRESS_STALL_TIMEOUT_MS = 180_000
 const WATCHER_INTERVAL = Duration.seconds(30)
 
-/** Pure orphan rule used by the registry watcher (exported for tests). */
+/** Pure stall rule: active + no progress for STALL_MS → lost (drain membership ignored). */
+export function shouldMarkStalled(input: {
+  readonly status: SubagentStatus
+  readonly lastProgressAt: number
+  readonly now: number
+  readonly timeoutMs?: number
+}): boolean {
+  if (input.status !== "active") return false
+  if (input.now - input.lastProgressAt <= (input.timeoutMs ?? PROGRESS_STALL_TIMEOUT_MS)) return false
+  return true
+}
+
+/** @deprecated Use shouldMarkStalled — drain exemption removed. */
 export function shouldMarkHeartbeatLost(input: {
   readonly status: SubagentStatus
   readonly lastHeartbeatAt: number
   readonly now: number
   readonly childSessionID: SessionSchema.ID
-  /** Undefined = Execution unavailable → heartbeat-only fallback. */
   readonly draining: ReadonlySet<SessionSchema.ID> | undefined
   readonly timeoutMs?: number
 }): boolean {
-  if (input.status !== "active") return false
-  if (input.now - input.lastHeartbeatAt <= (input.timeoutMs ?? HEARTBEAT_LOSS_TIMEOUT_MS)) return false
-  if (input.draining?.has(input.childSessionID)) return false
-  return true
+  return shouldMarkStalled({
+    status: input.status,
+    lastProgressAt: input.lastHeartbeatAt,
+    now: input.now,
+    timeoutMs: input.timeoutMs,
+  })
 }
 
 export const layerForTest: Layer.Layer<Service, never, SubagentLifecycle.Service> = Layer.effect(Service, make)

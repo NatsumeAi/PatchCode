@@ -158,44 +158,44 @@ describe("SubagentRegistry", () => {
     }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(SubagentLifecycle.layerForTest))))
     await Effect.runPromise(program)
   })
-  it("shouldMarkHeartbeatLost: stale + not draining → lost; draining protects", () => {
-    const id = SessionSchema.ID.make("ses_child_test")
-    const now = 200_000
+  it("touchHeartbeat only refreshes lastHeartbeatAt when counters progress", async () => {
+    const program = Effect.gen(function* () {
+      const registry = yield* SubagentRegistry.Service
+      yield* registerChild("active")
+      const before = (yield* registry.get(child))!.lastHeartbeatAt
+      yield* Effect.sync(() => Bun.sleepSync(5))
+      yield* registry.touchHeartbeat(child, { turnCount: 0, toolCallCount: 0, tokensUsed: 0 })
+      expect((yield* registry.get(child))!.lastHeartbeatAt).toBe(before)
+      yield* registry.touchHeartbeat(child, { turnCount: 1, toolCallCount: 0, tokensUsed: 0 })
+      expect((yield* registry.get(child))!.lastHeartbeatAt).toBeGreaterThan(before)
+    }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(SubagentLifecycle.layerForTest))))
+    await Effect.runPromise(program)
+  })
+
+  it("shouldMarkStalled: progress freeze → lost even while drain would be active", () => {
+    const now = 400_000
     expect(
-      SubagentRegistry.shouldMarkHeartbeatLost({
+      SubagentRegistry.shouldMarkStalled({
         status: "active",
-        lastHeartbeatAt: 0,
+        lastProgressAt: 0,
         now,
-        childSessionID: id,
-        draining: new Set(),
       }),
     ).toBe(true)
     expect(
-      SubagentRegistry.shouldMarkHeartbeatLost({
+      SubagentRegistry.shouldMarkStalled({
         status: "active",
-        lastHeartbeatAt: 0,
+        lastProgressAt: now - 1_000,
         now,
-        childSessionID: id,
-        draining: new Set([id]),
       }),
     ).toBe(false)
-    expect(
-      SubagentRegistry.shouldMarkHeartbeatLost({
-        status: "active",
-        lastHeartbeatAt: now - 1_000,
-        now,
-        childSessionID: id,
-        draining: new Set(),
-      }),
-    ).toBe(false)
-    // Execution unavailable → heartbeat-only
+    // Drain membership no longer protects — stale progress still stalls.
     expect(
       SubagentRegistry.shouldMarkHeartbeatLost({
         status: "active",
         lastHeartbeatAt: 0,
         now,
-        childSessionID: id,
-        draining: undefined,
+        childSessionID: child,
+        draining: new Set([child]),
       }),
     ).toBe(true)
   })
