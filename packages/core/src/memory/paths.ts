@@ -69,7 +69,7 @@ export const resolveScopedFile = Effect.fn("Memory.resolveScopedFile")(function*
   relative: string,
 ) {
   const resolved = yield* resolveScoped(fs, root, relative)
-  const isFile = yield* fs.isFile(resolved)
+  const isFile = yield* fs.isFile(resolved).pipe(Effect.catch(() => Effect.succeed(false)))
   if (!isFile) return yield* new NotFileError({ relative })
   return resolved
 })
