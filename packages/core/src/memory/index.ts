@@ -11,3 +11,4 @@ export {
   NotFileError,
 } from "./paths"
 export type { ScopedPathError } from "./paths"
+export { MemoryContextKey, memoryContextNode } from "./context"
