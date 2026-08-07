@@ -7,6 +7,7 @@ import { Effect, Option } from "effect"
 import path from "path"
 import { FSUtil } from "../fs-util"
 import type { MemoryRoots } from "./storage"
+import { cosineSimilarity, normalize01, hybridScore, DEFAULT_MIN_SCORE } from "./hybrid"
 
 type SyncDB = ReturnType<typeof drizzle>
 type Row = Record<string, unknown>
@@ -28,6 +29,8 @@ export interface IndexChunk {
   readonly accessCount: number
   readonly mtimeMs: number
   readonly text: string
+  readonly startLine?: number
+  readonly vectors?: ReadonlyArray<number>
 }
 
 export interface MemoryIndex {
@@ -40,6 +43,7 @@ export interface MemoryIndex {
       startLine: number
       endLine: number
       mtimeMs: number
+      vectors?: ReadonlyArray<number>
     },
   ) => Effect.Effect<void, IndexError>
   readonly deletePath: (root: "global" | "workspace", filePath: string) => Effect.Effect<void, IndexError>
@@ -48,6 +52,7 @@ export interface MemoryIndex {
   readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
   readonly listChunks: () => Effect.Effect<Array<IndexChunk>, IndexError>
   readonly close: () => Effect.Effect<void>
+  readonly provider?: import("./embedding").EmbeddingProvider
 }
 
 const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
@@ -59,7 +64,8 @@ const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
   text TEXT NOT NULL,
   source TEXT NOT NULL,
   access_count INTEGER NOT NULL DEFAULT 0,
-  mtime_ms INTEGER NOT NULL DEFAULT 0
+  mtime_ms INTEGER NOT NULL DEFAULT 0,
+  vectors TEXT
 )`
 const CREATE_PATH_INDEX = `CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)`
 const CREATE_HASH_PATH_UNIQUE = `CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash_path ON chunks(hash, path)`
@@ -127,7 +133,11 @@ export class IndexError {
 const q = <A>(fn: () => A): Effect.Effect<A, IndexError> => Effect.try({ try: fn, catch: (cause) => new IndexError(String(cause)) })
 
 /** Opens per-root index databases (dual-root: global always, workspace when present). */
-export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
+export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  provider?: import("./embedding").EmbeddingProvider,
+) {
   yield* fs.ensureDir(roots.globalDir)
   if (roots.workspaceDir !== undefined) yield* fs.ensureDir(roots.workspaceDir)
   const global = yield* openOne(path.join(roots.globalDir, "index.sqlite"))
@@ -154,8 +164,9 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
   return {
     insert: Effect.fn("MemoryIndex.insert")(function* (root, input) {
       const db = pick(root)
-      const id = yield* q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms)
-        VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs})
+      const vectorsJson = input.vectors === undefined ? null : JSON.stringify(input.vectors)
+      const id = yield* q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms, vectors)
+        VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs}, ${vectorsJson})
         ON CONFLICT(hash, path) DO NOTHING RETURNING id`)).pipe(
         Effect.map((result) => rowsOf(result)[0]?.id),
       )
@@ -203,7 +214,78 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (fs
           )
       yield* searchOne(global.db, "global")
       if (workspace !== undefined) yield* searchOne(workspace.db, "workspace")
-      return hits
+      if (provider === undefined) return hits
+      // Hybrid path: cosine over stored vectors + BM25, weighted, min_score.
+      const queryVector = yield* provider.embedBatch([query]).pipe(Effect.catch(() => Effect.succeed([])))
+      const qv = queryVector[0]
+      if (qv === undefined || qv.length === 0) return hits
+      const collectChunks = (db: SyncDB): Effect.Effect<Array<IndexChunk>, IndexError> =>
+        q(() => db.all(sql`SELECT id, path, start_line, source, text, vectors FROM chunks`)).pipe(
+          Effect.map((result) =>
+            rowsOf(result).map((row) => {
+              const vectors = row.vectors
+              return {
+                id: Number(row.id),
+                path: String(row.path),
+                source: String(row.source),
+                accessCount: 0,
+                mtimeMs: 0,
+                text: String(row.text),
+                startLine: Number(row.start_line),
+                vectors: typeof vectors === "string" ? (JSON.parse(vectors) as Array<number>) : undefined,
+              }
+            }),
+          ),
+        )
+      const [globalChunks, workspaceChunks] = yield* Effect.all([
+        collectChunks(global.db),
+        workspace === undefined ? Effect.succeed([]) : collectChunks(workspace.db),
+      ])
+      const chunks = [...globalChunks, ...workspaceChunks]
+      const vectorScored = chunks
+        .map((chunk) => ({ chunk, cosine: cosineSimilarity(qv, chunk.vectors ?? []) }))
+        .sort((a, b) => b.cosine - a.cosine)
+        .slice(0, limit * 4)
+      const ftsById = new Map(hits.map((hit) => [hit.id, hit]))
+      const candidates: Array<{
+        hit: ChunkHit | undefined
+        chunk: IndexChunk
+        cosine: number
+        textScore: number
+      }> = []
+      for (const item of vectorScored) {
+        candidates.push({
+          hit: ftsById.get(item.chunk.id),
+          chunk: item.chunk,
+          cosine: item.cosine,
+          textScore: ftsById.get(item.chunk.id)?.score ?? 0,
+        })
+      }
+      for (const hit of hits) {
+        if (!vectorScored.some((item) => item.chunk.id === hit.id)) {
+          candidates.push({
+            hit,
+            chunk: { id: hit.id, path: hit.path, source: hit.source, accessCount: 0, mtimeMs: 0, text: hit.text },
+            cosine: 0,
+            textScore: hit.score,
+          })
+        }
+      }
+      const textNorm = normalize01(candidates.map((candidate) => candidate.textScore))
+      const vecNorm = normalize01(candidates.map((candidate) => candidate.cosine))
+      const scored: ChunkHit[] = candidates
+        .map((candidate, index) => ({
+          id: candidate.chunk.id,
+          path: candidate.chunk.path,
+          line: candidate.hit?.line ?? candidate.chunk.startLine ?? 1,
+          text: candidate.chunk.text,
+          score: hybridScore(vecNorm[index]!, textNorm[index]!),
+          source: candidate.hit?.source ?? (candidate.chunk.source as ChunkHit["source"]),
+          ageDays: candidate.hit?.ageDays ?? 0,
+        }))
+        .filter((item) => item.score >= DEFAULT_MIN_SCORE)
+        .sort((a, b) => b.score - a.score)
+      return scored.slice(0, limit)
     }),
     incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (ids: ReadonlyArray<number>) {
       if (ids.length === 0) return
@@ -262,7 +344,14 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
 ) {
   const relative = filePath.replace(/\\/g, "/")
   yield* index.deletePath(root, relative)
-  for (const chunk of chunkMarkdown(text, 1500)) {
+  const chunks = chunkMarkdown(text, 1500)
+  let vectors: ReadonlyArray<ReadonlyArray<number>> = []
+  if (index.provider !== undefined) {
+    vectors = yield* index.provider
+      .embedBatch(chunks.map((chunk) => chunk.text))
+      .pipe(Effect.catch(() => Effect.succeed([])))
+  }
+  for (const [index_, chunk] of chunks.entries()) {
     yield* index.insert(root, {
       path: relative,
       source,
@@ -270,6 +359,7 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
       startLine: chunk.startLine,
       endLine: chunk.endLine,
       mtimeMs,
+      vectors: vectors[index_],
     })
   }
 })
