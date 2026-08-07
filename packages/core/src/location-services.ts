@@ -16,6 +16,7 @@ import { Location } from "./location"
 import { LocationMutation } from "./location-mutation"
 import { MemoryContext } from "./memory/context"
 import { MemoryFlush } from "./memory/flush"
+import { MemoryConsolidation } from "./memory/consolidate"
 import { LocationServiceMap } from "./location-service-map"
 import { PermissionV2 } from "./permission"
 import { PluginV2 } from "./plugin"
@@ -66,6 +67,7 @@ export const locationServices = LayerNode.group([
   SystemContextBuiltIns.node,
   MemoryContext.node,
   MemoryFlush.node,
+  MemoryConsolidation.node,
   LocationMutation.node,
   FileMutation.node,
   PermissionV2.node,

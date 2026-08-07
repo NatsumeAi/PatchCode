@@ -1,10 +1,16 @@
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import path from "path"
+import { LLM, LLMClient, LLMEvent, Message, SystemPart, type LLMClientShape } from "@opencode-ai/llm"
+import type { Model } from "@opencode-ai/llm"
 import { FSUtil } from "../fs-util"
-import { readTextSafe, type MemoryRoots } from "./storage"
+import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
 
 export const SUMMARY_BUDGETS = { global: 1500 * 4, workspace: 1000 * 4 }
+
+const SUMMARY_SYSTEM =
+  "Summarize the memory archive for future sessions. Put the MOST IMPORTANT facts first. Output ONLY markdown."
+const SUMMARY_INPUT_CAP_CHARS = 64 * 1024
 
 export interface LoadedSummary {
   readonly global: string
@@ -42,3 +48,31 @@ export function renderSummaryBlock(loaded: LoadedSummary): string {
   if (loaded.global) parts.push(`<global-memory>\n${loaded.global}\n</global-memory>`)
   return parts.join("\n\n")
 }
+
+/** Regenerates `memory_summary.md` from the curated archive via the LLM (threat-scanned). */
+export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  llm: LLMClientShape,
+  model: Model,
+) {
+  const base = roots.workspaceDir ?? roots.globalDir
+  const archive = yield* readTextSafe(fs, path.join(base, "MEMORY.md"))
+  if (archive === undefined || archive.trim() === "") return
+  const request = LLM.request({
+    model,
+    system: [SystemPart.make(SUMMARY_SYSTEM)],
+    messages: [Message.user(archive.slice(0, SUMMARY_INPUT_CAP_CHARS))],
+    tools: [],
+  })
+  const text = yield* llm.stream(request).pipe(
+    Stream.filter(LLMEvent.is.textDelta),
+    Stream.map((event) => event.text),
+    Stream.mkString,
+    Effect.catch(() => Effect.succeed("")),
+  )
+  const cleaned = text.trim()
+  if (cleaned.length === 0) return
+  if (scanForThreats(cleaned).length > 0) return
+  yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned)
+})
