@@ -429,7 +429,7 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.revert",
             summary: "Revert message",
             description:
-              "Revert a specific message in a session, undoing its effects and restoring the previous state.",
+              "Revert a specific message in a session, undoing its effects and restoring the previous state. Unknown messageID is a no-op (returns the session unchanged). partID is not supported on the V2 path and returns 400.",
           }),
         ),
         HttpApiEndpoint.post("unrevert", SessionPaths.unrevert, {

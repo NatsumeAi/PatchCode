@@ -709,12 +709,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* assertNotBusy(ctx.params.sessionID)
-      // V2 stage is messageID-only; partID mid-message trim stays deferred (TUI undo omits it).
+      // V2 stage is messageID-only. Reject partID instead of silently widening to full-message revert.
       if (ctx.payload.partID) {
-        yield* Effect.logWarning("Instance revert partID ignored; V2 stage is messageID-only", {
-          sessionID: ctx.params.sessionID,
-          partID: String(ctx.payload.partID),
-        })
+        return yield* new HttpApiError.BadRequest({})
       }
       const messageID = yield* Effect.try({
         try: () => SessionMessage.ID.make(String(ctx.payload.messageID)),
@@ -723,14 +720,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       yield* v2Svc.revert
         .stage({ sessionID: ctx.params.sessionID, messageID })
         .pipe(
+          // V1 parity: unknown messageID is a 200 no-op that returns the session unchanged.
+          Effect.catchTag("Session.MessageNotFoundError", () => Effect.void),
           Effect.mapError((error) => {
             if (error instanceof SessionV2.NotFoundError) {
               return new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
             }
-            if (error._tag === "Session.MessageNotFoundError") {
-              return new HttpApiError.BadRequest({})
-            }
-            return new HttpApiError.InternalServerError({})
+            // Snapshot.Error and other stage failures stay on the declared BadRequest channel.
+            return new HttpApiError.BadRequest({})
           }),
         )
       return yield* requireSession(ctx.params.sessionID)
@@ -744,7 +741,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           if (error instanceof SessionV2.NotFoundError) {
             return new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
           }
-          return new HttpApiError.InternalServerError({})
+          // Snapshot.Error → declared BadRequest channel (not InternalServerError).
+          return new HttpApiError.BadRequest({})
         }),
       )
       return yield* requireSession(ctx.params.sessionID)
@@ -773,8 +771,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const deleteMessage = Effect.fn("SessionHttpApi.deleteMessage")(function* (ctx: {
       params: { sessionID: SessionID; messageID: MessageID }
     }) {
-      yield* requireSession(ctx.params.sessionID)
+      const info = yield* requireSession(ctx.params.sessionID)
       yield* assertNotBusy(ctx.params.sessionID)
+      // If the deleted message is the staged revert boundary, clear staging first so
+      // later prompt/shell commit cannot die on a missing boundary.
+      if (info.revert && String(info.revert.messageID) === String(ctx.params.messageID)) {
+        yield* v2Svc.revert.clear(ctx.params.sessionID).pipe(Effect.catch(() => Effect.void))
+      }
       // Publishes message.removed → projector deletes MessageTable + SessionMessageTable.
       yield* session.removeMessage(ctx.params)
       return true
