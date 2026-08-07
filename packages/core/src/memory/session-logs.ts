@@ -20,10 +20,13 @@ export function isTrivialSession(input: { userPromptCount: number; userTextBytes
 }
 
 // Serializes read-modify-write appends from the drain watcher and flush.
+// The semaphore is created once and shared, so concurrent appends to the same
+// dated file cannot lose blocks (a per-call semaphore would serialize nothing).
+let appendLock: Semaphore.Semaphore | undefined
 const withAppendLock = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.gen(function* () {
-    const semaphore = yield* Semaphore.make(1)
-    return yield* semaphore.withPermits(1)(effect)
+    const lock = appendLock ?? (appendLock = yield* Semaphore.make(1))
+    return yield* lock.withPermits(1)(effect)
   })
 
 /** Appends a block to the session log, creating the dated file on first write. */

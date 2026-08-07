@@ -40,5 +40,7 @@ export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   yield* fs.ensureDir(path.dirname(filePath))
   const tmp = `${filePath}.tmp`
   yield* fs.writeWithDirs(tmp, content)
-  yield* fs.rename(tmp, filePath).pipe(Effect.catch(() => Effect.void))
+  yield* fs.rename(tmp, filePath).pipe(
+    Effect.catch((error) => Effect.logWarning(`memory atomic rename failed for ${filePath}: ${String(error)}`)),
+  )
 })
