@@ -8184,6 +8184,67 @@ export type WorktreeRemoveErrors = {
 
 export type WorktreeRemoveError = WorktreeRemoveErrors[keyof WorktreeRemoveErrors]
 
+export type MemoryFileListEntry = {
+  path: string
+  name: string
+  kind: "global" | "workspace" | "session"
+}
+
+export type MemoryFileList = Array<MemoryFileListEntry>
+
+export type MemoryReadResponse = {
+  content: string
+  truncated: boolean
+}
+
+export type MemoryListResponses = {
+  /**
+   * List memory files
+   */
+  200: MemoryFileList
+}
+
+export type MemoryListResponse = MemoryListResponses[keyof MemoryListResponses]
+
+export type MemoryReadResponses = {
+  /**
+   * Read a memory file
+   */
+  200: MemoryReadResponse
+}
+
+export type MemoryReadResponse2 = MemoryReadResponses[keyof MemoryReadResponses]
+
+export type MemorySessionLogDeleteResponses = {
+  /**
+   * Delete a session log
+   */
+  200: boolean
+}
+
+export type MemorySessionLogDeleteResponse = MemorySessionLogDeleteResponses[keyof MemorySessionLogDeleteResponses]
+
+export type MemoryListErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
+export type MemoryReadErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
+export type MemorySessionLogDeleteErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
 export type WorktreeRemoveResponses = {
   /**
    * Worktree removed

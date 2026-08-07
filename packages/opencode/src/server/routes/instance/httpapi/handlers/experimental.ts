@@ -12,10 +12,30 @@ import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
 import { Effect, Option } from "effect"
+import { join } from "path"
+import { Global } from "@opencode-ai/core/global"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { resolveRoots } from "@opencode-ai/core/memory/storage"
+import { resolveScopedFile } from "@opencode-ai/core/memory/paths"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
+import { WorkspaceRouteContext } from "../middleware/workspace-routing"
+import {
+  ConsoleSwitchPayload,
+  MemoryFileList,
+  MemoryReadQuery,
+  MemoryReadResponse,
+  MemorySessionLogDeleteQuery,
+  SessionListQuery,
+  ToolListQuery,
+  WorktreeApiError,
+} from "../groups/experimental"
+
+function relativePath(roots: { globalDir: string; workspaceDir?: string }, full: string): string {
+  const base = full.startsWith(roots.globalDir) ? roots.globalDir : (roots.workspaceDir ?? roots.globalDir)
+  return full.slice(base.length + 1).replace(/\\/g, "/")
+}
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -175,6 +195,63 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return yield* mcp.resources()
     })
 
+    const listMemory = Effect.fn("ExperimentalHttpApi.memory")(function* () {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      const files: Array<{ path: string; name: string; kind: "global" | "workspace" | "session" }> = []
+      const walk = (dir: string, kind: "global" | "workspace"): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.succeed([])))
+          for (const entry of entries) {
+            const full = join(dir, entry.name)
+            if (entry.type === "directory") {
+              yield* walk(full, kind)
+            } else if (entry.type === "file" && entry.name.endsWith(".md")) {
+              const relative = relativePath(roots, full)
+              files.push({
+                path: relative,
+                name: entry.name,
+                kind: relative.startsWith("sessions/") ? "session" : kind,
+              })
+            }
+          }
+        })
+      yield* walk(roots.globalDir, "global")
+      if (roots.workspaceDir !== undefined) yield* walk(roots.workspaceDir, "workspace")
+      return files.sort((a, b) => a.path.localeCompare(b.path))
+    })
+
+    const readMemory = Effect.fn("ExperimentalHttpApi.memoryRead")(function* (ctx: { query: typeof MemoryReadQuery.Type }) {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      const base = roots.workspaceDir ?? roots.globalDir
+      const resolved = yield* resolveScopedFile(fs, base, ctx.query.path).pipe(
+        Effect.map(Option.some),
+        Effect.catch(() => Effect.succeed(Option.none())),
+      )
+      if (Option.isNone(resolved)) return { content: "", truncated: false }
+      const text = yield* Effect.orElseSucceed(fs.readFileStringSafe(resolved.value), () => undefined)
+      const content = (text ?? "").slice(0, 40_000)
+      return { content, truncated: (text?.length ?? 0) > 40_000 }
+    })
+
+    const deleteSessionLog = Effect.fn("ExperimentalHttpApi.memorySessionLog")(function* (ctx: { query: typeof MemorySessionLogDeleteQuery.Type }) {
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      const base = roots.workspaceDir ?? roots.globalDir
+      if (!ctx.query.path.startsWith("sessions/")) return false
+      const resolved = yield* resolveScopedFile(fs, base, ctx.query.path).pipe(
+        Effect.map(Option.some),
+        Effect.catch(() => Effect.succeed(Option.none())),
+      )
+      if (Option.isNone(resolved)) return false
+      yield* fs.remove(resolved.value).pipe(Effect.orDie)
+      return true
+    })
+
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)
@@ -189,5 +266,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("session", session)
       .handle("sessionBackground", sessionBackground)
       .handle("resource", resource)
+      .handle("memory", listMemory)
+      .handle("memoryRead", readMemory)
+      .handle("memorySessionLog", deleteSessionLog)
   }),
 )

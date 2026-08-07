@@ -49,6 +49,14 @@ export type ServiceUnavailableError = {
 export const isServiceUnavailableError = (value: unknown): value is ServiceUnavailableError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ServiceUnavailableError"
 
+export type UnknownError = {
+  readonly _tag: "UnknownError"
+  readonly message: string
+  readonly ref?: string | undefined
+}
+export const isUnknownError = (value: unknown): value is UnknownError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "UnknownError"
+
 export type MessageNotFoundError = {
   readonly _tag: "MessageNotFoundError"
   readonly sessionID: string
@@ -57,14 +65,6 @@ export type MessageNotFoundError = {
 }
 export const isMessageNotFoundError = (value: unknown): value is MessageNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "MessageNotFoundError"
-
-export type UnknownError = {
-  readonly _tag: "UnknownError"
-  readonly message: string
-  readonly ref?: string | undefined
-}
-export const isUnknownError = (value: unknown): value is UnknownError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "UnknownError"
 
 export type ProviderNotFoundError = {
   readonly _tag: "ProviderNotFoundError"
@@ -145,6 +145,10 @@ export type AgentsListOutput = {
       readonly resource: string
       readonly effect: "allow" | "deny" | "ask"
     }>
+    readonly capability?: "read-only" | "read-write" | "execute" | "all"
+    readonly workspace?: string
+    readonly persona?: string
+    readonly source?: { readonly [x: string]: "explicit" | "inherited" | "default" }
   }>
 }
 
@@ -579,6 +583,7 @@ export type SessionsContextOutput = {
         readonly callID: string
         readonly command: string
         readonly output: string
+        readonly exit?: number | "Infinity" | "-Infinity" | "NaN"
       }
     | {
         readonly id: string
@@ -831,6 +836,7 @@ export type SessionsHistoryOutput = {
           readonly sessionID: string
           readonly callID: string
           readonly output: string
+          readonly exit?: number | "Infinity" | "-Infinity" | "NaN"
         }
       }
     | {
@@ -994,24 +1000,6 @@ export type SessionsHistoryOutput = {
             readonly executed: boolean
             readonly metadata?: { readonly [x: string]: { readonly [x: string]: JsonValue } }
           }
-        }
-      }
-    | {
-        readonly id: string
-        readonly metadata?: { readonly [x: string]: JsonValue }
-        readonly type: "session.next.tool.progress"
-        readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
-        readonly location?: { readonly directory: string; readonly workspaceID?: string }
-        readonly data: {
-          readonly timestamp: number
-          readonly sessionID: string
-          readonly assistantMessageID: string
-          readonly callID: string
-          readonly structured: { readonly [x: string]: JsonValue }
-          readonly content: ReadonlyArray<
-            | { readonly type: "text"; readonly text: string }
-            | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
-          >
         }
       }
     | {
@@ -1331,6 +1319,7 @@ export type SessionsEventsOutput =
         readonly sessionID: string
         readonly callID: string
         readonly output: string
+        readonly exit?: number
       }
     }
   | {
@@ -1490,24 +1479,6 @@ export type SessionsEventsOutput =
           readonly executed: boolean
           readonly metadata?: { readonly [x: string]: { readonly [x: string]: unknown } }
         }
-      }
-    }
-  | {
-      readonly id: string
-      readonly metadata?: { readonly [x: string]: unknown }
-      readonly type: "session.next.tool.progress"
-      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
-      readonly location?: { readonly directory: string; readonly workspaceID?: string }
-      readonly data: {
-        readonly timestamp: number
-        readonly sessionID: string
-        readonly assistantMessageID: string
-        readonly callID: string
-        readonly structured: { readonly [x: string]: unknown }
-        readonly content: ReadonlyArray<
-          | { readonly type: "text"; readonly text: string }
-          | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
-        >
       }
     }
   | {
@@ -1740,6 +1711,7 @@ export type SessionsMessageOutput = {
         readonly callID: string
         readonly command: string
         readonly output: string
+        readonly exit?: number | "Infinity" | "-Infinity" | "NaN"
       }
     | {
         readonly id: string
@@ -1915,6 +1887,7 @@ export type MessagesListOutput = {
         readonly callID: string
         readonly command: string
         readonly output: string
+        readonly exit?: number | "Infinity" | "-Infinity" | "NaN"
       }
     | {
         readonly id: string

@@ -406,6 +406,12 @@ import type {
   WorktreeResetErrors,
   WorktreeResetInput,
   WorktreeResetResponses,
+  MemoryListResponses,
+  MemoryListErrors,
+  MemoryReadResponses,
+  MemoryReadErrors,
+  MemorySessionLogDeleteResponses,
+  MemorySessionLogDeleteErrors,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -1274,6 +1280,95 @@ export class Experimental extends HeyApiClient {
   private _workspace?: Workspace
   get workspace(): Workspace {
     return (this._workspace ??= new Workspace({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * List memory files
+   *
+   * List curated memory and session log files for the current project.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryListResponses, MemoryListErrors, ThrowOnError>({
+      url: "/experimental/memory",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read a memory file
+   *
+   * Read a memory file (scoped to the memory roots).
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [{ in: "query", key: "path" }],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryReadResponses, MemoryReadErrors, ThrowOnError>({
+      url: "/experimental/memory/read",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete a session log
+   *
+   * Delete a session log file (only paths under sessions/).
+   */
+  public removeSessionLog<ThrowOnError extends boolean = false>(
+    parameters: {
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [{ in: "query", key: "path" }],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<MemorySessionLogDeleteResponses, MemorySessionLogDeleteErrors, ThrowOnError>({
+      url: "/experimental/memory/session-log",
+      ...options,
+      ...params,
+    })
   }
 }
 

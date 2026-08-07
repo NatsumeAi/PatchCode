@@ -71,6 +71,8 @@ import { useEpilogue } from "../../context/epilogue"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
+import { MemoryModal } from "../../memory-modal"
+import { RememberPrompt } from "../../remember-dialog"
 import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
 import { sessionEpilogue } from "../../util/presentation"
@@ -808,6 +810,28 @@ export function Session() {
           sessionID: route.sessionID,
           messageID: message.id,
         })
+      },
+    },
+    {
+      title: "Browse memory",
+      value: "session.memory.browse",
+      category: "Session",
+      slash: {
+        name: "memory",
+      },
+      run: () => {
+        dialog.replace(() => <MemoryModal />)
+      },
+    },
+    {
+      title: "Remember in memory",
+      value: "session.memory.remember",
+      category: "Session",
+      slash: {
+        name: "remember",
+      },
+      run: () => {
+        dialog.replace(() => <RememberPrompt sessionID={route.sessionID} />)
       },
     },
     {

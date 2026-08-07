@@ -87,6 +87,23 @@ export const SessionListQuery = Schema.Struct({
   archived: Schema.optional(QueryBoolean),
 })
 
+export const MemoryFileListEntry = Schema.Struct({
+  path: Schema.String,
+  name: Schema.String,
+  kind: Schema.Literals(["global", "workspace", "session"]),
+}).annotate({ identifier: "MemoryFileListEntry" })
+export const MemoryFileList = Schema.Array(MemoryFileListEntry).annotate({ identifier: "MemoryFileList" })
+export const MemoryReadQuery = Schema.Struct({
+  path: Schema.String,
+}).annotate({ identifier: "MemoryReadQuery" })
+export const MemoryReadResponse = Schema.Struct({
+  content: Schema.String,
+  truncated: Schema.Boolean,
+}).annotate({ identifier: "MemoryReadResponse" })
+export const MemorySessionLogDeleteQuery = Schema.Struct({
+  path: Schema.String,
+}).annotate({ identifier: "MemorySessionLogDeleteQuery" })
+
 export const ExperimentalPaths = {
   capabilities: "/experimental/capabilities",
   console: "/experimental/console",
@@ -99,6 +116,9 @@ export const ExperimentalPaths = {
   session: "/experimental/session",
   sessionBackground: "/experimental/session/:sessionID/background",
   resource: "/experimental/resource",
+  memory: "/experimental/memory",
+  memoryRead: "/experimental/memory/read",
+  memorySessionLog: "/experimental/memory/session-log",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -243,6 +263,36 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "Background subagents",
             description:
               "Detach any synchronous subagents currently blocking the session and continue them in the background.",
+          }),
+        ),
+        HttpApiEndpoint.get("memory", ExperimentalPaths.memory, {
+          query: WorkspaceRoutingQuery,
+          success: described(MemoryFileList, "List memory files"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.list",
+            summary: "List memory files",
+            description: "List curated memory and session log files for the current project.",
+          }),
+        ),
+        HttpApiEndpoint.get("memoryRead", ExperimentalPaths.memoryRead, {
+          query: MemoryReadQuery,
+          success: described(MemoryReadResponse, "Read a memory file"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.read",
+            summary: "Read a memory file",
+            description: "Read a memory file (scoped to the memory roots).",
+          }),
+        ),
+        HttpApiEndpoint.delete("memorySessionLog", ExperimentalPaths.memorySessionLog, {
+          query: MemorySessionLogDeleteQuery,
+          success: described(Schema.Boolean, "Delete a session log"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.session-log.delete",
+            summary: "Delete a session log",
+            description: "Delete a session log file (only paths under sessions/).",
           }),
         ),
         HttpApiEndpoint.get("resource", ExperimentalPaths.resource, {
