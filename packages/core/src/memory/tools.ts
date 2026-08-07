@@ -12,7 +12,7 @@ import { Tool } from "../tool/tool"
 import { resolveRoots } from "./storage"
 import { readTextSafe } from "./storage"
 import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type ScopedPathError } from "./paths"
-import { scanForThreats } from "./scan"
+import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
 import { ftsQuery } from "./recall"
 import { Option } from "effect"
@@ -117,7 +117,9 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
             }
           }
           const max = Math.max(1, input.max_tokens ?? 1000) * 4
-          const content = (text ?? "").slice(0, max)
+          const raw = (text ?? "").slice(0, max)
+          const threatIds = scanForThreats(raw)
+          const content = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : raw
           return { content, truncated: (text?.length ?? 0) > max }
         }),
     }),
@@ -144,11 +146,11 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
               ).slice(0, max)
               yield* index.incrementAccess(ranked.map((hit) => hit.id)).pipe(Effect.catch(() => Effect.void))
               return {
-                matches: ranked.map((hit) => ({
-                  path: hit.path,
-                  line: hit.line,
-                  text: `${hit.text} ${staleNote(hit.ageDays, hit.source)}`.trim(),
-                })),
+                matches: ranked.map((hit) => {
+                  const threatIds = scanForThreats(hit.text)
+                  const text = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : hit.text
+                  return { path: hit.path, line: hit.line, text: `${text} ${staleNote(hit.ageDays, hit.source)}`.trim() }
+                }),
               }
             } finally {
               yield* index.close().pipe(Effect.catch(() => Effect.void))
@@ -170,14 +172,19 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                 if (entry.type !== "file" || !entry.name.endsWith(".md")) continue
                 const filePath = path.join(dir, entry.name)
                 const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-                if (!info || Option.getOrElse(info.mtime, () => new Date(0)).getTime() === 0) continue
-                if (info.size > 1024 * 1024) continue
+                if (!info || info.size > 1024 * 1024) continue
+                const mtime = Option.getOrElse(info.mtime, () => new Date(0)).getTime()
                 const text = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
                 if (!text) continue
                 for (const [lineIndex, line] of text.split("\n").entries()) {
                   if (matches.length >= max) break
                   if (line.toLowerCase().includes(query)) {
-                    matches.push({ path: path.relative(base, filePath), line: lineIndex + 1, text: line })
+                    const threatIds = scanForThreats(line)
+                    const clean = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : line
+                    const relative = path.relative(base, filePath)
+                    const ageDays = (Date.now() - mtime) / (24 * 60 * 60 * 1000)
+                    const note = staleNote(ageDays, relative.startsWith("sessions/") ? "session" : "workspace")
+                    matches.push({ path: relative, line: lineIndex + 1, text: `${clean} ${note}`.trim() })
                   }
                 }
               }

@@ -50,6 +50,8 @@ export interface MemoryIndex {
   readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
   readonly incrementAccess: (ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
   readonly chunkIdsForPath: (filePath: string) => Effect.Effect<Array<number>, IndexError>
+  readonly chunkHashesForPath: (root: "global" | "workspace", filePath: string) => Effect.Effect<Array<[string, number]>, IndexError>
+  readonly removeChunks: (root: "global" | "workspace", ids: ReadonlyArray<number>) => Effect.Effect<void, IndexError>
   readonly listChunks: () => Effect.Effect<Array<IndexChunk>, IndexError>
   readonly close: () => Effect.Effect<void>
   readonly provider?: import("./embedding").EmbeddingProvider
@@ -293,6 +295,20 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
         q(() => db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${ids})`)).pipe(Effect.asVoid)
       yield* withBoth(bump, bump)
     }),
+    chunkHashesForPath: Effect.fn("MemoryIndex.chunkHashesForPath")(function* (root, filePath) {
+      const db = pick(root)
+      return yield* q(() => db.all(sql`SELECT id, hash FROM chunks WHERE path = ${filePath}`)).pipe(
+        Effect.map((result) => rowsOf(result).map((row) => [String(row.hash), Number(row.id)] as [string, number])),
+      )
+    }),
+    removeChunks: Effect.fn("MemoryIndex.removeChunks")(function* (root, ids) {
+      if (ids.length === 0) return
+      const db = pick(root)
+      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
+        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
+        Effect.asVoid,
+      )
+    }),
     chunkIdsForPath: Effect.fn("MemoryIndex.chunkIdsForPath")(function* (filePath) {
       const collect = (db: SyncDB) =>
         q(() => db.all(sql`SELECT id FROM chunks WHERE path = ${filePath}`)).pipe(
@@ -330,6 +346,7 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
         workspace?.native.close()
       })
     }),
+    provider,
   }
 })
 
@@ -343,8 +360,13 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   mtimeMs: number,
 ) {
   const relative = filePath.replace(/\\/g, "/")
-  yield* index.deletePath(root, relative)
   const chunks = chunkMarkdown(text, 1500)
+  const newHashes = new Set(chunks.map((chunk) => chunkHash(chunk.text)))
+  // Remove only chunks whose content is gone (hash changed); unchanged chunks
+  // keep their rows, ids, and access_count across reindexes and restarts.
+  const stale = yield* index.chunkHashesForPath(root, relative).pipe(Effect.catch(() => Effect.succeed([])))
+  const staleIds = stale.filter(([hash]) => !newHashes.has(hash)).map(([, id]) => id)
+  yield* index.removeChunks(root, staleIds).pipe(Effect.catch(() => Effect.void))
   let vectors: ReadonlyArray<ReadonlyArray<number>> = []
   if (index.provider !== undefined) {
     vectors = yield* index.provider

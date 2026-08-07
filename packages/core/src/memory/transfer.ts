@@ -66,7 +66,12 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
   const force = opts.force ?? false
   const manifestText = yield* readTextSafe(fs, path.join(source, "manifest.json"))
   if (manifestText === undefined) return { imported: 0, skipped: 0 }
-  const manifest = JSON.parse(manifestText) as TransferManifest
+  let manifest: TransferManifest
+  try {
+    manifest = JSON.parse(manifestText) as TransferManifest
+  } catch {
+    return { imported: 0, skipped: 0 }
+  }
   const base = roots.workspaceDir ?? roots.globalDir
   let imported = 0
   let skipped = 0

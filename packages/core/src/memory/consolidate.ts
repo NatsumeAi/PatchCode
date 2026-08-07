@@ -1,10 +1,10 @@
 export * as MemoryConsolidation from "./consolidate"
 
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Schedule, Stream } from "effect"
 import path from "path"
 import { LLM, LLMClient, LLMEvent, Message, SystemPart, type LLMClientShape, type LLMRequest } from "@opencode-ai/llm"
 import type { Model } from "@opencode-ai/llm"
-import { DateTime } from "effect"
+import { DateTime, Duration } from "effect"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { Location } from "../location"
@@ -78,7 +78,7 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   for (const candidate of pending) {
     const block = `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`
     if (budget + block.length > MERGE_INPUT_CAP_CHARS) break
-    budget += block.length + 4
+    budget += block.length + 8
     included.push(candidate)
   }
   if (included.length === 0) return false
