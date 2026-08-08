@@ -28,15 +28,36 @@ export const acquireMergeLock = Effect.fn("Memory.acquireMergeLock")(function* (
   const acquired = yield* tryCreate()
   if (acquired) return true
   const mtime = yield* fileMtime(fs, target)
-  if (mtime !== undefined && Date.now() - mtime >= STALE_LOCK_SECS * 1000) {
-    yield* fs.remove(target).pipe(Effect.catch(() => Effect.void))
-    return yield* tryCreate()
+  if (mtime === undefined || Date.now() - mtime < STALE_LOCK_SECS * 1000) return false
+
+  // Atomic reclaim: rename the stale lock to a unique graveyard path. Only one
+  // process can win the rename; losers fail with a missing source and retry.
+  const graveyard = `${target}.reclaim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const won = yield* fs.rename(target, graveyard).pipe(Effect.match({ onSuccess: () => true, onFailure: () => false }))
+  if (!won) return yield* tryCreate()
+  // Re-validate the moved lock: a live holder may have refreshed it between our
+  // staleness check and the rename. Restore it and back off instead of stealing.
+  const movedMtime = yield* fileMtime(fs, graveyard)
+  if (movedMtime !== undefined && Date.now() - movedMtime < STALE_LOCK_SECS * 1000) {
+    yield* fs.rename(graveyard, target).pipe(Effect.catch(() => Effect.void))
+    return false
   }
-  return false
+  yield* fs.remove(graveyard).pipe(Effect.catch(() => Effect.void))
+  return yield* tryCreate()
 })
 
 export const releaseMergeLock = Effect.fn("Memory.releaseMergeLock")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
   yield* fs.remove(lockPath(roots)).pipe(Effect.catch(() => Effect.void))
+})
+
+/**
+ * Heartbeat: refreshes the lock file's mtime so a long-running merge cannot be
+ * mistaken for a stale lock and reclaimed by another process mid-flight.
+ */
+export const refreshMergeLock = Effect.fn("Memory.refreshMergeLock")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
+  yield* fs.ensureDir(path.dirname(lockPath(roots))).pipe(Effect.andThen(fs.writeFileString(lockPath(roots), String(Date.now())))).pipe(
+    Effect.catch(() => Effect.void),
+  )
 })
 
 /** Records the timestamp of a completed consolidation. */
