@@ -4,7 +4,7 @@
 
 **Goal:** Close the consolidation loop: background stage1 extracts candidate memories from notes/session logs; gated phase2 merges them into `MEMORY.md`; `memory_summary.md` is regenerated from the archive so captured knowledge actually reaches the injection path. Idempotent, crash-safe, quality-gated, contradiction-aware.
 
-**Architecture:** The "notes ARE the job state" model (locked in the architecture doc): no SQLite job table — a note/session file exists on disk until its content is merged; phase2 consumes notes/sessions (and optional candidate files) and deletes them only on success. **Shipped P3 path folds separate LLM stage1 extraction** (optional follow-up); acceptance = merge from sources + regenerate summary. Watermark = source/candidate mtime. Phase2 gates mirror Grok dream: `min_hours` between consolidations + lock file with stale reclamation (3600s) + 32K input cap. Merging uses an LLM call in the P2 flush pattern; the merge prompt follows Grok's DREAM_SYSTEM_PROMPT. Idempotency: `mergeKeyOf` embeds `<!-- memory-candidate:<blake3-hex> -->` (stable hash of source id + content — **not** a 24-char slug). Quality gate: candidates shorter than noise floor are discarded without merging.
+**Architecture:** The "notes ARE the job state" model (locked in the architecture doc): no SQLite job table — a note/session file exists on disk until its content is merged; phase2 consumes notes/sessions (and optional candidate files) and deletes them only on success. **Shipped P3 path folds separate LLM stage1 extraction** (optional follow-up); acceptance = merge from sources + regenerate summary. Watermark = source/candidate mtime. Phase2 gates mirror Grok dream: `min_hours` between consolidations + lock file with stale reclamation (3600s) + 32K input cap. Merging uses an LLM call in the P2 flush pattern; the merge prompt follows Grok's DREAM_SYSTEM_PROMPT. Idempotency: `mergeKeyOf` embeds `<!-- memory-candidate:<sha256-hex> -->` (stable hash of source id + content — **not** a 24-char slug). Quality gate: candidates shorter than noise floor are discarded without merging.
 
 **Tech Stack:** TypeScript, Effect (Layer/Effect/Stream/Schedule), opencode core (`BackgroundJob.Service` for observability, `LLMClient.Service` + `LLM.request`, `FSUtil.Service`, `Global.Path`, `Location.Service`), bun:test + `testEffect` + `Layer.mock`.
 
@@ -52,7 +52,7 @@ packages/core/test/memory/
   - `export const listCandidates = Effect.fn("Memory.listCandidates")((fs, roots, since: number) => Effect.Effect<Array<{ id: string; path: string; mtime: number }>>)` — reads dir, returns files with mtime > since (sorted by mtime)
   - `export const writeCandidate = Effect.fn("Memory.writeCandidate")((fs, roots, id, content) => Effect.Effect<void>)` — `create_new` write under candidates dir; id = sanitized slug + `.md`
   - `export const readCandidate` / `deleteCandidate` — read text / delete file
-  - `export const mergeKeyOf = (sourceId: string, content: string): string` — stable id embedded in merged entries for idempotent re-merge: first line `<!-- memory-candidate:<blake3-hex> -->` where hex = blake3(`${sourceId}\n${content}`) (via `Bun.hash` or crypto). **Do not use short content slugs** (collision risk).
+  - `export const mergeKeyOf = (sourceId: string, content: string): string` — stable id embedded in merged entries for idempotent re-merge: first line `<!-- memory-candidate:<sha256-hex> -->` where hex = sha256(`${sourceId}\n${content}`) (via `Bun.CryptoHasher("sha256")`, verified in candidates.ts). **Do not use short content slugs** (collision risk).
   - `export const NOISE_FLOOR_CHARS = 40`
 
 - [ ] **Step 1: Write the failing test**
@@ -71,7 +71,7 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(FSUtil.node)
 
 describe("Memory candidates", () => {
-  test("merge key is a stable blake3 comment line", () => {
+  test("merge key is a stable sha256 comment line", () => {
     const a = mergeKeyOf("note-1", "## Notes\nx")
     const b = mergeKeyOf("note-1", "## Notes\nx")
     const c = mergeKeyOf("note-2", "## Notes\nx")
@@ -128,7 +128,7 @@ export const candidatePath = (roots: MemoryRoots, id: string): string =>
   path.join(candidatesDir(roots), `${id}.md`)
 
 export const mergeKeyOf = (sourceId: string, content: string): string => {
-  const hex = Bun.hash(`${sourceId}\n${content}`).toString(16)
+  const hex = Bun.CryptoHasher("sha256").update(`${sourceId}\n${content}`).digest("hex")
   return `<!-- memory-candidate:${hex} -->`
 }
 
@@ -556,7 +556,7 @@ git commit -m "feat(memory): regenerate memory_summary.md after consolidation"
 
 ## Self-Review
 
-**Spec coverage (architecture doc P3):** shipped path = merge notes/sessions (optional candidates) → Tasks 1–3; separate stage1 LLM extraction deferred; summary regeneration → Task 4; idempotency → **blake3 merge keys** + delete-on-success + noise/threat discard; gates → lock + stale reclamation; budget → 32K input cap + 64K MEMORY cap; contradiction resolution → PHASE2_SYSTEM prompt.
+**Spec coverage (architecture doc P3):** shipped path = merge notes/sessions (optional candidates) → Tasks 1–3; separate stage1 LLM extraction deferred; summary regeneration → Task 4; idempotency → **sha256 merge keys** + delete-on-success + noise/threat discard; gates → lock + stale reclamation; budget → 32K input cap + 64K MEMORY cap; contradiction resolution → PHASE2_SYSTEM prompt.
 
 **Placeholder scan:** no TBD/TODO in task steps; prompt constants are complete; test code concrete.
 

@@ -4,9 +4,9 @@
 
 **Goal:** Upgrade memory retrieval from file grep to a SQLite FTS5 (BM25) index with content-hash dedup, external-edit reindexing, and temporal-decay ranking (session logs decay, curated global/workspace exempt). The P1 `memory_search` tool switches to the index while keeping its input/output contract (path+line citations).
 
-**Architecture:** Each memory root (global and workspace) owns a dedicated `index.sqlite` (gitignored, regenerable) with `chunks` (blake3 hash dedup + `access_count`) + contentless FTS5 `chunks_fts`. Search opens both indexes when workspace exists, merges hits, then ranks. A watcher accumulates dirty paths (Ref) and reindexes before search. Ranking: workspace > global > session base score, session decays exponentially (half-life 7 days), curated exempt, min_score filter, scaffold filtering. **Access contract:** every search hit, memory_read of indexed path, and recall inclusion bumps `access_count` for that chunk. Search falls back to the P1 grep path when both indexes are unavailable.
+**Architecture:** Each memory root (global and workspace) owns a dedicated `index.sqlite` (gitignored, regenerable) with `chunks` (sha256 hash dedup + `access_count`) + contentless FTS5 `chunks_fts`. Search opens both indexes when workspace exists, merges hits, then ranks. A watcher accumulates dirty paths (Ref) and reindexes before search. Ranking: workspace > global > session base score, session decays exponentially (half-life 7 days), curated exempt, min_score filter, scaffold filtering. **Access contract:** every search hit, memory_read of indexed path, and recall inclusion bumps `access_count` for that chunk. Search falls back to the P1 grep path when both indexes are unavailable.
 
-**Tech Stack:** TypeScript, Effect, `drizzle-orm/sqlite-core` (in-repo pattern per `session/sql.ts`), the repo's sqlite layer `@opencode-ai/effect-drizzle-sqlite` + `#sqlite` (verified: `packages/core/src/database/database.ts` uses `EffectDrizzleSqlite` + `sqliteLayer` — mirror that pattern for separate `index.sqlite` files), blake3 via `Bun.hash` (verified present), bun:test + `testEffect`.
+**Tech Stack:** TypeScript, Effect, `drizzle-orm/sqlite-core` (in-repo pattern per `session/sql.ts`), the repo's sqlite layer `@opencode-ai/effect-drizzle-sqlite` + `#sqlite` (verified: `packages/core/src/database/database.ts` uses `EffectDrizzleSqlite` + `sqliteLayer` — mirror that pattern for separate `index.sqlite` files), sha256 via `Bun.CryptoHasher` (verified present), bun:test + `testEffect`.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - Same style/Effect rules as P1–P3. No `as any`, no `@ts-ignore`.
 - Index is **derived data**: always regenerable from files; corrupt/missing index → fallback to P1 grep path, never block reads.
 - **Dual-root (architecture Option A):** `openMemoryIndex` / search operate on `{ globalDir/index.sqlite, workspaceDir?/index.sqlite }`; never a single shared DB for both roots.
-- Hash dedup invariant: reindex of an unchanged chunk (same blake3 hash) is a no-op.
+- Hash dedup invariant: reindex of an unchanged chunk (same sha256 hash) is a no-op.
 - **Access-count invariant:** `incrementAccess(chunkId)` on each search hit returned to the caller, each recall-included chunk (P6), and once per `memory_read` for chunks mapping to that path. Prune/health (P5/P8) only read this column.
 - Ranking invariant: curated sources (global/workspace `MEMORY.md`) are exempt from temporal decay; session chunks decay with half-life 7 days (`score × e^(−λ·age_days)`, λ = ln2/7).
 - Scaffold filter: auto-generated empty/stub chunks never appear in results (reuse Grok's `is_content_free` approach — structurally empty or short scaffold marker text).
@@ -52,7 +52,7 @@ packages/core/test/memory/
 - Produces:
   - `export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")((fs, roots) => Effect.Effect<MemoryIndex>)` — opens `{globalDir}/index.sqlite` and, when present, `{workspaceDir}/index.sqlite`; returns a handle that searches/merges both
   - `export function chunkMarkdown(content: string, maxChars: number): Array<{ text: string; startLine: number; endLine: number }>` — markdown-aware: split on `##` headers, then paragraphs, then lines; continuation chunks carry ancestor header context (Grok strategy)
-  - `export const chunkHash = (text: string): string` — blake3 hex (Bun.hash or crypto)
+  - `export const chunkHash = (text: string): string` — sha256 hex (Bun.CryptoHasher("sha256"))
   - `MemoryIndex` also exposes `incrementAccess(ids: ReadonlyArray<string>): Effect.Effect<void>` and `listChunks()` for P5/P8
 
 - [ ] **Step 1: Write the failing test**
@@ -140,7 +140,7 @@ export interface MemoryIndex {
   readonly close: () => Effect.Effect<void>
 }
 
-export const chunkHash = (text: string): string => Bun.hash(text).toString(36)
+export const chunkHash = (text: string): string => Bun.CryptoHasher("sha256").update(text).digest("hex")
 
 export function chunkMarkdown(content: string, maxChars: number): Array<{ text: string; startLine: number; endLine: number }> {
   if (content.length <= maxChars) return [{ text: content, startLine: 1, endLine: content.split("\n").length }]

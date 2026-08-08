@@ -8,7 +8,7 @@
 1. **写读分离**: agent writes notes/session logs only; curated `MEMORY.md` and injected `memory_summary.md` are only modified by consolidation (LLM) — never by the agent directly.
 2. **注入契约（双通道）**: (a) `memory_summary.md` via SystemContext every prompt assembly (truncated, scanned); (b) epoch-only **recall** block (P6) of top-N retrieved chunks (scanned). Notes/session logs are never injected raw. Budgets: summary global 1500 + workspace 1000 tokens (chars≈4×); recall ≤4K chars. See [Injection contract](#injection-contract-locked).
 3. **动态读 + 前缀缓存**: summary is re-read per model step (never frozen into the session record). Within a session, summary is expected stable; if consolidation regenerates `memory_summary.md` mid-session, prefix-cache invalidation is **accepted** (rare; consolidation is gated by min_hours). Recall is epoch-only (`initialize` / post-compaction `prepare`) so it does not churn mid-epoch.
-4. **幂等巩固**: source notes/sessions deleted only after successful merge into `MEMORY.md` (or noise/threat discard); crash recovery = rescan sources + candidates (files ARE the job state). Watermark = candidate / source mtime. Merge keys are stable content hashes (blake3), not short slugs.
+4. **幂等巩固**: source notes/sessions deleted only after successful merge into `MEMORY.md` (or noise/threat discard); crash recovery = rescan sources + candidates (files ARE the job state). Watermark = candidate / source mtime. Merge keys are stable content hashes (sha256), not short slugs.
 5. **隐私纪律**: automatic saves are metadata-only (zero LLM); content capture requires user trigger (note or flush).
 6. **安全底线**: threat scan at note-write, summary-injection, **and recall-injection**; path triple-guard; exclusive `create_new` writes; atomic IO.
 7. **容量管理**: `MEMORY.md` char budget + merge-time ephemeral discard + usage-based prune at **chunk/entry** granularity (P5), driven by `access_count` (P4).
@@ -51,7 +51,7 @@ Prune/health **only** read `access_count`; never invent proxies. Missing increme
 
 - **Shipped path:** notes + session logs → candidates (or direct merge input) → gated phase2 merge → delete sources/candidates on success → regenerate summary.
 - Separate LLM **stage1 extraction** is an optional follow-up; not required for P3 acceptance. Acceptance language matches the shipped path.
-- `mergeKey` / idempotency id = `blake3(stableSourceId + content)` embedded as `<!-- memory-candidate:<hex> -->`.
+- `mergeKey` / idempotency id = `sha256(stableSourceId + content)` embedded as `<!-- memory-candidate:<hex> -->`.
 
 ### Import policy (P8)
 
@@ -119,11 +119,11 @@ Storage roots + scoped-path guards + threat scan + summary load/truncate + Syste
 - **Wiring**: `drainWatcherNode` → `location-services.ts`; flush → `context-engine.ts` compact path (`serviceOption`).
 
 ### P3 — Consolidation pipeline — PLAN: `2026-08-07-memory-system-p3.md`
-- Gated merge (min_hours + lock + 32K input + 64K MEMORY cap); blake3 merge keys; delete on success; summary regeneration.
+- Gated merge (min_hours + lock + 32K input + 64K MEMORY cap); sha256 merge keys; delete on success; summary regeneration.
 - Optional stage1 extraction deferred; shipped = merge from notes/sessions/candidates.
 
 ### P4 — Retrieval quality (FTS5 + temporal decay) — PLAN: `2026-08-07-memory-system-p4.md`
-- Dual-root `index.sqlite`; blake3 chunk dedup; **access_count increments on search/read/recall hits**; dirty reindex; temporal decay; grep fallback.
+- Dual-root `index.sqlite`; sha256 chunk dedup; **access_count increments on search/read/recall hits**; dirty reindex; temporal decay; grep fallback.
 
 ### P5 — Quality tooling + UI — PLAN: `2026-08-07-memory-system-p5.md`
 - Prune candidates = **chunk ids** (low access + age), never whole-archive path alone; LLM-confirmed removal in merge.
@@ -143,7 +143,7 @@ Storage roots + scoped-path guards + threat scan + summary load/truncate + Syste
 
 - [ ] Agent can write notes (user-request-gated via tool description) and retrieve via 4 tools with path/line citations.
 - [ ] Session-end metadata logs land in **workspace** `sessions/` when a project is open; compaction flush captures content; citations present.
-- [ ] Notes/sessions merge into `MEMORY.md` idempotently (blake3 keys, crash-safe); `memory_summary.md` regenerates; injected summary reflects knowledge.
+- [ ] Notes/sessions merge into `MEMORY.md` idempotently (sha256 keys, crash-safe); `memory_summary.md` regenerates; injected summary reflects knowledge.
 - [ ] Dual-root FTS5 with temporal decay + content-free filtering; `access_count` increments on search/read/recall; auto-recall injects at session start and after compaction (scanned, budgeted).
 - [ ] Vector hybrid activates when embeddings configured; everything degrades without it.
 - [ ] Health shows real usage; prune lists **chunk/entry** candidates into consolidation; export/import follows never-overwrite-newer-local; stale session memory marked.
