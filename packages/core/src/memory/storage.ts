@@ -31,6 +31,10 @@ export const readTextSafe = Effect.fn("Memory.readTextSafe")(function* (fs: FSUt
  * Writes a file via temp-file + rename so a crash never leaves a half-written
  * archive (MEMORY.md, memory_summary.md, session logs). The exclusive-create
  * invariant for notes is enforced separately with the "wx" flag.
+ *
+ * Returns `true` when the rename (and therefore the write) succeeded, `false`
+ * when the temp file was written but the atomic rename failed — callers that
+ * delete source data only after a confirmed write must gate on this result.
  */
 export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   fs: FSUtil.Interface,
@@ -40,7 +44,11 @@ export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   yield* fs.ensureDir(path.dirname(filePath))
   const tmp = `${filePath}.tmp`
   yield* fs.writeWithDirs(tmp, content)
-  yield* fs.rename(tmp, filePath).pipe(
-    Effect.catch((error) => Effect.logWarning(`memory atomic rename failed for ${filePath}: ${String(error)}`)),
+  return yield* fs.rename(tmp, filePath).pipe(
+    Effect.tapError((error) => Effect.logWarning(`memory atomic rename failed for ${filePath}: ${String(error)}`)),
+    Effect.match({
+      onSuccess: () => true,
+      onFailure: () => false,
+    }),
   )
 })

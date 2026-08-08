@@ -19,7 +19,7 @@ import { resolveRoots } from "./storage"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { listCandidates, readCandidate, deleteCandidate, mergeKeyOf, NOISE_FLOOR_CHARS } from "./candidates"
 import type { IndexChunk } from "./reindex"
-import { acquireMergeLock, releaseMergeLock, markConsolidated, shouldConsolidate } from "./merge-lock"
+import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, shouldConsolidate } from "./merge-lock"
 import { PHASE2_SYSTEM } from "./merge-prompt"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openMemoryIndex } from "./reindex"
@@ -110,7 +110,8 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   if (merged.length > MEMORY_CAP_CHARS) return false
   if (scanForThreats(merged).length > 0) return false
 
-  yield* writeTextAtomic(fs, target, merged)
+  const written = yield* writeTextAtomic(fs, target, merged)
+  if (!written) return false
   for (const candidate of included) yield* deleteCandidate(fs, roots, candidate.id)
   return true
 })
@@ -122,6 +123,15 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
   if (!locked) return
   try {
     if (!(yield* shouldConsolidate(fs, roots))) return
+    // Heartbeat (scope-scoped fiber): refresh the lock every 5 minutes so a long
+    // LLM merge cannot be reclaimed as stale by a concurrent process
+    // (STALE_LOCK_SECS = 3600). The fiber dies with the Effect.scoped scope.
+    yield* refreshMergeLock(fs, roots).pipe(
+      Effect.repeat(Schedule.spaced(Duration.minutes(5))),
+      Effect.forkScoped,
+    )
+    yield* Effect.scoped(
+      Effect.gen(function* () {
     const candidates = yield* listCandidates(fs, roots, 0)
     const contents: Array<{ id: string; text: string }> = []
     for (const candidate of candidates) {
@@ -163,6 +173,8 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       yield* markConsolidated(fs, roots)
       yield* regenerateSummary(fs, roots, llm, model)
     }
+      }),
+    )
   } finally {
     yield* releaseMergeLock(fs, roots)
   }

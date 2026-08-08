@@ -40,6 +40,22 @@ describe("Memory storage", () => {
     ),
   )
 
+  it.effect("writeTextAtomic reports false when the rename fails", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          // A directory at the target path makes the atomic rename fail (EISDIR).
+          const file = `${dir.path}/mem/MEMORY.md`
+          yield* fs.makeDirectory(file, { recursive: true })
+          const ok = yield* writeTextAtomic(fs, file, "line1\nline2")
+          expect(ok).toBe(false)
+        }),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ),
+  )
+
   it.effect("readTextSafe returns undefined for missing file", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),
