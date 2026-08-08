@@ -4,7 +4,7 @@ import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { resolveRoots } from "../../src/memory/storage"
-import { openMemoryIndex, chunkMarkdown, chunkHash, reindexFile } from "../../src/memory/reindex"
+import { openMemoryIndex, chunkMarkdown, chunkHash, reindexFile, ensureIndexed } from "../../src/memory/reindex"
 import { writeTextAtomic } from "../../src/memory/storage"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -244,6 +244,36 @@ describe("Memory index multi-chunk", () => {
           const preserved = yield* index.listChunks()
           expect(preserved.length).toBeGreaterThanOrEqual(2)
           expect(preserved.every((chunk) => chunk.accessCount === 1)).toBe(true)
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("ensureIndexed drops orphan session chunks from the workspace index", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), path.join(dir.path, "proj"))
+          const index = yield* openMemoryIndex(fs, roots)
+          // Session chunk lives in the WORKSPACE index (per-session capture).
+          yield* index.insert("workspace", {
+            path: "sessions/ses_abc123.md",
+            source: "session",
+            text: "stale session chunk whose file was deleted",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          // No matching file exists on disk, so ensureIndexed must orphan-drop it
+          // from the workspace index (not attempt a no-op delete on global).
+          yield* ensureIndexed(index, fs, roots)
+          const remaining = yield* index.listChunks()
+          expect(remaining.filter((chunk) => chunk.path === "sessions/ses_abc123.md").length).toBe(0)
           yield* index.close()
         }),
       ),

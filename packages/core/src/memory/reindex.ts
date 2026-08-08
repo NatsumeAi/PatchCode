@@ -123,8 +123,11 @@ export function chunkMarkdown(content: string, maxChars: number): Array<{ text: 
 const openOne = (file: string) =>
   q(() => {
     const native = new Database(file, { create: true })
-    native.run("PRAGMA journal_mode = WAL")
+    // busy_timeout must precede journal_mode=WAL: the WAL PRAGMA is a write that
+    // would otherwise run with the default 0ms busy timeout and fail under
+    // concurrent access.
     native.run("PRAGMA busy_timeout = 5000")
+    native.run("PRAGMA journal_mode = WAL")
     native.run(CREATE_CHUNKS)
     native.run(CREATE_PATH_INDEX)
     native.run(CREATE_HASH_PATH_UNIQUE)
@@ -469,7 +472,10 @@ export const ensureIndexed = Effect.fn("Memory.ensureIndexed")(function* (
   const indexed = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
   for (const chunk of indexed) {
     if (!seen.has(chunk.path)) {
-      yield* index.deletePath(chunk.source === "workspace" ? "workspace" : "global", chunk.path).pipe(
+      // Session chunks live in the workspace index when a workspace exists
+      // (per-session capture), otherwise in global — mirror incrementAccess.
+      const root = chunk.source === "workspace" || (chunk.source === "session" && roots.workspaceDir !== undefined) ? "workspace" : "global"
+      yield* index.deletePath(root, chunk.path).pipe(
         Effect.catch(() => Effect.void),
       )
     }
