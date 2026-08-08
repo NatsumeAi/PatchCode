@@ -5,6 +5,7 @@ import { IterationBudget } from "./iteration-budget"
 import { TerminalController } from "./terminal-controller"
 import { TimerDaemon } from "./timer-daemon"
 import { WorkerState } from "./worker-state"
+import { CircuitBreaker } from "./circuit-breaker"
 import { SessionRuntime } from "../runtime"
 
 export type LoopCommandRequirements =
@@ -14,6 +15,7 @@ export type LoopCommandRequirements =
   | TerminalController.Interface
   | TimerDaemon.Interface
   | WorkerState.Interface
+  | CircuitBreaker.Interface
 
 type StatusInput = {
   worker: { _tag: "Active" | "Waiting" | "Dead" }
@@ -23,6 +25,9 @@ type StatusInput = {
     stopReminderActive: boolean
   }
   terminal: { state: string; reason: string | null }
+  breaker: string
+  edges: number
+  goal: string
   lastEvents: Array<{ _tag: string; durationMs?: number; tool?: string }>
 }
 
@@ -32,6 +37,9 @@ const emptyStatus: StatusInput = {
   budget: { consumed: 0, cap: 90 },
   timer: { stopReminderActive: false },
   terminal: { state: "running", reason: null },
+  breaker: "Closed",
+  edges: 0,
+  goal: "",
   lastEvents: [],
 }
 
@@ -47,9 +55,12 @@ const renderStatus = (input: StatusInput) => {
     )
     .join(" -> ")
   return [
+    `Goal       : ${input.goal ? input.goal.slice(0, 120) : "(empty)"}`,
     `Worker     : ${input.worker._tag.toLowerCase()}`,
     `Verifier   : ${input.verifier.available ? "available" : "unavailable"}`,
     `Budget     : consumed ${input.budget.consumed} / cap ${input.budget.cap}  (${percentage}%)`,
+    `Breaker    : ${input.breaker}`,
+    `SpawnEdges : ${input.edges} open`,
     `Timer      : stopReminder ${input.timer.stopReminderActive ? "active" : "idle"}; durations unavailable`,
     `Terminal   : ${input.terminal.state}${input.terminal.reason ? ` (reason: ${input.terminal.reason})` : ""}`,
     `Last events: ${events}`,
@@ -73,6 +84,10 @@ const status = Effect.gen(function* () {
     const snap = yield* terminal.value.snapshot
     input = { ...input, terminal: { state: snap.state, reason: snap.reason } }
   }
+  const breaker = yield* Effect.serviceOption(CircuitBreaker.Service)
+  if (Option.isSome(breaker)) input = { ...input, breaker: yield* breaker.value.state }
+  const goal = yield* Effect.serviceOption(GoalStore.Service)
+  if (Option.isSome(goal)) input = { ...input, goal: yield* goal.value.get }
   const bus = yield* Effect.serviceOption(EventBus.Service)
   if (Option.isSome(bus)) input = { ...input, lastEvents: (yield* bus.value.snapshotBuffer(3)).map((event) => ({ _tag: event._tag })) }
   return renderStatus(input)
@@ -151,6 +166,15 @@ export const loopCommand = (raw: string): Effect.Effect<string, Error, LoopComma
       yield* bus.value.publish({ _tag: "AbortRequested", source: "user-cli", at: yield* Effect.clockWith((clock) => clock.currentTimeMillis) })
       return "abort requested; harness loop will break on next turn boundary"
     }
+    if (name === "breaker" || name === "circuit") {
+      const breaker = yield* Effect.serviceOption(CircuitBreaker.Service)
+      if (Option.isNone(breaker)) return "circuit breaker unavailable"
+      if (rest[0] === "reset") {
+        yield* breaker.value.reset
+        return "circuit breaker reset (Closed)"
+      }
+      return `circuit breaker: ${yield* breaker.value.state}`
+    }
     if (name === "goal") {
       const goal = yield* Effect.serviceOption(GoalStore.Service)
       if (Option.isNone(goal)) return "no goal set"
@@ -189,6 +213,7 @@ export const loopCommandForSession = (
     const maybe = yield* Effect.serviceOption(SessionRuntime.Service)
     if (Option.isNone(maybe)) return yield* loopCommand(raw)
     const instance = yield* maybe.value.getOrCreate(sessionID)
+    const edges = instance.spawnEdges.size
     return yield* loopCommand(raw).pipe(
       Effect.provideService(EventBus.Service, instance.eventBus),
       Effect.provideService(GoalStore.Service, instance.goalStore),
@@ -196,6 +221,14 @@ export const loopCommandForSession = (
       Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
       Effect.provideService(WorkerState.Service, instance.workerState),
       Effect.provideService(TerminalController.Service, instance.terminal),
+      Effect.provideService(CircuitBreaker.Service, instance.circuitBreaker),
+      Effect.map((text) => {
+        // Inject open-edge count into status when present (instance-owned map).
+        if (raw.trim().split(/\s+/)[0] === "status") {
+          return text.replace(/SpawnEdges : \d+ open/, `SpawnEdges : ${edges} open`)
+        }
+        return text
+      }),
     )
   })
 

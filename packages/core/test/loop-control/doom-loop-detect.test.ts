@@ -14,10 +14,18 @@ test("detectTailRepetition ignores short claims", () => {
   expect(DoomLoop.detectTailRepetition(["ok", "ok", "ok"])).toBeUndefined()
 })
 
-test("detectRepeatedToolFingerprint fires on same tool name streak", () => {
-  const signal = DoomLoop.detectRepeatedToolFingerprint(
-    Array.from({ length: 12 }, () => "bash:call-1"),
-    12,
-  )
+test("detectRepeatedToolFingerprint fires on same name+args fingerprint streak", () => {
+  const fp = DoomLoop.toolFingerprint("bash", { command: "ls" })
+  const signal = DoomLoop.detectRepeatedToolFingerprint(Array.from({ length: 8 }, () => fp), 8)
   expect(signal?.channel).toBe("tool_call")
+})
+
+test("toolFingerprint differs when args differ", () => {
+  expect(DoomLoop.toolFingerprint("bash", { command: "ls" })).not.toBe(
+    DoomLoop.toolFingerprint("bash", { command: "pwd" }),
+  )
+})
+
+test("toolFingerprint stable under key order", () => {
+  expect(DoomLoop.toolFingerprint("read", { a: 1, b: 2 })).toBe(DoomLoop.toolFingerprint("read", { b: 2, a: 1 }))
 })

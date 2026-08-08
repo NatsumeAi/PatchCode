@@ -31,6 +31,7 @@ import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteratio
 import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
 import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
 import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
+import { CircuitBreaker } from "@opencode-ai/core/session/loop-control/circuit-breaker"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -65,6 +66,13 @@ const loopCommandForInstance = (raw: string, instance: SessionRuntime.Instance) 
     Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
     Effect.provideService(WorkerState.Service, instance.workerState),
     Effect.provideService(TerminalController.Service, instance.terminal),
+    Effect.provideService(CircuitBreaker.Service, instance.circuitBreaker),
+    Effect.map((text) => {
+      if (raw.trim().split(/\s+/)[0] === "status") {
+        return text.replace(/SpawnEdges : \d+ open/, `SpawnEdges : ${instance.spawnEdges.size} open`)
+      }
+      return text
+    }),
   )
 
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
@@ -521,12 +529,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 : new HttpApiError.BadRequest({}),
             ),
           )
-        // FULL subtask parity: auto-spawn each subtask via Task host (background).
+        // FULL subtask parity: auto-spawn via Task host (permission+concurrency gated inside host).
         if (_subtasks && _subtasks.length > 0 && !noReply) {
           const taskHostOpt = yield* Effect.serviceOption(TaskTool.HostService)
           if (Option.isSome(taskHostOpt)) {
             for (const st of _subtasks) {
-              yield* taskHostOpt.value
+              const spawn = yield* taskHostOpt.value
                 .run({
                   parentSessionID: SessionSchema.ID.make(String(sessionID)),
                   description: st.description || st.agent,
@@ -535,17 +543,38 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                   command: st.command,
                   background: true,
                   agent: st.agent,
-                  assistantMessageID: SessionMessage.ID.create(),
+                  assistantMessageID: String(SessionMessage.ID.create()),
                   toolCallID: `subtask-${st.agent}`,
                 })
-                .pipe(
-                  Effect.catch((err) =>
-                    Effect.logWarning("subtask auto-spawn failed", { agent: st.agent, err: String(err) }),
-                  ),
-                )
+                .pipe(Effect.exit)
+              if (spawn._tag === "Failure") {
+                const errText = String(spawn.cause).slice(0, 500)
+                yield* Effect.logWarning("subtask auto-spawn failed", { agent: st.agent, err: errText })
+                // Model-visible explicit error (no silent drop).
+                yield* v2Svc
+                  .prompt({
+                    sessionID,
+                    prompt: {
+                      text: `<subtask_error agent=${JSON.stringify(st.agent)}>${errText}</subtask_error>`,
+                    },
+                    resume: false,
+                    projectUser: true,
+                  })
+                  .pipe(Effect.ignore)
+              }
             }
           } else {
             yield* Effect.logWarning("subtask parts present but Task host unavailable; prompt embeds subtask XML only")
+            yield* v2Svc
+              .prompt({
+                sessionID,
+                prompt: {
+                  text: `<subtask_error>Task host unavailable; subtask parts were embedded in prompt XML only (not spawned).</subtask_error>`,
+                },
+                resume: false,
+                projectUser: true,
+              })
+              .pipe(Effect.ignore)
           }
         }
         return message

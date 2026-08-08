@@ -7,6 +7,28 @@ import { Wildcard } from "../util/wildcard"
 
 export type CapabilityMode = "read-only" | "read-write" | "execute" | "all"
 
+/** Capability rank: lower = tighter. Persona may only tighten (min of ranks). */
+export const CAPABILITY_RANK: Record<CapabilityMode, number> = {
+  "read-only": 0,
+  "read-write": 1,
+  execute: 2,
+  all: 3,
+}
+
+/**
+ * Persona capability may only tighten the agent ceiling — never widen.
+ * Returns the tighter of agent vs persona (min rank).
+ */
+export function tightenCapability(
+  agentCeiling: CapabilityMode | undefined,
+  personaRequest: CapabilityMode | undefined,
+): CapabilityMode | undefined {
+  if (personaRequest === undefined) return agentCeiling
+  if (agentCeiling === undefined) return personaRequest
+  return CAPABILITY_RANK[personaRequest] <= CAPABILITY_RANK[agentCeiling] ? personaRequest : agentCeiling
+}
+
+
 /** Convert a legacy rule ({permission, pattern, action}) to the current rule shape ({action, resource, effect}). */
 export function toCurrentRule(rule: PermissionV1.Rule): Permission.Rule {
   return { action: rule.permission, resource: rule.pattern, effect: rule.action }

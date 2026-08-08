@@ -49,3 +49,17 @@ export function projectParentTrace(messages: readonly SessionMessage.Message[], 
   }
   return lines.join("\n")
 }
+
+/**
+ * Seq-safe structured inheritance: single synthetic text block carrying the
+ * projected parent trace. Prefer this over multi-row insert to avoid uniqueIndex risk.
+ * Returns empty string for PromptOnly (caller should skip admit).
+ */
+export function projectParentMessagesForInsert(
+  messages: readonly SessionMessage.Message[],
+  mode: ForkMode,
+): string {
+  const trace = projectParentTrace(messages, mode)
+  if (!trace) return ""
+  return `Parent trace (structured)\n---\n${trace}`
+}

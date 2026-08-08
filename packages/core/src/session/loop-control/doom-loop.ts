@@ -41,12 +41,38 @@ export function detectTailRepetition(
 }
 
 /**
+ * Stable fingerprint for a tool call: name + sorted JSON of args.
+ * Used so parallel same-name tools with different args do not doom-loop,
+ * while true retry loops (same name+args) still trip the detector.
+ */
+export function toolFingerprint(name: string, input?: unknown): string {
+  return `${name}:${stableArgsHash(input)}`
+}
+
+function stableArgsHash(input: unknown): string {
+  if (input === undefined || input === null) return ""
+  try {
+    return JSON.stringify(input, (_key, value) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const obj = value as Record<string, unknown>
+        const sorted: Record<string, unknown> = {}
+        for (const k of Object.keys(obj).sort()) sorted[k] = obj[k]
+        return sorted
+      }
+      return value
+    })
+  } catch {
+    return String(input)
+  }
+}
+
+/**
  * Detect repeated identical tool call fingerprints (name + stable args hash).
  */
 export function detectRepeatedToolFingerprint(
   recentFingerprints: readonly string[],
-  /** High default: parallel tool batches of the same name are normal. */
-  threshold = 12,
+  /** High enough that short parallel batches of same name+args can complete; true loops still trip. */
+  threshold = 8,
 ): DoomLoopSignal | undefined {
   if (recentFingerprints.length < threshold) return undefined
   const tail = recentFingerprints.slice(-threshold)

@@ -9,6 +9,8 @@ import { SpawnEdge } from "@opencode-ai/core/session/loop-control/spawn-edge"
 import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
 import type { ActiveAgentExceeded } from "@opencode-ai/core/session/loop-control/iteration-budget"
 import { buildForkPrompt } from "@opencode-ai/core/session/loop-control/fork-mode"
+import { TaskTool as CoreTaskTool } from "@opencode-ai/core/tool/task"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
@@ -190,6 +192,38 @@ export const TaskTool = Tool.define(
             subagent_type: params.subagent_type,
           },
         })
+      }
+
+      // Prefer V2 task host when available — single spawn authority (collapse dual track).
+      const v2Host = yield* Effect.serviceOption(CoreTaskTool.HostService)
+      if (Option.isSome(v2Host)) {
+        const exit = yield* v2Host.value
+          .run({
+            parentSessionID: SessionSchema.ID.make(String(ctx.sessionID)),
+            description: params.description,
+            prompt: params.prompt,
+            subagentType: params.subagent_type,
+            taskID: params.task_id,
+            command: params.command,
+            background: runInBackground,
+            forkMode: params.fork_mode,
+            agent: ctx.agent,
+            assistantMessageID: String(ctx.messageID),
+            toolCallID: String(ctx.callID ?? "task"),
+          })
+          .pipe(Effect.exit)
+        if (exit._tag === "Failure") {
+          return yield* Effect.fail(new Error(`Task failed: ${Cause.squash(exit.cause)}`))
+        }
+        const result = exit.value
+        return {
+          title: result.title,
+          output: result.output,
+          metadata: {
+            sessionId: result.sessionID ?? result.task_id,
+            ...(result.background ? { background: true } : {}),
+          },
+        }
       }
 
       const next = yield* agent.get(params.subagent_type)

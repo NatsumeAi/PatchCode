@@ -89,4 +89,28 @@ describe("validateResumeIdentity", () => {
     })
     expect(result.ok).toBe(true)
   })
+
+  test("rejects persona fingerprint drift when both sides present", () => {
+    const result = validateResumeIdentity({
+      child: child(),
+      parentSessionID: parentID,
+      subagentType: "explore",
+      priorPersonaName: "researcher",
+      priorFingerprint: "abc",
+      requestedFingerprint: "def",
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain("fingerprint")
+  })
+
+  test("allows matching fingerprints", () => {
+    const result = validateResumeIdentity({
+      child: child(),
+      parentSessionID: parentID,
+      subagentType: "explore",
+      priorFingerprint: "abc",
+      requestedFingerprint: "abc",
+    })
+    expect(result.ok).toBe(true)
+  })
 })

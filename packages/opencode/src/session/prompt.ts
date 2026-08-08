@@ -66,6 +66,7 @@ import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteratio
 import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
 import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
 import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
+import { CircuitBreaker } from "@opencode-ai/core/session/loop-control/circuit-breaker"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -82,6 +83,13 @@ const loopCommandForInstance = (raw: string, instance: SessionRuntime.Instance) 
     Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
     Effect.provideService(WorkerState.Service, instance.workerState),
     Effect.provideService(TerminalController.Service, instance.terminal),
+    Effect.provideService(CircuitBreaker.Service, instance.circuitBreaker),
+    Effect.map((text) => {
+      if (raw.trim().split(/\s+/)[0] === "status") {
+        return text.replace(/SpawnEdges : \d+ open/, `SpawnEdges : ${instance.spawnEdges.size} open`)
+      }
+      return text
+    }),
   )
 const MAX_MCP_RESOURCE_BLOB_BYTES = 10 * 1024 * 1024
 const SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES = new Set([

@@ -46,6 +46,8 @@ export interface ToolCall {
   readonly name: string
   readonly callID: string
   readonly sessionID: string
+  /** Tool args for doom-loop fingerprint (name+args hash). Optional for back-compat. */
+  readonly input?: unknown
 }
 
 export interface StreamOutput {
@@ -208,10 +210,10 @@ const buildRealHooks = (
       onToolCall: (call) =>
         Effect.gen(function* () {
           yield* instance.eventBus.publish({ _tag: "HookToolCall", sessionID: call.sessionID, name: call.name })
-          // Fingerprint includes call id so parallel same-name tools do not doom-loop.
-          const fp = `${call.name}:${call.callID}`
+          // Fingerprint = name + stable args hash (plan: same tool name+args ≥ K).
+          // Parallel different-args same-name tools do not match; true retry loops do.
+          const fp = DoomLoop.toolFingerprint(call.name, call.input)
           const next = yield* SynchronizedRef.updateAndGet(recentToolFingerprints, (xs) => [...xs, fp].slice(-24))
-          // Detect only when the exact same name:id is repeated (true retry loop).
           const signal = DoomLoop.detectRepeatedToolFingerprint(next, 8)
           if (signal) {
             yield* instance.terminal.request("unrecoverable_failure")

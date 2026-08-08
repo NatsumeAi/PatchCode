@@ -1,6 +1,11 @@
-import { Effect, Schema } from "effect"
+/**
+ * Legacy V1 adapter over session/fork-mode (single authority for projection).
+ * V2 host uses projectParentTrace / projectParentMessagesForInsert directly.
+ */
+import { Effect } from "effect"
+import { projectParentTrace, ForkMode as SessionForkMode } from "../fork-mode"
 
-export const ForkMode = Schema.Literals(["FullHistory", "LastNTurns", "PromptOnly"])
+export const ForkMode = SessionForkMode
 export type ForkMode = typeof ForkMode.Type
 
 interface ParentMessage {
@@ -14,13 +19,19 @@ interface BuildForkInput {
   promptOverride?: string
 }
 
+/** Legacy V1 adapter: role/content pairs → text projection. */
 export const buildForkPrompt = (input: BuildForkInput) =>
   Effect.gen(function* () {
     if (input.mode === "PromptOnly") {
       return input.promptOverride ?? ""
     }
-    const trace = input.mode === "LastNTurns" ? input.parentTrace.slice(-50) : input.parentTrace
-    const formatted = trace.map((m) => `${m.role}: ${m.content}`).join("\n---\n")
+    const asMessages = input.parentTrace.map((m) =>
+      m.role === "assistant"
+        ? ({ type: "assistant" as const, content: [{ type: "text" as const, text: m.content }] })
+        : ({ type: "user" as const, text: m.content }),
+    )
+    const trace = projectParentTrace(asMessages as never, input.mode)
+    if (!trace) return input.promptOverride ?? ""
     const prefix = input.promptOverride ? `${input.promptOverride}\n\nParent trace:\n---\n` : "Parent trace:\n---\n"
-    return prefix + formatted
+    return prefix + trace
   })

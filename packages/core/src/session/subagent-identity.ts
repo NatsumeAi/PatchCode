@@ -20,6 +20,8 @@ export function validateResumeIdentity(input: {
   requestedPersona?: string
   priorPersonaName?: string
   priorFingerprint?: string
+  /** When set with priorFingerprint, reject if instructions drifted. */
+  requestedFingerprint?: string
 }): { ok: true; childModel: SessionSchema.Info["model"] } | { ok: false; reason: string } {
   if (input.child.parentID !== input.parentSessionID) {
     return {
@@ -41,6 +43,18 @@ export function validateResumeIdentity(input: {
     return {
       ok: false,
       reason: `Task session ${input.child.id} persona "${input.priorPersonaName}" does not match resume persona "${input.requestedPersona}"`,
+    }
+  }
+  // Fingerprint drift: when both prior and requested fingerprints are known and differ, reject.
+  // Callers that omit requestedFingerprint skip drift check (inherit prior instructions).
+  if (
+    input.priorFingerprint !== undefined &&
+    input.requestedFingerprint !== undefined &&
+    input.priorFingerprint !== input.requestedFingerprint
+  ) {
+    return {
+      ok: false,
+      reason: `Task session ${input.child.id} persona instructions fingerprint drifted (resume pin mismatch)`,
     }
   }
   // Model is soft-ignored: the caller must use the child's model (source pinning).

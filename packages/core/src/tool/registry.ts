@@ -170,8 +170,16 @@ const describeTaskAgents = Effect.fn("ToolRegistry.describeTaskAgents")(function
   if (items.length === 0) return undefined
   const lines = items.map((item) => {
     const tag = item.capability ? ` [${item.capability}]` : ""
+    const persona = (item as { persona?: string }).persona
+    const personaTag = persona ? ` (persona:${persona})` : ""
     const blurb = item.description ?? "This subagent should only be called manually by the user."
-    return `- ${item.id}${tag}: ${blurb}`
+    // Discovery IO line when agent carries persona-related metadata (inputs/outputs optional on agent).
+    const io = (item as { inputs?: string[]; outputs?: string[] })
+    const ioLine =
+      (io.inputs?.length || io.outputs?.length)
+        ? ` | in: ${(io.inputs ?? []).join(",") || "-"} out: ${(io.outputs ?? []).join(",") || "-"}`
+        : ""
+    return `- ${item.id}${tag}${personaTag}: ${blurb}${ioLine}`
   })
   return ["Available agent types and the tools they have access to:", ...lines].join("\n")
 })

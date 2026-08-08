@@ -14,10 +14,8 @@ import { IterationBudget } from "../loop-control/iteration-budget"
  * `compact` records the current `consumed` count as `lastCompactStepsConsumed`
  * so the next `shouldProactiveCompact` check measures delta from this point.
  *
- * The actual compaction implementation (calling the existing context-epoch.ts
- * compaction path) is deferred to Plan 2 Task 7 hook integration. This module
- * only exposes the trigger + state tracking — the runner hook will dispatch
- * the real compaction when `shouldProactiveCompact` returns true.
+ * Trigger + last-compact tracker. The runner (`llm.ts`) dispatches real
+ * compaction via `compactIfNeeded` when `shouldProactiveCompact` is true.
  *
  * References:
  *   docs/loop-design.md §轨道2 (aider repomap PageRank + cognition compressor LLM)
