@@ -52,6 +52,7 @@ import {
   SessionTable,
 } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
+import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
@@ -59,6 +60,7 @@ import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Location } from "@opencode-ai/core/location"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { MemoryFlush } from "@opencode-ai/core/memory/flush"
 import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect"
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
@@ -76,6 +78,7 @@ let toolExecutionsReady = 5
 let activeToolExecutions = 0
 let maxActiveToolExecutions = 0
 let titleResponse = "Generated Title"
+const flushCalls: string[] = []
 const isTitleRequest = (request: LLMRequest) =>
   request.messages.some(
     (message) =>
@@ -139,6 +142,10 @@ const permission = Layer.succeed(
     list: () => Effect.die("unused"),
   }),
 )
+const memoryFlushMockService = MemoryFlush.Service.of({
+  flush: (sessionID) => Effect.sync(() => flushCalls.push(sessionID)),
+})
+const memoryFlushMock = Layer.succeed(MemoryFlush.Service, memoryFlushMockService)
 const echo = Layer.effectDiscard(
   ToolRegistry.Service.use((registry) =>
     registry.register({
@@ -270,13 +277,24 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [ReferenceGuidance.node, referenceGuidance],
   [PermissionV2.node, permission],
   [Config.node, config],
+  [MemoryFlush.node, memoryFlushMock],
 ])
 const execution = Layer.effect(
   SessionExecution.Service,
   Effect.gen(function* () {
     const sessionRunner = yield* SessionRunner.Service
+    const store = yield* SessionStore.Service
     const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: (sessionID, force) => sessionRunner.run({ sessionID, force }),
+      drain: Effect.fnUntraced(function* (sessionID: SessionV2.ID, force) {
+        const session = yield* store.get(sessionID)
+        if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
+        // Provide the memory flush service directly so the runner's guarded
+        // flushMemoryIfWired hook (session/runner/llm.ts) resolves it inside
+        // the drain, mirroring the location-scoped service in production.
+        return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force })).pipe(
+          Effect.provideService(MemoryFlush.Service, memoryFlushMockService),
+        )
+      }),
     })
     return SessionExecution.Service.of({
       active: coordinator.active,
@@ -322,6 +340,7 @@ const it = testEffect(
       [Snapshot.node, Snapshot.noopLayer],
       [SessionExecution.node, execution],
       [Config.node, config],
+      [MemoryFlush.node, memoryFlushMock],
     ],
   ),
 )
@@ -1248,6 +1267,38 @@ describe("SessionRunnerLLM", () => {
         summary: "## Objective\n- Preserve the updated task",
       })
       expect(secondContext.some((m) => m.type === "assistant")).toBe(true)
+    }),
+  )
+
+  it.effect("flushes memory when automatic compaction triggers", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      flushCalls.length = 0
+      response = fragmentFixture("text", "text-first", ["Earlier answer"]).completeEvents
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Earlier question ".repeat(300) }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      currentModel = compactModel
+      requests.length = 0
+      responses = [
+        fragmentFixture("text", "text-summary", ["<selection>[1b]</selection>\n## Objective\n- Preserve the task"]).completeEvents,
+        fragmentFixture("text", "text-final", ["Continued"]).completeEvents,
+      ]
+      yield* session.prompt({
+        sessionID,
+        prompt: Prompt.make({ text: "Recent exact request ".repeat(10) }),
+        resume: false,
+      })
+      yield* session.resume(sessionID)
+
+      expect(requests).toHaveLength(2)
+      expect(userTexts(requests[0])[0]).toContain("## Objective")
+      expect(flushCalls).toContain(sessionID)
     }),
   )
 

@@ -23,6 +23,7 @@ import { QuestionV2 } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
 import { MemoryRecall } from "../../memory/recall"
+import { MemoryFlush } from "../../memory/flush"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
@@ -525,6 +526,19 @@ const layer = Layer.effect(
     }
 
     /**
+     * Flush a session's memory when memory is wired (location-scoped service).
+     * Mirrors the manual /compact hook in V2Session.compact: automatic
+     * compaction must persist the same session memory the manual path does.
+     * Guarded + fire-and-forget so a memory failure never breaks the turn.
+     */
+    const flushMemoryIfWired = (sessionID: SessionSchema.ID) =>
+      Effect.serviceOption(MemoryFlush.Service).pipe(
+        Effect.flatMap((option) =>
+          option._tag === "Some" ? option.value.flush(sessionID).pipe(Effect.catch(() => Effect.void)) : Effect.void,
+        ),
+      )
+
+    /**
      * Render one drained verifier-reject feedback slice into a single
      * model-visible system-context text. Returns the empty string when both
      * the reason and the evidence are empty, so the caller can omit the
@@ -693,6 +707,7 @@ const layer = Layer.effect(
       // When the engine wants a proactive compact, still use compactIfNeeded as the
       // sole real compact executor so overflow recovery semantics stay single-path.
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })) {
+        yield* flushMemoryIfWired(session.id)
         yield* drain.contextEngine.compact.pipe(Effect.ignore)
         return yield* Effect.die(continueAfterCompaction(currentStep))
       }
@@ -701,7 +716,10 @@ const layer = Layer.effect(
         // we do not spin every turn (MIN_STEPS gate advances via compact()).
         const did = yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })
         yield* drain.contextEngine.compact.pipe(Effect.ignore)
-        if (did) return yield* Effect.die(continueAfterCompaction(currentStep))
+        if (did) {
+          yield* flushMemoryIfWired(session.id)
+          return yield* Effect.die(continueAfterCompaction(currentStep))
+        }
       }
       const startSnapshot = yield* snapshots.capture()
       const publisher = createLLMEventPublisher(events, {
@@ -751,7 +769,12 @@ const layer = Layer.effect(
               yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
               return
             }
-            yield* drain.hooks.onToolCall({ name: event.name, callID: event.id, sessionID: session.id })
+            yield* drain.hooks.onToolCall({
+              name: event.name,
+              callID: event.id,
+              sessionID: session.id,
+              input: "input" in event ? (event as { input?: unknown }).input : undefined,
+            })
             needsContinuation = true
             const assistantMessageID = yield* publisher.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
@@ -795,6 +818,7 @@ const layer = Layer.effect(
             // Context-overflow recovery via compaction succeeded; do not route
             // through onFailover (a non-retryable classification would wrongly
             // request terminal failure when the turn legitimately replays).
+            yield* flushMemoryIfWired(session.id)
             return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
           }
           // Post-compaction attempt (no further recoverOverflow): surface a clear
