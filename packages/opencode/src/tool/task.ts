@@ -195,6 +195,8 @@ export const TaskTool = Tool.define(
       }
 
       // Prefer V2 task host when available — single spawn authority (collapse dual track).
+      // Maps host results into the V1 tool contract (`renderOutput` XML + metadata.sessionId)
+      // so parent models / cancellation bookkeeping stay consistent with the legacy path.
       const v2Host = yield* Effect.serviceOption(CoreTaskTool.HostService)
       if (Option.isSome(v2Host)) {
         const exit = yield* v2Host.value
@@ -213,15 +215,37 @@ export const TaskTool = Tool.define(
           })
           .pipe(Effect.exit)
         if (exit._tag === "Failure") {
+          // Preserve cancellation: do not squash interrupts into a plain Error.
+          if (Cause.hasInterruptsOnly(exit.cause)) {
+            return yield* Effect.failCause(exit.cause)
+          }
           return yield* Effect.fail(new Error(`Task failed: ${Cause.squash(exit.cause)}`))
         }
         const result = exit.value
+        const childID = result.sessionID ?? result.task_id
+        const exitTag = result.structured?.exit
+        const isBackground = result.background === true || exitTag === "running"
+        const state: "running" | "completed" | "error" = isBackground
+          ? "running"
+          : exitTag === "failed" || exitTag === "cancelled" || exitTag === "timeout"
+            ? "error"
+            : "completed"
+        // Keep V1 model-visible <task> envelope when we have a child session id.
+        const output = childID
+          ? renderOutput({
+              sessionID: SessionID.make(String(childID)),
+              state,
+              text: result.output,
+              ...(isBackground ? { summary: "Background task started" } : {}),
+            })
+          : result.output
         return {
           title: result.title,
-          output: result.output,
+          output,
           metadata: {
-            sessionId: result.sessionID ?? result.task_id,
-            ...(result.background ? { background: true } : {}),
+            ...(childID ? { sessionId: childID } : {}),
+            ...(isBackground ? { background: true } : {}),
+            ...(result.structured ? { structured: result.structured } : {}),
           },
         }
       }

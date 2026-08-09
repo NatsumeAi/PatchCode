@@ -193,10 +193,13 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
         expect(hostCalls[0]?.command).toBe("explore")
         expect(hostCalls[0]?.forkMode).toBe("LastNTurns")
 
-        // Result is host-shaped (not V1 <task id=…> wrapper from legacy path).
-        expect(result.output).toBe("spawned-via-v2-host")
+        // Host body preserved inside V1 <task> envelope (legacy model contract).
+        expect(result.output).toContain(`<task id="ses_v2_child" state="completed">`)
+        expect(result.output).toContain("spawned-via-v2-host")
+        expect(result.output).toContain("<task_result>")
         expect(result.metadata.sessionId).toBe("ses_v2_child")
         expect(result.title).toBe("shell task")
+        expect(result.metadata.background).toBeUndefined()
 
         // V1 SessionPrompt never invoked.
         expect(prompt.calls).toBe(0)
@@ -204,6 +207,62 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
         // No V1-created child under parent (host mock does not create sessions).
         const kids = yield* sessions.children(chat.id)
         expect(kids).toHaveLength(0)
+      }),
+    30000,
+  )
+
+  it.instance(
+    "with HostService present: background host result keeps running envelope + metadata.background",
+    () =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+
+        const host = CoreTaskTool.HostService.of({
+          run: (input) =>
+            Effect.sync(() => ({
+              title: input.description,
+              output: "bg-started",
+              task_id: "ses_bg",
+              sessionID: "ses_bg",
+              background: true,
+              structured: { exit: "running" as const, resumeFrom: "ses_bg" },
+            })),
+        })
+
+        const result = yield* def
+          .execute(
+            {
+              description: "bg",
+              prompt: "go",
+              subagent_type: "general",
+              // experimental flag not set on this layer — still allowed if host returns
+              // background after the V1 gate; use foreground call, host reports bg.
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: {
+                promptOps: {
+                  cancel: () => Effect.void,
+                  resolvePromptParts: () => Effect.succeed([]),
+                  prompt: () => Effect.die("no v1"),
+                } satisfies TaskPromptOps,
+              },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.provideService(CoreTaskTool.HostService, host))
+
+        expect(result.metadata.background).toBe(true)
+        expect(result.output).toContain(`state="running"`)
+        expect(result.output).toContain("bg-started")
+        expect(result.metadata.sessionId).toBe("ses_bg")
       }),
     30000,
   )
@@ -341,13 +400,13 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
               return {
                 title: "ok",
                 output: "ok",
-                sessionID: "child",
-                task_id: "child",
+                sessionID: "ses_child",
+                task_id: "ses_child",
               }
             }),
         })
 
-        yield* def
+        const result = yield* def
           .execute(
             {
               description: "id check",
@@ -375,6 +434,7 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
 
         expect(seenParent).toBe(String(chat.id))
         expect(seenParent).toBe(String(SessionID.make(String(chat.id))))
+        expect(result.output).toContain(`<task id="ses_child"`)
       }),
     30000,
   )
