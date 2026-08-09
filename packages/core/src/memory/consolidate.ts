@@ -1,6 +1,6 @@
 export * as MemoryConsolidation from "./consolidate"
 
-import { Context, Effect, Layer, Schedule, Stream } from "effect"
+import { Context, Effect, Fiber, Layer, Schedule, Stream } from "effect"
 import path from "path"
 import { LLM, LLMClient, LLMEvent, Message, SystemPart, type LLMClientShape, type LLMRequest } from "@opencode-ai/llm"
 import type { Model } from "@opencode-ai/llm"
@@ -123,15 +123,21 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
   if (!locked) return
   try {
     if (!(yield* shouldConsolidate(fs, roots))) return
-    // Heartbeat (scope-scoped fiber): refresh the lock every 5 minutes so a long
-    // LLM merge cannot be reclaimed as stale by a concurrent process
-    // (STALE_LOCK_SECS = 3600). The fiber dies with the Effect.scoped scope.
-    yield* refreshMergeLock(fs, roots).pipe(
-      Effect.repeat(Schedule.spaced(Duration.minutes(5))),
-      Effect.forkScoped,
-    )
-    yield* Effect.scoped(
+    // Heartbeat: refresh the lock every 5 minutes so a long LLM merge cannot be
+    // reclaimed as stale by a concurrent process (STALE_LOCK_SECS = 3600). The
+    // fiber is explicitly interrupted when the consolidation body finishes —
+    // this Effect version does not interrupt forkScoped children when the
+    // parent Effect.scoped closes, so a plain fork would leak past the run and
+    // recreate the lock after release (blocking all future consolidations).
+    const heartbeat = yield* Effect.scoped(
       Effect.gen(function* () {
+        return yield* refreshMergeLock(fs, roots).pipe(
+          Effect.repeat(Schedule.spaced(Duration.minutes(5))),
+          Effect.forkScoped,
+        )
+      }),
+    )
+    try {
     const candidates = yield* listCandidates(fs, roots, 0)
     const contents: Array<{ id: string; text: string }> = []
     for (const candidate of candidates) {
@@ -173,8 +179,9 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       yield* markConsolidated(fs, roots)
       yield* regenerateSummary(fs, roots, llm, model)
     }
-      }),
-    )
+    } finally {
+      yield* Fiber.interrupt(heartbeat).pipe(Effect.catch(() => Effect.void))
+    }
   } finally {
     yield* releaseMergeLock(fs, roots)
   }

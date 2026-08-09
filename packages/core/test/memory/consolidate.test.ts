@@ -10,6 +10,7 @@ import { runConsolidation } from "../../src/memory/consolidate"
 import { openMemoryIndex } from "../../src/memory/reindex"
 import { writeCandidate } from "../../src/memory/candidates"
 import { acquireMergeLock, releaseMergeLock, markConsolidated } from "../../src/memory/merge-lock"
+import { systemError } from "effect/PlatformError"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 
@@ -62,10 +63,45 @@ describe("Memory consolidation", () => {
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
           yield* writeCandidate(fs, roots, "c1", "## Decision\nMust survive a failed write and remain available for the next run")
           streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- decision kept" })]
-          const failingFs: FSUtil.Interface = { ...fs, rename: () => Effect.fail(new Error("injected rename failure")) }
+          const failingFs: FSUtil.Interface = {
+            ...fs,
+            rename: () =>
+              Effect.fail(
+                systemError({
+                  _tag: "BadResource",
+                  module: "Test",
+                  method: "rename",
+                  syscall: "rename",
+                  pathOrDescriptor: "/x",
+                }),
+              ),
+          }
           yield* runConsolidation({ fs: failingFs, roots, llm: yield* LLMClient.Service, model })
           const remaining = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "candidates"))
           expect(remaining.length).toBe(1)
+        }),
+      ),
+    ),
+  )
+
+  it.effect("releases the lock so a second consolidation can run (heartbeat dies with the body)", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeCandidate(fs, roots, "c1", "## Decision\nHeartbeat must die with the consolidation body")
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- first" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          // A leaked heartbeat fiber would recreate the lock and block this run.
+          yield* writeCandidate(fs, roots, "c2", "## Decision\nSecond run must proceed")
+          streamOutput = [LLMEvent.textDelta({ id: "t2", text: "## Merged\n- second" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const lockFile = path.join(roots.globalDir, "consolidation.lock")
+          expect(yield* fs.exists(lockFile)).toBe(false)
         }),
       ),
     ),
