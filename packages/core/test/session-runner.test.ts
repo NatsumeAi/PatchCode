@@ -291,7 +291,7 @@ const execution = Layer.effect(
         // Provide the memory flush service directly so the runner's guarded
         // flushMemoryIfWired hook (session/runner/llm.ts) resolves it inside
         // the drain, mirroring the location-scoped service in production.
-        return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force })).pipe(
+        return yield* sessionRunner.run({ sessionID, force }).pipe(
           Effect.provideService(MemoryFlush.Service, memoryFlushMockService),
         )
       }),
