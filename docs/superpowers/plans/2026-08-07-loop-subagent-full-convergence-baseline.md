@@ -67,7 +67,8 @@
 - Verifier auditor soft-injects reject; N=8 hard-stop retained.
 - Persona capability: `tightenCapability(agent, persona)` never widens.
 - Subtask auto-spawn cannot bypass host permission/concurrency gates.
-- **V1→V2 host-first e2e:** `packages/opencode/test/tool/task-v2-host-prefer.test.ts` — HostService present ⇒ host.run only (no SessionPrompt); absent ⇒ V1 fallback; host die surfaces without fallback; interrupt preserved; V1 `<task>` envelope + metadata.sessionId/background preserved.
+- **V1→V2 host-first e2e:** `packages/opencode/test/tool/task-v2-host-prefer.test.ts` — HostService present ⇒ host.run only (no SessionPrompt); absent ⇒ V1 fallback; host die surfaces without fallback; interrupt preserved (Effect.interrupt + Fiber.interrupt); V1 `<task>` envelope + metadata.sessionId/background preserved.
+- **AppLayer / taskHostNode smoke:** `packages/opencode/test/tool/task-v2-host-applayer-smoke.test.ts` — production AppLayer + taskHostNode resolve real HostService (not die stub); serviceOption is Some so V1 prefer gate opens.
 
 ---
 

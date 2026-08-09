@@ -10,7 +10,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { Effect, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -305,6 +305,103 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
         if (exit._tag === "Failure") {
           const msg = String(exit.cause)
           expect(msg).toMatch(/Task failed|Permission denied/)
+          // Must not look like a pure interrupt path
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(false)
+        }
+      }),
+    30000,
+  )
+
+  it.instance(
+    "with HostService present: host Effect.interrupt is preserved (not Task failed Error)",
+    () =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const prompt = trackingPromptOps()
+
+        const host = CoreTaskTool.HostService.of({
+          run: () => Effect.interrupt,
+        })
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "cancelled",
+              prompt: "interrupt me",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps: prompt.ops },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.provideService(CoreTaskTool.HostService, host), Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(prompt.calls).toBe(0)
+        if (exit._tag === "Failure") {
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+          // Must not be squashed into a plain "Task failed: …" Error
+          expect(String(exit.cause)).not.toMatch(/Task failed:/)
+        }
+      }),
+    30000,
+  )
+
+  it.instance(
+    "with HostService present: outer fiber interrupt while host runs is preserved",
+    () =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+        const prompt = trackingPromptOps()
+        const hostStarted = yield* Deferred.make<void>()
+
+        const host = CoreTaskTool.HostService.of({
+          run: () =>
+            Deferred.succeed(hostStarted, undefined).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        })
+
+        const fiber = yield* def
+          .execute(
+            {
+              description: "long",
+              prompt: "wait forever",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps: prompt.ops },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.provideService(CoreTaskTool.HostService, host), Effect.forkChild)
+
+        yield* Deferred.await(hostStarted)
+        yield* Fiber.interrupt(fiber)
+        const exit = yield* Fiber.await(fiber)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(prompt.calls).toBe(0)
+        if (exit._tag === "Failure") {
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+          expect(String(exit.cause)).not.toMatch(/Task failed:/)
         }
       }),
     30000,
