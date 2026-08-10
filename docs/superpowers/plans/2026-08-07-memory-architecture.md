@@ -1,6 +1,6 @@
 # Memory System — Complete Architecture (P1–P8)
 
-> **Status:** Architecture reference (locked contracts below). Phase plans: `2026-08-07-memory-system-p{1..8}.md`. Updated 2026-08-07 after plan review: access_count, dual-root index, workspace capture, dual-injection, and doc drift fixed.
+> **Status:** **FULL remediation 2026-08-10 landed.** Architecture reference (locked contracts below). Phase plans: `2026-08-07-memory-system-p{1..8}.md`. FULL plan: `2026-08-10-memory-full-remediation.md`. Status evidence: `2026-08-10-memory-full-status.md`. Updated 2026-08-07 after plan review (access_count, dual-root index, workspace capture, dual-injection); re-synced 2026-08-10 for sources-model consolidation, dual-root dream, Global drain poller, hybrid config, transfer sandbox, and journey e2e gate.
 
 **Goal:** A mature cross-session memory system for opencode: layered storage, scanned+truncated injection, retrieval with quality ranking, automated capture, and asynchronous consolidation — built from the Grok (storage/retrieval quality) × Codex (injection/write discipline) hybrid.
 
@@ -8,7 +8,7 @@
 1. **写读分离**: agent writes notes/session logs only; curated `MEMORY.md` and injected `memory_summary.md` are only modified by consolidation (LLM) — never by the agent directly.
 2. **注入契约（双通道）**: (a) `memory_summary.md` via SystemContext every prompt assembly (truncated, scanned); (b) epoch-only **recall** block (P6) of top-N retrieved chunks (scanned). Notes/session logs are never injected raw. Budgets: summary global 1500 + workspace 1000 tokens (chars≈4×); recall ≤4K chars. See [Injection contract](#injection-contract-locked).
 3. **动态读 + 前缀缓存**: summary is re-read per model step (never frozen into the session record). Within a session, summary is expected stable; if consolidation regenerates `memory_summary.md` mid-session, prefix-cache invalidation is **accepted** (rare; consolidation is gated by min_hours). Recall is epoch-only (`initialize` / post-compaction `prepare`) so it does not churn mid-epoch.
-4. **幂等巩固**: source notes/sessions deleted only after successful merge into `MEMORY.md` (or noise/threat discard); crash recovery = rescan sources + candidates (files ARE the job state). Watermark = candidate / source mtime. Merge keys are stable content hashes (sha256), not short slugs.
+4. **幂等巩固**: source notes/sessions/candidates deleted only after successful merge into `MEMORY.md` (or noise/threat discard); crash recovery = rescan sources (files ARE the job state). Idempotency ledger = `merged.hashes` (sha256 of `id\ntext`); optional HTML markers are best-effort only.
 5. **隐私纪律**: automatic saves are metadata-only (zero LLM); content capture requires user trigger (note or flush).
 6. **安全底线**: threat scan at note-write, summary-injection, **and recall-injection**; path triple-guard; exclusive `create_new` writes; atomic IO.
 7. **容量管理**: `MEMORY.md` char budget + merge-time ephemeral discard + usage-based prune at **chunk/entry** granularity (P5), driven by `access_count` (P4).
@@ -34,9 +34,9 @@ Prune/health **only** read `access_count`; never invent proxies. Missing increme
 
 ### P2 capture scope
 
-- Drain-end metadata watcher is a **`makeLocationNode`** (per open project) and writes workspace `sessions/` when `workspaceDir` is set; falls back to global only when no project directory.
-- Flush (compaction / on-demand) writes to the same root resolution (`workspaceDir ?? globalDir`).
-- Global-only watcher is **rejected** (that left a project-session hole).
+- Drain-end metadata watcher is a **Global poller** (`makeGlobalNode`) with **per-session roots** via `session.location.directory` → `resolveRoots(globalBase, directory)`. Workspace sessions write workspace `sessions/` when a project directory is set; otherwise global.
+- Flush (compaction / on-demand) uses the same root resolution (`workspaceDir ?? globalDir`).
+- Scope finalizer best-effort flushes pending idle sessions on shutdown. This replaces the earlier “location-node only” note while still avoiding a pure-global hole for project sessions.
 
 ### Injection contract (locked)
 
@@ -47,11 +47,12 @@ Prune/health **only** read `access_count`; never invent proxies. Missing increme
 
 "Single injection of raw notes" remains true; dual channel = curated summary + retrieved excerpts, both scanned.
 
-### P3 consolidation path (minimal)
+### P3 consolidation path (FULL / sources model)
 
-- **Shipped path:** notes + session logs → candidates (or direct merge input) → gated phase2 merge → delete sources/candidates on success → regenerate summary.
-- Separate LLM **stage1 extraction** is an optional follow-up; not required for P3 acceptance. Acceptance language matches the shipped path.
-- `mergeKey` / idempotency id = `sha256(stableSourceId + content)` embedded as `<!-- memory-candidate:<hex> -->`.
+- **Shipped path:** `collectMergeSources()` reads **notes/** + **sessions/** + **candidates/** (legacy/crash buffer) ordered mtime-asc → budget slice → gated dream merge → write `MEMORY.md` → append **`merged.hashes`** (content-hash ledger) → delete only budget-included sources → regenerate `memory_summary.md`.
+- Dual-root orchestration: with workspace open, consolidate workspace base then pure-global independently (separate locks).
+- Separate LLM **stage1 extraction** remains optional (Wave H stretch); candidates are not required for the happy path.
+- Idempotency: `sha256(stableSourceId + "\n" + content)` in `merged.hashes` is authoritative; HTML markers in MEMORY are best-effort only.
 
 ### Import policy (P8)
 
@@ -72,18 +73,18 @@ Prune/health **only** read `access_count`; never invent proxies. Missing increme
 ```
 WRITE PATH                          CONSOLIDATION PATH                  INJECTION PATH
 ┌─────────────┐   user ask    ┌──────────────┐
-│ add_note    │ ────────────▶ │ notes/       │
-└─────────────┘               │ *.md         │
-┌─────────────┐   drain end  ┌──────────────┐   candidates  ┌──────────────┐
-│ session-end │ ────────────▶│ sessions/    │ ────────────▶ │ (optional    │
-│ (metadata)  │              │ *.md         │               │  stage1)     │
-└─────────────┘              └──────────────┘               └──────┬───────┘
-┌─────────────┐   compaction ┌──────────────┐   phase2      ┌──────▼───────┐
-│ flush       │ ────────────▶│ (LLM summary)│ ────────────▶ │ MEMORY.md    │
-│ (LLM)       │              │              │   (merge)     │ (curated)    │
-└─────────────┘              └──────────────┘               └──────┬───────┘
-                                                                  │ regenerate
-                                                                  ▼
+│ add_note    │ ────────────▶ │ notes/       │─┐
+└─────────────┘               │ *.md         │ │
+┌─────────────┐   drain end  ┌──────────────┐ │  collectMergeSources
+│ session-end │ ────────────▶│ sessions/    │─┼─► budget → dream LLM ──► MEMORY.md
+│ (metadata)  │              │ *.md         │ │      │ success            │ merged.hashes
+└─────────────┘              └──────────────┘ │      ▼                   │
+┌─────────────┐   compaction ┌──────────────┐ │  delete included    regenerate
+│ flush       │ ────────────▶│ sessions/    │─┘  sources            memory_summary.md
+│ (LLM)       │              │ (content)    │
+└─────────────┘              └──────────────┘
+  candidates/ = optional crash buffer only (not required happy path)
+
 RETRIEVAL PATH                    ┌──────────────┐  ┌──────────────────────────┐
 ┌──────────┐  dual index (P4)    │ memory_sum-  │  │ SystemContext core/memory│
 │ memory_* │ ──────────────────▶ │ mary.md      │─▶│ + epoch recall (P6)      │─▶ prompt
@@ -113,14 +114,14 @@ RETRIEVAL PATH                    ┌──────────────�
 Storage roots + scoped-path guards + threat scan + summary load/truncate + SystemContext injection + 4 tools + wiring (builtins, location-services, capability filter).
 
 ### P2 — Automatic capture + flush + citation — PLAN: `2026-08-07-memory-system-p2.md`
-- **session-end metadata save** (zero-LLM): location-node drain watcher; workspace `sessions/` when project open; trivial-session skip (<3 prompts or <50 bytes).
-- **flush** (LLM): compaction + on-demand; title-model pattern; threat-scan before write.
+- **session-end metadata save** (zero-LLM): Global drain poller + per-session `location.directory` roots; workspace `sessions/` when project open; trivial-session skip (<3 prompts or <50 bytes); best-effort shutdown flush of pending idle sessions.
+- **flush** (LLM): compaction + on-demand; title-model pattern; threat-scan before write; NO_REPLY + delta mode.
 - **Citation**: search/read outputs carry path/line.
-- **Wiring**: `drainWatcherNode` → `location-services.ts`; flush → `context-engine.ts` compact path (`serviceOption`).
+- **Wiring**: `memory-drain-watcher` Global node; flush → `context-engine.ts` compact path (`serviceOption`).
 
-### P3 — Consolidation pipeline — PLAN: `2026-08-07-memory-system-p3.md`
-- Gated merge (min_hours + lock + 32K input + 64K MEMORY cap); sha256 merge keys; delete on success; summary regeneration.
-- Optional stage1 extraction deferred; shipped = merge from notes/sessions/candidates.
+### P3 — Consolidation pipeline — PLAN: `2026-08-07-memory-system-p3.md` (+ FULL 2026-08-10)
+- Gated merge (min_hours + lock + 32K input + 64K MEMORY cap); sources model notes+sessions+candidates; `merged.hashes` ledger; delete budget-included sources on success; dual-root orchestration; summary regeneration.
+- Optional stage1 extraction deferred (Wave H); happy path does not require planting candidates.
 
 ### P4 — Retrieval quality (FTS5 + temporal decay) — PLAN: `2026-08-07-memory-system-p4.md`
 - Dual-root `index.sqlite`; sha256 chunk dedup; **access_count increments on search/read/recall hits**; dirty reindex; temporal decay; grep fallback.
@@ -139,15 +140,15 @@ Storage roots + scoped-path guards + threat scan + summary load/truncate + Syste
 - Health panel; export/import per import policy above; staleness marks on session chunks >14 days.
 - **After P8: feature-complete.** Optional: P7 at scale, `/remember` LLM-rewrite toggle, MMR default on.
 
-## Final-Form Acceptance Checklist (after P8)
+## Final-Form Acceptance Checklist (after P8 + FULL remediation)
 
-- [ ] Agent can write notes (user-request-gated via tool description) and retrieve via 4 tools with path/line citations.
-- [ ] Session-end metadata logs land in **workspace** `sessions/` when a project is open; compaction flush captures content; citations present.
-- [ ] Notes/sessions merge into `MEMORY.md` idempotently (sha256 keys, crash-safe); `memory_summary.md` regenerates; injected summary reflects knowledge.
-- [ ] Dual-root FTS5 with temporal decay + content-free filtering; `access_count` increments on search/read/recall; auto-recall injects at session start and after compaction (scanned, budgeted).
-- [ ] Vector hybrid activates when embeddings configured; everything degrades without it.
-- [ ] Health shows real usage; prune lists **chunk/entry** candidates into consolidation; export/import follows never-overwrite-newer-local; stale session memory marked.
-- [ ] No unsolicited memory writes; all injection scanned; budgets bounded; curated committed, runtime artifacts ignored.
+- [x] Agent can write notes (user-request-gated via tool description) and retrieve via 4 tools with path/line citations.
+- [x] Session-end metadata logs land in **workspace** `sessions/` when a project is open (Global drain poller + per-session roots); compaction flush captures content; citations present.
+- [x] Notes/sessions merge into `MEMORY.md` idempotently (sha256 ledger `merged.hashes`, crash-safe); `memory_summary.md` regenerates; injected summary reflects knowledge. **Evidence:** `journey.e2e.test.ts`.
+- [x] Dual-root FTS5 with temporal decay + content-free filtering; `access_count` increments on search/read/recall; auto-recall injects at session start and after compaction (scanned, budgeted).
+- [x] Vector hybrid activates when embeddings configured; everything degrades without it (root-qualified hybrid ids + MMR).
+- [x] Health shows real usage (dual-root walk + consolidate status); prune lists **chunk/entry** candidates into consolidation; export/import sandboxed and never-overwrite-newer-local; stale session memory marked.
+- [x] No unsolicited memory writes; all injection scanned; budgets bounded; curated committed, runtime artifacts ignored.
 
 ## Global Invariants (every phase)
 
