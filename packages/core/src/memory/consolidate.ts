@@ -24,7 +24,7 @@ import type { IndexChunk } from "./reindex"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, shouldConsolidate } from "./merge-lock"
 import { DREAM_SYSTEM } from "./prompts"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
-import { openMemoryIndex } from "./reindex"
+import { openConfiguredMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
 
@@ -170,7 +170,7 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         contents.push(source)
       }
       if (contents.length === 0) return
-      const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
       let pruneList: Array<{ chunkId: string; path: string; excerpt: string }> = []
       if (index !== undefined) {
         try {

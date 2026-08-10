@@ -9,7 +9,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { resolveRoots, type MemoryRoots } from "./storage"
-import { openMemoryIndex, ensureIndexed } from "./reindex"
+import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
 import { rankResults, isContentFree, staleNote } from "./ranking"
 import { scanForThreats } from "./scan"
 
@@ -70,7 +70,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     Effect.catch(() => Effect.succeed("")),
   )
   if (query === "") return ""
-  const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+  const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (index === undefined) return ""
   try {
     yield* ensureIndexed(index, fs, roots).pipe(Effect.catch(() => Effect.void))

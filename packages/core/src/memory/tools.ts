@@ -12,7 +12,7 @@ import { Tool } from "../tool/tool"
 import { resolveRoots, readTextSafe, type MemoryRoots } from "./storage"
 import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type ScopedPathError } from "./paths"
 import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
-import { openMemoryIndex, ensureIndexed } from "./reindex"
+import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
 import { ftsQuery } from "./recall"
 import { rankResults, isContentFree, staleNote } from "./ranking"
 
@@ -189,7 +189,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           }
           const text = yield* Effect.orElseSucceed(readTextSafe(fs, file), () => undefined)
           const relative = path.relative(base, file).replace(/\\/g, "/")
-          const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (index !== undefined) {
             try {
               const hits = yield* index.chunkIdsForPath(relative).pipe(Effect.catch(() => Effect.succeed([])))
@@ -215,7 +215,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
         Effect.gen(function* () {
           const roots = rootsOf()
           const max = Math.min(input.max_results ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS)
-          const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (index !== undefined) {
             try {
               yield* ensureIndexed(index, fs, roots).pipe(Effect.catch(() => Effect.void))

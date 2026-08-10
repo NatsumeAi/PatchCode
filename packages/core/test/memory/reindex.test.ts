@@ -4,7 +4,7 @@ import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { resolveRoots } from "../../src/memory/storage"
-import { openMemoryIndex, chunkMarkdown, chunkHash, reindexFile, ensureIndexed } from "../../src/memory/reindex"
+import { openMemoryIndex, openConfiguredMemoryIndex, chunkMarkdown, chunkHash, reindexFile, ensureIndexed } from "../../src/memory/reindex"
 import { writeTextAtomic } from "../../src/memory/storage"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -275,6 +275,40 @@ describe("Memory index multi-chunk", () => {
           const remaining = yield* index.listChunks()
           expect(remaining.filter((chunk) => chunk.path === "sessions/ses_abc123.md").length).toBe(0)
           yield* index.close()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("openConfiguredMemoryIndex opens FTS index when embedding env is unset", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const prev = process.env.OPENCODE_MEMORY_EMBEDDING_MODEL
+          delete process.env.OPENCODE_MEMORY_EMBEDDING_MODEL
+          try {
+            const fs = yield* FSUtil.Service
+            const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+            const index = yield* openConfiguredMemoryIndex(fs, roots)
+            expect(index.provider).toBeUndefined()
+            yield* index.insert("global", {
+              path: "MEMORY.md",
+              source: "global",
+              text: "configured open path works",
+              startLine: 1,
+              endLine: 1,
+              mtimeMs: Date.now(),
+            })
+            const hits = yield* index.search("configured", 5)
+            expect(hits.length).toBeGreaterThan(0)
+            yield* index.close()
+          } finally {
+            if (prev === undefined) delete process.env.OPENCODE_MEMORY_EMBEDDING_MODEL
+            else process.env.OPENCODE_MEMORY_EMBEDDING_MODEL = prev
+          }
         }),
       ),
     ),
