@@ -150,13 +150,14 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
   if (yield* writeTextAtomic(fs, path.join(safeTarget, "manifest.json"), JSON.stringify(manifest, null, 2))) {
     exported++
   }
-  const writeScope = (base: string, prefix: string): Effect.Effect<void> =>
+  const writeScope = (base: string, prefix: string) =>
     Effect.gen(function* () {
       for (const name of CURATED_FILES) {
         const text = yield* readTextSafe(fs, path.join(base, name)).pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (text === undefined) continue
         const dest = prefix === "" ? path.join(safeTarget, name) : path.join(safeTarget, prefix, name)
-        if (yield* writeTextAtomic(fs, dest, text)) exported++
+        const ok = yield* writeTextAtomic(fs, dest, text).pipe(Effect.catch(() => Effect.succeed(false)))
+        if (ok) exported++
       }
       if (includeRaw) {
         for (const dir of RAW_DIRS) {
@@ -173,11 +174,12 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
               prefix === ""
                 ? path.join(safeTarget, dir, entry.name)
                 : path.join(safeTarget, prefix, dir, entry.name)
-            if (yield* writeTextAtomic(fs, dest, text)) exported++
+            const ok = yield* writeTextAtomic(fs, dest, text).pipe(Effect.catch(() => Effect.succeed(false)))
+            if (ok) exported++
           }
         }
       }
-    })
+    }).pipe(Effect.catch(() => Effect.void))
   if (roots.workspaceDir !== undefined) {
     yield* writeScope(roots.workspaceDir, "")
     yield* writeScope(roots.globalDir, "global")
@@ -230,7 +232,7 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
     return globalMem !== undefined
   })
 
-  const copyInto = (packRelative: string, destBase: string): Effect.Effect<void> =>
+  const copyInto = (packRelative: string, destBase: string) =>
     Effect.gen(function* () {
       const srcFile = path.join(safeSource, packRelative)
       if (isSymlinkPath(srcFile)) {
@@ -255,12 +257,12 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
         skipped++
         return
       }
-      const ok = yield* writeTextAtomic(fs, target, text)
+      const ok = yield* writeTextAtomic(fs, target, text).pipe(Effect.catch(() => Effect.succeed(false)))
       if (ok) imported++
       else skipped++
-    })
+    }).pipe(Effect.catch(() => Effect.void))
 
-  const importScope = (packPrefix: string, destBase: string): Effect.Effect<void> =>
+  const importScope = (packPrefix: string, destBase: string) =>
     Effect.gen(function* () {
       for (const name of CURATED_FILES) {
         const rel = packPrefix === "" ? name : path.join(packPrefix, name)
@@ -278,7 +280,7 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
           }
         }
       }
-    })
+    }).pipe(Effect.catch(() => Effect.void))
 
   if (dualLayout) {
     // Pack root → workspace (or global if no workspace dest); global/ → globalDir.
