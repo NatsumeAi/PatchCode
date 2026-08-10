@@ -12,16 +12,71 @@ import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { SessionRunnerModel } from "../session/runner/model"
 import { toLLMMessages } from "../session/runner/to-llm-message"
-import { resolveRoots } from "./storage"
-import { appendSessionLog } from "./session-logs"
+import { readTextSafe, resolveRoots } from "./storage"
+import { appendSessionLog, sessionLogPath } from "./session-logs"
 import { scanForThreats } from "./scan"
-import { FLUSH_SYSTEM } from "./prompts"
+import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
+
+/** Cap prior flush excerpt included in the delta system prompt (chars). */
+const PRIOR_FLUSH_EXCERPT_CAP = 8_000
+
+/** Belt-and-suspenders: skip a second content flush within this window per session. */
+export const FLUSH_COOLDOWN_MS = 5_000
+
+/**
+ * Process-local map of last content-flush time per session id.
+ * Shared by manual `/compact` (session.ts) and auto-compact (llm.ts) paths so
+ * a single compact cycle cannot double-write identical summaries.
+ */
+const lastFlushBySession = new Map<string, number>()
 
 export interface Interface {
   readonly flush: (sessionID: SessionSchema.ID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/MemoryFlush") {}
+
+/** True when the model responded with the NO_REPLY sentinel (case-insensitive, trimmed). */
+export function isNoReply(text: string): boolean {
+  return text.trim().toUpperCase() === "NO_REPLY"
+}
+
+/**
+ * Returns true when this session has not had a content flush within the cooldown window.
+ * Call sites (and `flushSession`) share this so manual + auto compact cannot double-write.
+ */
+export function shouldFlushSession(sessionID: string): boolean {
+  const last = lastFlushBySession.get(sessionID)
+  if (last === undefined) return true
+  return Date.now() - last >= FLUSH_COOLDOWN_MS
+}
+
+/** Record that a content flush completed for this session (starts the cooldown). */
+export function markFlushed(sessionID: string): void {
+  lastFlushBySession.set(sessionID, Date.now())
+}
+
+/** Test-only: clear the cooldown map between cases. */
+export function resetFlushGuardForTests(): void {
+  lastFlushBySession.clear()
+}
+
+/**
+ * Pull the most recent `## Flush` section from a session log for delta prompts.
+ * Falls back to the whole non-empty log when no section marker is present.
+ * Caps at PRIOR_FLUSH_EXCERPT_CAP characters (tail-biased).
+ */
+export function priorFlushExcerpt(existing: string | undefined): string | undefined {
+  if (existing === undefined) return undefined
+  const trimmed = existing.trim()
+  if (trimmed.length === 0) return undefined
+
+  const marker = "## Flush"
+  const idx = trimmed.lastIndexOf(marker)
+  const excerpt = idx >= 0 ? trimmed.slice(idx) : trimmed
+  if (excerpt.length <= PRIOR_FLUSH_EXCERPT_CAP) return excerpt
+  return excerpt.slice(excerpt.length - PRIOR_FLUSH_EXCERPT_CAP)
+}
 
 /** Summarizes one session with the LLM and appends the result to the dated session log. */
 export const flushSession = Effect.fn("Memory.flushSession")(function* (
@@ -33,14 +88,29 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   global: Global.Interface,
   location: Location.Interface,
 ) {
+  const sessionKey = String(session.id)
+  if (!shouldFlushSession(sessionKey)) {
+    yield* Effect.logInfo(`memory flush skipped: cooldown for session ${sessionKey}`)
+    return
+  }
+
   const messages = yield* store.context(session.id).pipe(Effect.catch(() => Effect.succeed([])))
   if (messages.length === 0) return
 
   const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (!model) return
+
+  const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
+  const existing = yield* readTextSafe(fs, sessionLogPath(roots, sessionKey, new Date()))
+  const prior = priorFlushExcerpt(existing)
+  const systemText =
+    prior === undefined
+      ? FLUSH_SYSTEM
+      : `${FLUSH_DELTA_SYSTEM}\n\n--- Previous flush content ---\n${prior}`
+
   const request = LLM.request({
     model,
-    system: [SystemPart.make(FLUSH_SYSTEM)],
+    system: [SystemPart.make(systemText)],
     messages: toLLMMessages(messages, model),
     tools: [],
   })
@@ -51,18 +121,25 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     Effect.catch(() => Effect.succeed("")),
   )
   const cleaned = text.trim()
-  if (cleaned.length === 0 || cleaned === "NO_REPLY") return
+  if (cleaned.length === 0 || isNoReply(cleaned)) {
+    if (isNoReply(cleaned)) {
+      yield* Effect.logInfo(`memory flush NO_REPLY for session ${sessionKey}`)
+    }
+    return
+  }
   const threatIds = scanForThreats(cleaned)
   if (threatIds.length > 0) {
     yield* Effect.logWarning("memory flush blocked: threat patterns " + threatIds.join(", "))
     return
   }
 
-  const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
-  const written = yield* appendSessionLog(fs, roots, String(session.id), new Date(), cleaned)
+  const block = `## Flush\n\n${cleaned}`
+  const written = yield* appendSessionLog(fs, roots, sessionKey, new Date(), block)
   if (!written) {
-    yield* Effect.logWarning(`memory flush atomic write failed for session ${String(session.id)}`)
+    yield* Effect.logWarning(`memory flush atomic write failed for session ${sessionKey}`)
+    return
   }
+  markFlushed(sessionKey)
 })
 const layer = Layer.effect(
   Service,
