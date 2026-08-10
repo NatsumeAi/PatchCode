@@ -1,35 +1,107 @@
+/**
+ * Threat patterns for memory write/inject paths (Hermes-inspired, memory-strict).
+ * Scope philosophy: memory enters the system prompt, so we prefer recall over
+ * under-detection. Patterns still avoid flagging common engineering prose
+ * (password fields, "system design", short base64 checksums).
+ */
+
+/** Cap scanned text so regex cost stays bounded on huge archives. */
+export const MAX_SCAN_CHARS = 65_536
+
+/** Bounded filler between attack keywords (Hermes-style obfuscation bypass). */
+const FILLER = String.raw`(?:\w+\s+){0,8}`
+
 export const THREAT_PATTERNS = [
+  // ── Classic injection ─────────────────────────────────────────────
   {
     id: "inject_ignore",
-    re: /ignore\s+(?:(?:all|any|the)\s+)?(?:previous|above|below|prior)\s+instructions/i,
+    re: new RegExp(String.raw`ignore\s+${FILLER}(?:previous|all|above|prior|the)\s+${FILLER}instructions`, "i"),
     reason: "instruction override",
   },
   {
     id: "inject_override",
-    re: /(disregard|forget|ignore)\s+(?:(?:all|any|the|your)\s+)*(?:previous\s+)?(instructions|system\s*prompt|guidelines|directives)/i,
+    re: new RegExp(
+      String.raw`(disregard|forget|ignore)\s+${FILLER}(?:all|any|the|your|previous)?\s*${FILLER}(instructions|system\s*prompt|guidelines|directives|rules)`,
+      "i",
+    ),
     reason: "system prompt override",
   },
   {
+    id: "inject_sys_override",
+    re: /system\s+prompt\s+override/i,
+    reason: "system prompt override phrase",
+  },
+  {
     id: "inject_role",
-    re: /you(?:\s+are|'re)\s+(?:now\s+)?an?\s+(unrestricted|jailbroken|unfiltered)\s+(agent|assistant|model|ai)/i,
+    re: new RegExp(
+      String.raw`you(?:\s+are|'re)\s+${FILLER}(?:now\s+)?(?:an?\s+)?(unrestricted|jailbroken|unfiltered)\s+(agent|assistant|model|ai)`,
+      "i",
+    ),
     reason: "role hijack",
   },
   {
+    id: "inject_role_now",
+    re: new RegExp(String.raw`you\s+are\s+${FILLER}now\s+(?:a|an|the)\s+`, "i"),
+    reason: "role reassignment",
+  },
+  {
+    id: "inject_pretend",
+    re: new RegExp(String.raw`pretend\s+${FILLER}(?:you\s+are|to\s+be)\s+`, "i"),
+    reason: "role pretend",
+  },
+  {
     id: "inject_system_role",
-    re: /system\s*:\s*you\s+are\b/i,
+    // Line-start or after newline so "system design: you are building…" stays clean.
+    re: /(?:^|[\n\r])\s*system\s*:\s*you\s+are\b/im,
     reason: "system role smuggle",
   },
   {
     id: "inject_html_comment",
-    re: /<!--[\s\S]{0,80}ignore[\s\S]{0,80}instructions/i,
+    re: /<!--[^>]{0,512}(?:ignore|override|system|secret|hidden)[^>]{0,512}-->/i,
     reason: "html comment instruction smuggle",
   },
   {
+    id: "inject_hidden_div",
+    re: /<\s*div\s+style\s*=\s*["'][^>]{0,2048}display\s*:\s*none/i,
+    reason: "hidden div smuggle",
+  },
+  {
+    id: "inject_bypass",
+    re: new RegExp(
+      String.raw`act\s+as\s+(?:if|though)\s+${FILLER}you\s+${FILLER}(?:have\s+no|don't\s+have)\s+${FILLER}(?:restrictions|limits|rules)`,
+      "i",
+    ),
+    reason: "bypass restrictions",
+  },
+  {
+    id: "inject_remove_filters",
+    re: new RegExp(
+      String.raw`(?:respond|answer|reply)\s+without\s+${FILLER}(?:restrictions|limitations|filters|safety)`,
+      "i",
+    ),
+    reason: "remove safety filters",
+  },
+  {
+    id: "inject_deception",
+    re: new RegExp(String.raw`do\s+not\s+${FILLER}tell\s+${FILLER}the\s+user`, "i"),
+    reason: "deception hide from user",
+  },
+  {
+    id: "inject_leak_prompt",
+    re: new RegExp(String.raw`output\s+${FILLER}(?:system|initial)\s+prompt`, "i"),
+    reason: "leak system prompt",
+  },
+  {
     id: "inject_base64",
-    // Long base64-looking blob only when adjacent to decode/ignore (avoids flagging normal docs).
     re: /(?:decode|ignore)[\s\S]{0,40}[A-Za-z0-9+/]{48,}={0,2}|[A-Za-z0-9+/]{48,}={0,2}[\s\S]{0,40}(?:decode|ignore)/i,
     reason: "encoded payload smuggle",
   },
+  {
+    id: "inject_translate_exec",
+    re: /translate\s+[^\n]{0,200}\s+into\s+[^\n]{0,200}\s+and\s+(execute|run|eval)/i,
+    reason: "translate-and-execute",
+  },
+  // ── Credential exfiltration ───────────────────────────────────────
   {
     id: "exfil_api_key",
     re: /\b(sk|pk|ghp|gho|sl)[_-][A-Za-z0-9_-]{16,}\b/i,
@@ -38,7 +110,7 @@ export const THREAT_PATTERNS = [
   {
     id: "exfil_secret",
     re: /\b(api[_-]?key|secret|password|token)\s*[:=]\s*['"]?[A-Za-z0-9._-]{12,}/i,
-    reason: "credential exfiltration",
+    reason: "credential assignment",
   },
   {
     id: "exfil_slack",
@@ -55,25 +127,37 @@ export const THREAT_PATTERNS = [
     re: /-----BEGIN\s+[A-Z ]*PRIVATE KEY-----/,
     reason: "private key material",
   },
+  {
+    id: "exfil_curl",
+    re: /curl\s+[^\n]{0,512}\$?\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)/i,
+    reason: "curl secret exfiltration",
+  },
 ] as const
 
-// Compile-time guard: keep the list reviewable (Hermes-inspired subset, ≤15).
-const _maxPatterns: typeof THREAT_PATTERNS.length extends infer N
-  ? N extends number
-    ? N extends 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15
-      ? true
-      : never
-    : never
-  : never = true
-void _maxPatterns
+/** Invisible / format-control chars used to smash word boundaries. */
+const INVISIBLE_RE =
+  /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u00AD\u034F\u061C\u180E\u17B4\u17B5]/g
+
+/**
+ * Normalize text before pattern matching: NFKC (full-width Latin → ASCII),
+ * strip invisibles to spaces, clamp length.
+ */
+export function normalizeForScan(text: string): string {
+  const capped = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text
+  let normalized: string
+  try {
+    normalized = capped.normalize("NFKC")
+  } catch {
+    normalized = capped
+  }
+  return normalized.replace(INVISIBLE_RE, " ")
+}
 
 /**
  * Returns the ids of all threat patterns matched in `text` (empty when clean).
- * Zero-width characters (U+200B–U+200D, U+FEFF) are normalized to spaces so
- * they cannot be used to smuggle past the word-boundary patterns.
  */
 export function scanForThreats(text: string): string[] {
-  const normalized = text.replace(/[\u200B-\u200D\uFEFF]/g, " ")
+  const normalized = normalizeForScan(text)
   return THREAT_PATTERNS.filter((pattern) => pattern.re.test(normalized)).map((pattern) => pattern.id)
 }
 

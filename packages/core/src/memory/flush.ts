@@ -12,19 +12,21 @@ import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { SessionRunnerModel } from "../session/runner/model"
 import { toLLMMessages } from "../session/runner/to-llm-message"
-import { readTextSafe, resolveRoots } from "./storage"
-import { appendSessionLog, sessionLogPath } from "./session-logs"
+import { readTextSafe, resolveRoots, writeTextAtomic, type MemoryRoots } from "./storage"
+import { appendSessionLog, sessionLogPath, sanitizeSessionId } from "./session-logs"
 import { scanForThreats } from "./scan"
 import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
 import { recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
 import { isNoReply, stripModelWrapper } from "./text-utils"
+import { flushContentHash, isFlushDuplicate } from "./flush-dedup"
 
 export { isNoReply, stripModelWrapper } from "./text-utils"
+export { isFlushDuplicate, flushContentHash } from "./flush-dedup"
 
 /** Cap prior flush excerpt included in the delta system prompt (chars). */
 const PRIOR_FLUSH_EXCERPT_CAP = 8_000
 
-/** Belt-and-suspenders: skip a second content flush within this window per session. */
+/** Process-local cooldown so manual + auto compact cannot double-write within a cycle. */
 export const FLUSH_COOLDOWN_MS = 5_000
 
 /**
@@ -34,30 +36,72 @@ export const FLUSH_COOLDOWN_MS = 5_000
  */
 const lastFlushBySession = new Map<string, number>()
 
+/** Compaction cycle generation per session (bumped by callers when a new compact starts). */
+const flushCycleBySession = new Map<string, number>()
+const lastFlushedCycleBySession = new Map<string, number>()
+
 export interface Interface {
   readonly flush: (sessionID: SessionSchema.ID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/MemoryFlush") {}
+
 /**
- * Returns true when this session has not had a content flush within the cooldown window.
- * Call sites (and `flushSession`) share this so manual + auto compact cannot double-write.
+ * Bump the compaction generation for a session. Call once per compact cycle so
+ * at most one content flush runs per generation (crosses the 5s cooldown gap).
+ */
+export function beginFlushCycle(sessionID: string): number {
+  const next = (flushCycleBySession.get(sessionID) ?? 0) + 1
+  flushCycleBySession.set(sessionID, next)
+  return next
+}
+
+/**
+ * Returns true when this session may content-flush: not within cooldown AND
+ * not already flushed for the current compaction generation (if any).
  */
 export function shouldFlushSession(sessionID: string): boolean {
   const last = lastFlushBySession.get(sessionID)
-  if (last === undefined) return true
-  return Date.now() - last >= FLUSH_COOLDOWN_MS
+  if (last !== undefined && Date.now() - last < FLUSH_COOLDOWN_MS) return false
+  const cycle = flushCycleBySession.get(sessionID)
+  if (cycle !== undefined && lastFlushedCycleBySession.get(sessionID) === cycle) return false
+  return true
 }
 
-/** Record that a content flush completed for this session (starts the cooldown). */
+/** Record that a content flush completed for this session (starts the cooldown + cycle mark). */
 export function markFlushed(sessionID: string): void {
   lastFlushBySession.set(sessionID, Date.now())
+  const cycle = flushCycleBySession.get(sessionID)
+  if (cycle !== undefined) lastFlushedCycleBySession.set(sessionID, cycle)
 }
 
-/** Test-only: clear the cooldown map between cases. */
+/** Test-only: clear the cooldown / cycle maps between cases. */
 export function resetFlushGuardForTests(): void {
   lastFlushBySession.clear()
+  flushCycleBySession.clear()
+  lastFlushedCycleBySession.clear()
 }
+
+const lastFlushHashPath = (roots: MemoryRoots, sessionID: string) =>
+  path.join(roots.workspaceDir ?? roots.globalDir, "sessions", `.last-flush-${sanitizeSessionId(sessionID)}`)
+
+const loadLastFlushHash = Effect.fn("Memory.loadLastFlushHash")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  sessionID: string,
+) {
+  const text = yield* readTextSafe(fs, lastFlushHashPath(roots, sessionID))
+  return text?.trim() || undefined
+})
+
+const storeLastFlushHash = Effect.fn("Memory.storeLastFlushHash")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  sessionID: string,
+  hash: string,
+) {
+  yield* writeTextAtomic(fs, lastFlushHashPath(roots, sessionID), `${hash}\n`).pipe(Effect.catch(() => Effect.succeed(false)))
+})
 
 /**
  * Pull the most recent `## Flush` section from a session log for delta prompts.
@@ -133,6 +177,20 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     return
   }
 
+  // Exact + near-duplicate gate vs prior flush section and durable hash marker.
+  if (isFlushDuplicate(cleaned, prior)) {
+    yield* Effect.logInfo(`memory flush skipped: near-duplicate of prior flush for ${sessionKey}`)
+    markFlushed(sessionKey)
+    return
+  }
+  const hash = flushContentHash(cleaned)
+  const priorHash = yield* loadLastFlushHash(fs, roots, sessionKey)
+  if (priorHash !== undefined && priorHash === hash) {
+    yield* Effect.logInfo(`memory flush skipped: exact hash match for ${sessionKey}`)
+    markFlushed(sessionKey)
+    return
+  }
+
   const block = `## Flush\n\n${cleaned}`
   const written = yield* appendSessionLog(fs, roots, sessionKey, new Date(), block)
   if (!written) {
@@ -140,6 +198,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     yield* Effect.logWarning(`memory flush atomic write failed for session ${sessionKey}`)
     return
   }
+  yield* storeLastFlushHash(fs, roots, sessionKey, hash)
   recordFlushSuccess()
   markFlushed(sessionKey)
 })

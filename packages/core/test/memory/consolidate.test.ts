@@ -189,6 +189,50 @@ describe("Memory consolidation", () => {
     ),
   )
 
+  it.effect("keeps sources when merged.hashes ledger write fails after MEMORY write", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const body = "## Decision\nLedger failure must not delete the note after MEMORY write"
+          yield* plantNote(fs, roots, "ledger.md", body)
+          streamOutput = [
+            LLMEvent.textDelta({ id: "t1", text: "## Merged\n- decision kept" }),
+            // summary regen may also call stream — provide safe content
+            LLMEvent.textDelta({ id: "s1", text: "decision kept" }),
+          ]
+          const realRename = fs.rename.bind(fs)
+          const ledgerFailFs: FSUtil.Interface = {
+            ...fs,
+            rename: (from, to) => {
+              // Fail only atomic renames into merged.hashes (ledger), not MEMORY.md.
+              if (String(to).endsWith("merged.hashes") || String(to).includes("merged.hashes")) {
+                return Effect.fail(
+                  systemError({
+                    _tag: "BadResource",
+                    module: "Test",
+                    method: "rename",
+                    syscall: "rename",
+                    pathOrDescriptor: String(to),
+                  }),
+                )
+              }
+              return realRename(from, to)
+            },
+          }
+          yield* runConsolidation({ fs: ledgerFailFs, roots, llm: yield* LLMClient.Service, model })
+          // MEMORY may have been written; sources must still be present for retry.
+          const still = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "ledger.md"))
+          expect(still).toBe(body)
+        }),
+      ),
+    ),
+  )
+
   it.effect("keeps sources when LLM output contains threat patterns", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

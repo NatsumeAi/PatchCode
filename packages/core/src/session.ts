@@ -568,6 +568,8 @@ const layer = Layer.effect(
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         const session = yield* result.get(input.sessionID)
+        // One flush cycle per compact so auto+manual cannot double-write.
+        MemoryFlush.beginFlushCycle(String(input.sessionID))
         // Memory flush hook: guarded optional service; no-op when memory is not wired.
         yield* Effect.serviceOption(MemoryFlush.Service).pipe(
           Effect.flatMap((option) =>

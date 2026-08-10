@@ -532,11 +532,15 @@ const layer = Layer.effect(
      * Guarded + fire-and-forget so a memory failure never breaks the turn.
      */
     const flushMemoryIfWired = (sessionID: SessionSchema.ID) =>
-      Effect.serviceOption(MemoryFlush.Service).pipe(
-        Effect.flatMap((option) =>
-          option._tag === "Some" ? option.value.flush(sessionID).pipe(Effect.catch(() => Effect.void)) : Effect.void,
-        ),
-      )
+      Effect.gen(function* () {
+        // One flush generation per compact boundary (shared with manual compact).
+        MemoryFlush.beginFlushCycle(String(sessionID))
+        yield* Effect.serviceOption(MemoryFlush.Service).pipe(
+          Effect.flatMap((option) =>
+            option._tag === "Some" ? option.value.flush(sessionID).pipe(Effect.catch(() => Effect.void)) : Effect.void,
+          ),
+        )
+      })
 
     /**
      * Render one drained verifier-reject feedback slice into a single

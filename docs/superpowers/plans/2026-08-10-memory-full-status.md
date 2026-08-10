@@ -1,13 +1,13 @@
 # Memory FULL Remediation — Status (2026-08-10)
 
 > Acceptance gate evidence for `2026-08-10-memory-full-remediation.md` Wave G.
-> Suite: `cd packages/core && bun test test/memory/` — **189 pass / 0 fail** (post open-P2 pass `ee79c8af4a`).
+> Suite: `cd packages/core && bun test test/memory/` — **196 pass / 0 fail**.
 >
 > **Post-review remediation (2026-08-10):**
 > - Must-fix (`c2a1549895`): sandbox symlink, pack symlink, NO_REPLY, short-note keep, remember scan, health rank, ledger keep, summary status.
 > - Open P2 pass (`ee79c8af4a`): summary self-heal, hard-fail backoff, root-aware access/orphan, session-meta sanitize, FTS→grep fallback, dual-root export, drain TS fix.
-> Still deferred (optional): Hermes-scale threat catalog (F4), flush cycle file-lock/dedup (F14/F15), ledger-fail unit test mock.
-
+> - Polish pass: Hermes-inspired scan+NFKC (F4), flush cycle generation + exact/near dedup (F14/F15), ledger-fail unit test.
+> Deferred only if ever needed: embedding-based semantic dedup (≥0.92 cosine), full Hermes 36-pattern parity with context/strict scopes.
 ## Product journey (G1)
 
 | Step | Result | Evidence |
