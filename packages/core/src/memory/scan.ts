@@ -144,6 +144,21 @@ export const THREAT_PATTERNS = [
     reason: "jwt bearer token",
   },
   {
+    id: "exfil_openai_sess",
+    re: /\bsess-[A-Za-z0-9]{20,}\b/,
+    reason: "openai session token",
+  },
+  {
+    id: "exfil_runpod_key",
+    re: /\brk_[A-Za-z0-9]{20,}\b/,
+    reason: "runpod api key",
+  },
+  {
+    id: "inject_c2_exfil",
+    re: /(?:send|post|upload|exfiltrate)\s+[^\n]{0,120}\s+(?:to|via)\s+(?:https?:\/\/|webhook)/i,
+    reason: "command-style data exfiltration",
+  },
+  {
     id: "exfil_secret",
     // Allow natural language "password is hunter2" as well as key=value forms.
     re: /\b(api[_-]?key|secret|password|token)\s*(?:[:=]|is)\s*['"]?[A-Za-z0-9._-]{8,}/i,
@@ -214,7 +229,10 @@ export function scanForThreats(text: string): string[] {
   )
 }
 
-/** Placeholder that replaces blocked content in injected summaries. */
-export function BLOCK_PLACEHOLDER(ids: string[]): string {
-  return `[BLOCKED: memory entry contained threat pattern(s): ${ids.join(", ")}. Removed from system prompt.]`
+/**
+ * Placeholder that replaces blocked content. Does not echo pattern ids so a
+ * probing attacker cannot use the model as an oracle to iterate bypasses.
+ */
+export function BLOCK_PLACEHOLDER(_ids?: string[]): string {
+  return `[BLOCKED: memory entry contained disallowed content. Removed from context.]`
 }

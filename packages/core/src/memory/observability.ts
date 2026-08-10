@@ -133,6 +133,12 @@ export function statusFilePath(baseDir: string): string {
   return path.join(baseDir, STATUS_FILE)
 }
 
+const FLUSH_STATS_FILE = "flush.stats.json"
+
+export function flushStatsPath(baseDir: string): string {
+  return path.join(baseDir, FLUSH_STATS_FILE)
+}
+
 /**
  * Persist last consolidate outcome under the memory base dir so health can
  * surface it after process restart (process counters still reset).
@@ -149,6 +155,54 @@ export const persistConsolidateStatus = Effect.fn("Memory.persistConsolidateStat
     ...(reason !== undefined ? { lastConsolidateReason: reason } : {}),
   })
   return yield* writeTextAtomic(fs, statusFilePath(baseDir), payload)
+})
+
+/**
+ * Persist flush counters under the memory base so health does not undercount
+ * after process restart. Best-effort; failures are ignored.
+ */
+export const persistFlushStats = Effect.fn("Memory.persistFlushStats")(function* (
+  fs: FSUtil.Interface,
+  baseDir: string,
+) {
+  const payload = JSON.stringify({
+    flushSuccess: stats.flushSuccess,
+    flushNoReply: stats.flushNoReply,
+    flushFailed: stats.flushFailed,
+  })
+  return yield* writeTextAtomic(fs, flushStatsPath(baseDir), payload).pipe(
+    Effect.catch(() => Effect.succeed(false as const)),
+  )
+})
+
+/** Load persisted flush counters and merge into process-local stats (max/sum-safe once at boot). */
+export const hydrateFlushStats = Effect.fn("Memory.hydrateFlushStats")(function* (
+  fs: FSUtil.Interface,
+  baseDir: string,
+) {
+  const text = yield* readTextSafe(fs, flushStatsPath(baseDir)).pipe(
+    Effect.catch(() => Effect.succeed(undefined as string | undefined)),
+  )
+  if (text === undefined || text.trim() === "") return
+  try {
+    const parsed = JSON.parse(text) as {
+      flushSuccess?: number
+      flushNoReply?: number
+      flushFailed?: number
+    }
+    // Only hydrate when process counters are still zero (cold start).
+    if (stats.flushSuccess === 0 && typeof parsed.flushSuccess === "number" && parsed.flushSuccess > 0) {
+      stats.flushSuccess = parsed.flushSuccess
+    }
+    if (stats.flushNoReply === 0 && typeof parsed.flushNoReply === "number" && parsed.flushNoReply > 0) {
+      stats.flushNoReply = parsed.flushNoReply
+    }
+    if (stats.flushFailed === 0 && typeof parsed.flushFailed === "number" && parsed.flushFailed > 0) {
+      stats.flushFailed = parsed.flushFailed
+    }
+  } catch {
+    // ignore corrupt file
+  }
 })
 
 export interface PersistedConsolidateStatus {

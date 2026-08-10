@@ -61,11 +61,23 @@ export function formatRecallBlock(
   return `## Relevant memory\n${lines.join("\n")}`.slice(0, RECALL_BLOCK_MAX_CHARS)
 }
 
+/** Per-session cache: same query within a process skips re-open/index/search. */
+const recallBlockCache = new Map<string, { query: string; block: string }>()
+
+/** Test-only: clear the recall cache. */
+export function resetRecallCacheForTests(): void {
+  recallBlockCache.clear()
+}
+
 /**
  * Retrieval-only recall pipeline: recent user messages -> query -> index
  * search -> rank -> threat-filter -> top-N block. Never writes memory files
  * and never invokes the LLM; every failure degrades to an empty block.
  * Included hits bump access_count.
+ *
+ * Cached by session+query so prepare() that reloads system context on every
+ * turn does not re-open the index when user messages (and thus the query) are
+ * unchanged.
  */
 export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
   store: SessionStore.Interface,
@@ -78,6 +90,10 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     Effect.catch(() => Effect.succeed("")),
   )
   if (query === "") return ""
+  const cacheKey = String(sessionID)
+  const cached = recallBlockCache.get(cacheKey)
+  if (cached !== undefined && cached.query === query) return cached.block
+
   const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (index === undefined) return ""
   try {
@@ -92,7 +108,9 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     yield* index
       .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
       .pipe(Effect.catch(() => Effect.void))
-    return formatRecallBlock(kept)
+    const block = formatRecallBlock(kept)
+    recallBlockCache.set(cacheKey, { query, block })
+    return block
   } finally {
     yield* index.close().pipe(Effect.catch(() => Effect.void))
   }

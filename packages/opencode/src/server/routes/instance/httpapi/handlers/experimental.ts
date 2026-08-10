@@ -19,9 +19,9 @@ import { resolveRoots } from "@opencode-ai/core/memory/storage"
 import { resolveScopedFile } from "@opencode-ai/core/memory/paths"
 import { collectHealth } from "@opencode-ai/core/memory/health"
 import { openConfiguredMemoryIndex } from "@opencode-ai/core/memory/reindex"
-import { BLOCK_PLACEHOLDER, scanForThreats } from "@opencode-ai/core/memory/scan"
+import { BLOCK_PLACEHOLDER, MAX_SCAN_CHARS, scanForThreats } from "@opencode-ai/core/memory/scan"
 import { defaultTransferAllowedRoots, exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
-import { writeMemoryNote } from "@opencode-ai/core/memory/tools"
+import { MAX_NOTE_CHARS, writeMemoryNote } from "@opencode-ai/core/memory/tools"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -258,16 +258,22 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      // Markdown only — never serve index.sqlite / locks / ledgers.
+      if (!ctx.query.path.endsWith(".md") || ctx.query.path.split(/[/\\]/).some((p) => p.startsWith("."))) {
+        return { content: "", truncated: false }
+      }
       const file = yield* resolveInRoots(fs, roots, ctx.query.path)
       if (file === undefined) return { content: "", truncated: false }
       const text = yield* Effect.orElseSucceed(fs.readFileStringSafe(file), () => undefined)
       const raw = text ?? ""
-      const threatIds = scanForThreats(raw)
+      // Never return un-scanned bytes.
+      const scannable = raw.slice(0, MAX_SCAN_CHARS)
+      const threatIds = scanForThreats(scannable)
       if (threatIds.length > 0) {
-        return { content: BLOCK_PLACEHOLDER(threatIds), truncated: false }
+        return { content: BLOCK_PLACEHOLDER(threatIds), truncated: raw.length > 40_000 }
       }
-      const content = raw.slice(0, 40_000)
-      return { content, truncated: raw.length > 40_000 }
+      const content = scannable.slice(0, 40_000)
+      return { content, truncated: raw.length > content.length }
     })
 
     const memoryHealth = Effect.fn("ExperimentalHttpApi.memoryHealth")(function* () {
@@ -339,7 +345,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     }) {
       const note = ctx.payload.note.trim()
       if (note.length === 0) return yield* new HttpApiError.BadRequest({})
-      // Same threat gate as memory_add_note tool — do not allow HTTP to bypass scan.
+      // Same size + threat gates as memory_add_note tool.
+      if (note.length > MAX_NOTE_CHARS) return yield* new HttpApiError.BadRequest({})
       const threatIds = scanForThreats(note)
       if (threatIds.length > 0) return yield* new HttpApiError.BadRequest({})
       const route = yield* WorkspaceRouteContext

@@ -11,7 +11,7 @@ import { ToolRegistry } from "../tool/registry"
 import { Tool } from "../tool/tool"
 import { resolveRoots, readTextSafe, type MemoryRoots } from "./storage"
 import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type ScopedPathError } from "./paths"
-import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
+import { scanForThreats, BLOCK_PLACEHOLDER, MAX_SCAN_CHARS } from "./scan"
 import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
 import { ftsQuery } from "./recall"
 import { rankResults, isContentFree, staleNote } from "./ranking"
@@ -49,6 +49,10 @@ const MemoryAddNoteOutput = Schema.Struct({ filename: Schema.String })
 
 const MAX_SEARCH_RESULTS = 50
 const DEFAULT_SEARCH_RESULTS = 20
+/** Hard cap for a single note write (tool + HTTP remember). */
+export const MAX_NOTE_CHARS = 32_768
+/** Grep fallback reads at most this many bytes per file (FTS path has no size skip). */
+export const GREP_FALLBACK_MAX_CHARS = 1024 * 1024
 
 /** Implementation / binary artifacts that must never be listed or model-read. */
 const INTERNAL_MEMORY_NAMES = new Set([
@@ -127,6 +131,7 @@ export const writeMemoryNote = Effect.fn("Memory.writeMemoryNote")(function* (
   roots: MemoryRoots,
   note: string,
 ) {
+  // Callers must enforce MAX_NOTE_CHARS; keep this path write-only.
   const base = roots.workspaceDir ?? roots.globalDir
   const notesDir = path.join(base, "extensions", "ad_hoc", "notes")
   yield* fs.ensureDir(notesDir)
@@ -231,10 +236,19 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
             }
           }
           const max = Math.max(1, input.max_tokens ?? 1000) * 4
-          const raw = (text ?? "").slice(0, max)
-          const threatIds = scanForThreats(raw)
-          const content = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : raw
-          return { content, truncated: (text?.length ?? 0) > max }
+          const full = text ?? ""
+          // Never return bytes that were not threat-scanned. Cap scan at MAX_SCAN_CHARS;
+          // also cap the returned slice to the scanned prefix.
+          const scannable = full.slice(0, MAX_SCAN_CHARS)
+          const threatIds = scanForThreats(scannable)
+          if (threatIds.length > 0) {
+            return { content: BLOCK_PLACEHOLDER(threatIds), truncated: full.length > max }
+          }
+          const content = scannable.slice(0, max)
+          return {
+            content,
+            truncated: full.length > content.length,
+          }
         }),
     }),
     memory_search: Tool.make({
@@ -307,19 +321,26 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                 if (entry.type !== "file" || !entry.name.endsWith(".md")) continue
                 const filePath = path.join(dir, entry.name)
                 const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-                if (!info || info.size > 1024 * 1024) continue
+                if (!info) continue
                 const mtime = Option.getOrElse(info.mtime, () => new Date(0)).getTime()
-                const text = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
-                if (!text || isContentFree(text)) continue
+                // Search the head of large files instead of skipping them entirely
+                // (FTS indexes full files; grep fallback must still find early hits).
+                const rawText = yield* readTextSafe(fs, filePath).pipe(Effect.catch(() => Effect.succeed("")))
+                if (!rawText || isContentFree(rawText)) continue
+                const text =
+                  rawText.length > GREP_FALLBACK_MAX_CHARS
+                    ? rawText.slice(0, GREP_FALLBACK_MAX_CHARS)
+                    : rawText
                 for (const [lineIndex, line] of text.split("\n").entries()) {
                   if (matches.length >= max) break
                   if (line.toLowerCase().includes(query)) {
                     const threatIds = scanForThreats(line)
-                    const clean = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : line
+                    if (threatIds.length > 0) continue
+                    if (scanForThreats(path.relative(rootBase, filePath)).length > 0) continue
                     const relative = path.relative(rootBase, filePath).replace(/\\/g, "/")
                     const ageDays = (Date.now() - mtime) / (24 * 60 * 60 * 1000)
                     const note = staleNote(ageDays, relative.startsWith("sessions/") ? "session" : source)
-                    matches.push({ path: relative, line: lineIndex + 1, text: `${clean} ${note}`.trim() })
+                    matches.push({ path: relative, line: lineIndex + 1, text: `${line} ${note}`.trim() })
                   }
                 }
               }
@@ -340,9 +361,15 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
         Effect.gen(function* () {
           const note = input.note.trim()
           if (note.length === 0) return yield* new Tool.Failure({ message: "Note cannot be empty." })
+          if (note.length > MAX_NOTE_CHARS) {
+            return yield* new Tool.Failure({
+              message: `Note exceeds maximum length of ${MAX_NOTE_CHARS} characters.`,
+            })
+          }
           const threatIds = scanForThreats(note)
           if (threatIds.length > 0) {
-            return yield* new Tool.Failure({ message: `Note rejected: threat pattern(s) ${threatIds.join(", ")}` })
+            // Do not echo pattern ids (oracle).
+            return yield* new Tool.Failure({ message: "Note rejected: disallowed content detected." })
           }
           return yield* writeMemoryNote(fs, rootsOf(), note).pipe(
             Effect.mapError((error) =>

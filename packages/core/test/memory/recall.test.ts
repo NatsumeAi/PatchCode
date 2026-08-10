@@ -7,7 +7,15 @@ import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { DateTime } from "effect"
-import { recallQuery, formatRecallBlock, ftsQuery, buildRecallBlock, RECALL_TOP_N, RECALL_BLOCK_MAX_CHARS } from "../../src/memory/recall"
+import {
+  recallQuery,
+  formatRecallBlock,
+  ftsQuery,
+  buildRecallBlock,
+  resetRecallCacheForTests,
+  RECALL_TOP_N,
+  RECALL_BLOCK_MAX_CHARS,
+} from "../../src/memory/recall"
 import { resolveRoots, writeTextAtomic } from "../../src/memory/storage"
 import { openMemoryIndex } from "../../src/memory/reindex"
 import { tmpdir } from "../fixture/tmpdir"
@@ -78,6 +86,7 @@ describe("Memory recall", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          resetRecallCacheForTests()
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
           yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "auth uses session tokens for every request")
@@ -120,6 +129,7 @@ describe("Memory recall", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          resetRecallCacheForTests()
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
           const index = yield* openMemoryIndex(fs, roots)
@@ -160,6 +170,7 @@ describe("Memory recall", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          resetRecallCacheForTests()
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
           // Files must exist on disk so ensureIndexed does not drop orphan chunks.
@@ -217,6 +228,7 @@ describe("Memory recall", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
+          resetRecallCacheForTests()
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
           const store = Layer.succeed(

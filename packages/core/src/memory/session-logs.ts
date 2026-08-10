@@ -1,5 +1,5 @@
 import path from "path"
-import { Effect, Option, Semaphore } from "effect"
+import { Effect, Option } from "effect"
 import { FSUtil } from "../fs-util"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 
@@ -34,13 +34,24 @@ export function isTrivialSession(input: { userPromptCount: number; userTextBytes
 }
 
 // Serializes read-modify-write appends from the drain watcher and flush.
-// The semaphore is created once and shared, so concurrent appends to the same
-// dated file cannot lose blocks (a per-call semaphore would serialize nothing).
-let appendLock: Semaphore.Semaphore | undefined
-const withAppendLock = <A, E>(effect: Effect.Effect<A, E>) =>
+// Promise-chain mutex: the tail swap is synchronous (no yield between read
+// and write), so concurrent fibers cannot each grab an empty chain and
+// interleave the critical section (the old lazy Semaphore.make race).
+let appendLockTail: Promise<void> = Promise.resolve()
+
+const withAppendLock = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
   Effect.gen(function* () {
-    const lock = appendLock ?? (appendLock = yield* Semaphore.make(1))
-    return yield* lock.withPermits(1)(effect)
+    const prev = appendLockTail
+    let release!: () => void
+    appendLockTail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    yield* Effect.promise(() => prev)
+    try {
+      return yield* effect
+    } finally {
+      release()
+    }
   })
 
 const fileMtime = (fs: FSUtil.Interface, file: string): Effect.Effect<number | undefined> =>

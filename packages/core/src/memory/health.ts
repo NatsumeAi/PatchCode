@@ -6,6 +6,7 @@ import type { MemoryIndex } from "./reindex"
 import { selectPruneCandidates } from "./prune"
 import {
   getMemoryStats,
+  hydrateFlushStats,
   loadConsolidateStatus,
   type ConsolidateStatus,
   type MemoryStats,
@@ -65,6 +66,10 @@ export const resolveConsolidateObservability = Effect.fn("Memory.resolveConsolid
   fs: FSUtil.Interface,
   roots: MemoryRoots,
 ) {
+  // Cold start: restore flush counters from disk so restarts do not undercount.
+  for (const base of healthBases(roots)) {
+    yield* hydrateFlushStats(fs, base)
+  }
   const local = getMemoryStats()
   if (local.lastConsolidateStatus !== "never") {
     return {

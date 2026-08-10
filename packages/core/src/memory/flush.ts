@@ -16,7 +16,7 @@ import { readTextSafe, resolveRoots, writeTextAtomic, type MemoryRoots } from ".
 import { appendSessionLog, sessionLogPath, sanitizeSessionId } from "./session-logs"
 import { scanForThreats } from "./scan"
 import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
-import { recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
+import { persistFlushStats, recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
 import { isNoReply, stripModelWrapper } from "./text-utils"
 import { flushContentHash, isFlushDuplicate } from "./flush-dedup"
 
@@ -100,7 +100,13 @@ const storeLastFlushHash = Effect.fn("Memory.storeLastFlushHash")(function* (
   sessionID: string,
   hash: string,
 ) {
-  yield* writeTextAtomic(fs, lastFlushHashPath(roots, sessionID), `${hash}\n`).pipe(Effect.catch(() => Effect.succeed(false)))
+  const ok = yield* writeTextAtomic(fs, lastFlushHashPath(roots, sessionID), `${hash}\n`).pipe(
+    Effect.catch(() => Effect.succeed(false as const)),
+  )
+  if (!ok) {
+    yield* Effect.logWarning(`memory flush: failed to persist last-flush hash for ${sessionID}`)
+  }
+  return ok
 })
 
 /**
@@ -142,7 +148,11 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   if (messages.length === 0) return
 
   const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
-  if (!model) return
+  if (!model) {
+    recordFlushFailed("no-model")
+    yield* Effect.logWarning(`memory flush skipped: no model for session ${sessionKey}`)
+    return
+  }
 
   const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
   const existing = yield* readTextSafe(fs, sessionLogPath(roots, sessionKey, new Date()))
@@ -158,12 +168,21 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     messages: toLLMMessages(messages, model),
     tools: [],
   })
+  let streamFailed = false
   const text = yield* llm.stream(request).pipe(
     Stream.filter(LLMEvent.is.textDelta),
     Stream.map((event) => event.text),
     Stream.mkString,
-    Effect.catch(() => Effect.succeed("")),
+    Effect.catch(() => {
+      streamFailed = true
+      return Effect.succeed("")
+    }),
   )
+  if (streamFailed) {
+    recordFlushFailed("stream")
+    yield* Effect.logWarning(`memory flush stream failed for session ${sessionKey}`)
+    return
+  }
   const cleaned = stripModelWrapper(text)
   if (cleaned.length === 0 || isNoReply(cleaned)) {
     if (isNoReply(cleaned)) {
@@ -200,9 +219,15 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     yield* Effect.logWarning(`memory flush atomic write failed for session ${sessionKey}`)
     return
   }
-  yield* storeLastFlushHash(fs, roots, sessionKey, hash)
+  const hashStored = yield* storeLastFlushHash(fs, roots, sessionKey, hash)
+  if (!hashStored) {
+    // Append already landed; still count success but surface the durability gap.
+    recordFlushFailed("hash-marker")
+  }
   recordFlushSuccess()
   markFlushed(sessionKey)
+  const base = roots.workspaceDir ?? roots.globalDir
+  yield* persistFlushStats(fs, base).pipe(Effect.catch(() => Effect.succeed(false)))
 })
 const layer = Layer.effect(
   Service,
