@@ -147,4 +147,74 @@ describe("Memory summary regeneration", () => {
       ),
     ),
   )
+
+  it.effect("regenerateSummary applies workspace budget when writing workspace base", () => {
+    const long = "w".repeat(SUMMARY_BUDGETS.workspace + 500)
+    return Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), path.join(dir.path, "proj"))
+          yield* writeTextAtomic(fs, path.join(roots.workspaceDir!, "MEMORY.md"), "## Workspace\nprefer layers")
+          const model = Model.make({ id: "memory-test", provider: "test", route: openAICompatibleRoutes[0]! })
+          const llm = yield* LLMClient.Service
+          const ok = yield* regenerateSummary(fs, roots, llm, model)
+          expect(ok).toBe(true)
+          const summary = yield* readTextSafe(fs, path.join(roots.workspaceDir!, "memory_summary.md"))
+          expect(summary?.length).toBeLessThanOrEqual(SUMMARY_BUDGETS.workspace)
+          expect(summary?.length).toBe(SUMMARY_BUDGETS.workspace)
+          // Must not have used the larger global budget
+          expect(SUMMARY_BUDGETS.global).toBeGreaterThan(SUMMARY_BUDGETS.workspace)
+        }).pipe(
+          Effect.provide(
+            Layer.succeed(
+              LLMClient.Service,
+              LLMClient.Service.of({
+                stream: () => Stream.fromIterable([LLMEvent.textDelta({ id: "t1", text: long })]),
+                prepare: () => Effect.die("unused"),
+                generate: () => Effect.die("unused"),
+              }),
+            ),
+          ),
+        ),
+      ),
+    )
+  })
+
+  it.effect("regenerateSummary applies global budget when writing global base", () => {
+    const long = "g".repeat(SUMMARY_BUDGETS.global + 500)
+    return Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Global\nprefer layers")
+          const model = Model.make({ id: "memory-test", provider: "test", route: openAICompatibleRoutes[0]! })
+          const llm = yield* LLMClient.Service
+          const ok = yield* regenerateSummary(fs, roots, llm, model)
+          expect(ok).toBe(true)
+          const summary = yield* readTextSafe(fs, path.join(roots.globalDir, "memory_summary.md"))
+          expect(summary?.length).toBeLessThanOrEqual(SUMMARY_BUDGETS.global)
+          expect(summary?.length).toBe(SUMMARY_BUDGETS.global)
+        }).pipe(
+          Effect.provide(
+            Layer.succeed(
+              LLMClient.Service,
+              LLMClient.Service.of({
+                stream: () => Stream.fromIterable([LLMEvent.textDelta({ id: "t1", text: long })]),
+                prepare: () => Effect.die("unused"),
+                generate: () => Effect.die("unused"),
+              }),
+            ),
+          ),
+        ),
+      ),
+    )
+  })
 })

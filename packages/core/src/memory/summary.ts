@@ -76,5 +76,10 @@ export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function*
   const cleaned = text.trim()
   if (cleaned.length === 0) return false
   if (scanForThreats(cleaned).length > 0) return false
-  return yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned.slice(0, SUMMARY_BUDGETS.global))
+  // Apply the per-root injection budget: workspace summaries are smaller than global.
+  const budget =
+    roots.workspaceDir !== undefined && base === roots.workspaceDir
+      ? SUMMARY_BUDGETS.workspace
+      : SUMMARY_BUDGETS.global
+  return yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned.slice(0, budget))
 })
