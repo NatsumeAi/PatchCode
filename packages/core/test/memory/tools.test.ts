@@ -111,9 +111,31 @@ describe("Memory tools", () => {
           Effect.gen(function* () {
             yield* Effect.promise(() => fs.mkdir(path.join(dir.path, ".opencode", "memory"), { recursive: true }))
             yield* Effect.promise(() => fs.writeFile(path.join(dir.path, ".opencode", "memory", "MEMORY.md"), "x"))
+            yield* Effect.promise(() => fs.writeFile(path.join(dir.path, ".opencode", "memory", "index.sqlite"), "bin"))
+            yield* Effect.promise(() => fs.writeFile(path.join(dir.path, ".opencode", "memory", "merged.hashes"), "abc"))
             const settled = yield* settleTool(registry, call("memory_list", {}))
             const entries = (settled.output?.structured as { entries: Array<{ name: string }> } | undefined)?.entries
             expect(entries?.some((entry) => entry.name === "MEMORY.md")).toBe(true)
+            expect(entries?.some((entry) => entry.name === "index.sqlite")).toBe(false)
+            expect(entries?.some((entry) => entry.name === "merged.hashes")).toBe(false)
+          }),
+        ),
+      ),
+    ),
+  )
+
+  it.live("memory_read rejects non-markdown implementation files", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        withTool(dir.path, (registry) =>
+          Effect.gen(function* () {
+            yield* Effect.promise(() => fs.mkdir(path.join(dir.path, ".opencode", "memory"), { recursive: true }))
+            yield* Effect.promise(() => fs.writeFile(path.join(dir.path, ".opencode", "memory", "index.sqlite"), "bin"))
+            const output = yield* executeTool(registry, call("memory_read", { path: "index.sqlite" }))
+            expect(output.type).toBe("error")
           }),
         ),
       ),

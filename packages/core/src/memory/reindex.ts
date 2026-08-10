@@ -9,6 +9,7 @@ import { FSUtil } from "../fs-util"
 import type { MemoryRoots } from "./storage"
 import { cosineSimilarity, normalize01, hybridScore, applyMmr, DEFAULT_MIN_SCORE } from "./hybrid"
 import { resolveMemoryEmbeddingProvider } from "./config"
+import { scanForThreats } from "./scan"
 
 type SyncDB = ReturnType<typeof drizzle>
 type Row = Record<string, unknown>
@@ -208,13 +209,28 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
   return {
     insert: Effect.fn("MemoryIndex.insert")(function* (root, input) {
       const db = pick(root)
+      const hash = chunkHash(input.text)
       const vectorsJson = input.vectors === undefined ? null : JSON.stringify(input.vectors)
+      // DO NOTHING on conflict preserves access_count/FTS rowids. When a later
+      // process enables embeddings, the same hash/path must still accept a
+      // vectors backfill (otherwise hybrid cosine is always 0 on upgrades).
       const id = yield* q(() => db.all(sql`INSERT INTO chunks (hash, path, start_line, end_line, text, source, mtime_ms, vectors)
-        VALUES (${chunkHash(input.text)}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs}, ${vectorsJson})
+        VALUES (${hash}, ${input.path}, ${input.startLine}, ${input.endLine}, ${input.text}, ${input.source}, ${input.mtimeMs}, ${vectorsJson})
         ON CONFLICT(hash, path) DO NOTHING RETURNING id`)).pipe(
         Effect.map((result) => rowsOf(result)[0]?.id),
       )
-      if (id === undefined) return
+      if (id === undefined) {
+        if (vectorsJson !== null) {
+          yield* q(() =>
+            db.run(
+              sql`UPDATE chunks SET vectors = ${vectorsJson}, mtime_ms = ${input.mtimeMs}
+                WHERE hash = ${hash} AND path = ${input.path}
+                AND (vectors IS NULL OR vectors = '')`,
+            ),
+          ).pipe(Effect.asVoid)
+        }
+        return
+      }
       yield* q(() => db.run(sql`INSERT INTO chunks_fts (rowid, text) VALUES (${Number(id)}, ${input.text})`)).pipe(
         Effect.asVoid,
       )
@@ -416,17 +432,21 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
     }),
     listChunks: Effect.fn("MemoryIndex.listChunks")(function* () {
       const collect = (db: SyncDB, root: "global" | "workspace"): Effect.Effect<Array<IndexChunk>, IndexError> =>
-        q(() => db.all(sql`SELECT id, path, source, access_count, mtime_ms, text FROM chunks`)).pipe(
+        q(() => db.all(sql`SELECT id, path, source, access_count, mtime_ms, text, vectors FROM chunks`)).pipe(
           Effect.map((result) =>
-              rowsOf(result).map((row) => ({
-                id: Number(row.id),
-                path: String(row.path),
-                source: String(row.source),
-                accessCount: Number(row.access_count),
-                mtimeMs: Number(row.mtime_ms),
-                text: String(row.text),
-                root,
-              })),
+              rowsOf(result).map((row) => {
+                const vectors = row.vectors
+                return {
+                  id: Number(row.id),
+                  path: String(row.path),
+                  source: String(row.source),
+                  accessCount: Number(row.access_count),
+                  mtimeMs: Number(row.mtime_ms),
+                  text: String(row.text),
+                  vectors: typeof vectors === "string" ? (JSON.parse(vectors) as Array<number>) : undefined,
+                  root,
+                }
+              }),
             ),
           )
       const [globalChunks, workspaceChunks] = yield* Effect.all([
@@ -445,6 +465,15 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
   }
 })
 
+/** True when a relative memory path is safe to surface in model context. */
+export function isSafeIndexPath(relative: string): boolean {
+  if (relative.length === 0 || relative.length > 512) return false
+  if (/[\u0000-\u001f\u007f]/.test(relative)) return false
+  // Path is never scanned elsewhere; block instruction-smuggling filenames.
+  if (scanForThreats(relative).length > 0) return false
+  return true
+}
+
 /** Chunks a file and indexes it with hash dedup; stale chunks for the path are removed. */
 export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   index: MemoryIndex,
@@ -455,6 +484,11 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   mtimeMs: number,
 ) {
   const relative = filePath.replace(/\\/g, "/")
+  if (!isSafeIndexPath(relative)) {
+    // Drop any prior chunks for a now-unsafe path so they cannot be recalled.
+    yield* index.deletePath(root, relative).pipe(Effect.catch(() => Effect.void))
+    return
+  }
   const chunks = chunkMarkdown(text, 1500)
   const newHashes = new Set(chunks.map((chunk) => chunkHash(chunk.text)))
   // Remove only chunks whose content is gone (hash changed); unchanged chunks
@@ -464,11 +498,17 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
   yield* index.removeChunks(root, staleIds).pipe(Effect.catch(() => Effect.void))
   let vectors: ReadonlyArray<ReadonlyArray<number>> = []
   if (index.provider !== undefined) {
-    vectors = yield* index.provider
-      .embedBatch(chunks.map((chunk) => chunk.text))
-      .pipe(Effect.catch(() => Effect.succeed([])))
+    // Do not send threat-laden / credential-looking chunks to remote embed APIs.
+    const embeddable = chunks.map((chunk) => (scanForThreats(chunk.text).length === 0 ? chunk.text : ""))
+    const nonEmpty = embeddable.filter((t) => t.length > 0)
+    if (nonEmpty.length > 0) {
+      const embedded = yield* index.provider.embedBatch(nonEmpty).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<ReadonlyArray<number>>)))
+      let ei = 0
+      vectors = embeddable.map((t) => (t.length === 0 ? [] : (embedded[ei++] ?? [])))
+    }
   }
   for (const [index_, chunk] of chunks.entries()) {
+    const vec = vectors[index_]
     yield* index.insert(root, {
       path: relative,
       source,
@@ -476,7 +516,7 @@ export const reindexFile = Effect.fn("Memory.reindexFile")(function* (
       startLine: chunk.startLine,
       endLine: chunk.endLine,
       mtimeMs,
-      vectors: vectors[index_],
+      vectors: vec && vec.length > 0 ? vec : undefined,
     })
   }
 })

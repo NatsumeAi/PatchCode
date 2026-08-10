@@ -209,6 +209,56 @@ describe("Embedding provider", () => {
     ),
   )
 
+  it.effect("backfills vectors on conflict when provider is enabled after FTS-only index", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const text = "prefer effect layers for consolidation"
+          // Phase 1: FTS-only install writes chunks with vectors=NULL.
+          const ftsOnly = yield* openMemoryIndex(fs, roots)
+          yield* ftsOnly.insert("global", {
+            path: "MEMORY.md",
+            source: "global",
+            text,
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: 1000,
+          })
+          const before = yield* ftsOnly.listChunks()
+          expect(before.length).toBe(1)
+          expect(before[0]!.vectors).toBeUndefined()
+          yield* ftsOnly.close()
+
+          // Phase 2: user enables embedding provider; reindex same content.
+          const withVec = yield* openMemoryIndex(fs, roots, provider)
+          const vec = fakeEmbedding(text)
+          yield* withVec.insert("global", {
+            path: "MEMORY.md",
+            source: "global",
+            text,
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: 1000,
+            vectors: vec,
+          })
+          const after = yield* withVec.listChunks()
+          expect(after.length).toBe(1)
+          expect(after[0]!.vectors).toBeDefined()
+          expect(after[0]!.vectors!.length).toBe(vec.length)
+          // Hybrid must use stored vectors (not BM25-only).
+          const hits = yield* withVec.search("consolidation", 5)
+          expect(hits.length).toBeGreaterThan(0)
+          yield* withVec.close()
+        }),
+      ),
+    ),
+  )
+
   it.effect("hybrid search keys FTS hits by root:id and applies MMR diversity", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

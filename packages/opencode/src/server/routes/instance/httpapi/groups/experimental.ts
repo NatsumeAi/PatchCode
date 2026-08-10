@@ -94,6 +94,7 @@ export const MemoryFileListEntry = Schema.Struct({
 }).annotate({ identifier: "MemoryFileListEntry" })
 export const MemoryFileList = Schema.Array(MemoryFileListEntry).annotate({ identifier: "MemoryFileList" })
 export const MemoryReadQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
   path: Schema.String,
 }).annotate({ identifier: "MemoryReadQuery" })
 export const MemoryReadResponse = Schema.Struct({
@@ -101,6 +102,7 @@ export const MemoryReadResponse = Schema.Struct({
   truncated: Schema.Boolean,
 }).annotate({ identifier: "MemoryReadResponse" })
 export const MemorySessionLogDeleteQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
   path: Schema.String,
 }).annotate({ identifier: "MemorySessionLogDeleteQuery" })
 export const MemoryHealthResponse = Schema.Struct({

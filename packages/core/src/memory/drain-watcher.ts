@@ -110,10 +110,21 @@ export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; i
       yield* drainTick(state, now, active, store, rootsOf, fs, idleDebounce)
     })
 
-    // Best-effort final drain on scope close: flush any pending sessions whose
-    // idle debounce has already elapsed (process shutdown / location teardown).
+    // Best-effort final drain on scope close. Force every pending (and still-seen)
+    // session past the idle debounce so one-shot CLI / fast process exit does not
+    // permanently drop the last session metadata log.
     yield* Effect.addFinalizer(() =>
-      tick.pipe(
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis
+        const forceAt = now - Duration.toMillis(idleDebounce) - 1
+        for (const id of state.seen) {
+          if (!state.pending.has(id)) state.pending.set(id, forceAt)
+        }
+        for (const id of [...state.pending.keys()]) {
+          state.pending.set(id, forceAt)
+        }
+        yield* tick
+      }).pipe(
         Effect.catch((error) =>
           Effect.logWarning(`memory drain finalizer tick failed: ${String(error)}`).pipe(Effect.asVoid),
         ),

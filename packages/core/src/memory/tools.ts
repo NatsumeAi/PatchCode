@@ -50,6 +50,32 @@ const MemoryAddNoteOutput = Schema.Struct({ filename: Schema.String })
 const MAX_SEARCH_RESULTS = 50
 const DEFAULT_SEARCH_RESULTS = 20
 
+/** Implementation / binary artifacts that must never be listed or model-read. */
+const INTERNAL_MEMORY_NAMES = new Set([
+  "index.sqlite",
+  "index.sqlite-wal",
+  "index.sqlite-shm",
+  "merged.hashes",
+  "consolidation.lock",
+  "consolidation.last",
+  "consolidation.status.json",
+  ".append.lock",
+])
+
+function isListableMemoryEntry(entry: { name: string; type: string }): boolean {
+  if (entry.name.startsWith(".")) return false
+  if (INTERNAL_MEMORY_NAMES.has(entry.name)) return false
+  if (entry.type === "file" && !entry.name.endsWith(".md")) return false
+  return true
+}
+
+function isReadableMemoryPath(relative: string): boolean {
+  const base = path.basename(relative)
+  if (base.startsWith(".") || INTERNAL_MEMORY_NAMES.has(base)) return false
+  if (!relative.endsWith(".md")) return false
+  return true
+}
+
 function slugFromNote(note: string): string {
   const cleaned = note
     .toLowerCase()
@@ -148,6 +174,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
             const listed = yield* fs.readDirectoryEntries(target).pipe(Effect.catch(() => Effect.succeed([])))
             for (const entry of listed) {
               if (entry.type !== "file" && entry.type !== "directory") continue
+              if (!isListableMemoryEntry(entry)) continue
               entries.push({
                 name: entry.name,
                 type: entry.type === "directory" ? "directory" : "file",
@@ -170,6 +197,11 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
       execute: (input) =>
         Effect.gen(function* () {
           const roots = rootsOf()
+          if (!isReadableMemoryPath(input.path)) {
+            return yield* new Tool.Failure({
+              message: `Memory path not readable (markdown files only): ${input.path}`,
+            })
+          }
           // Prefer workspace, then global — dual-root read consistency.
           const order = listScopes(roots, "all")
           let file: string | undefined
@@ -240,6 +272,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                   hits
                     .filter((hit) => !isContentFree(hit.text))
                     .filter((hit) => scanForThreats(hit.text).length === 0)
+                    .filter((hit) => scanForThreats(hit.path).length === 0)
                     .map((hit) => ({ ...hit, source: hit.source })),
                 ).slice(0, max)
                 yield* index

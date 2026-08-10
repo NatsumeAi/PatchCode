@@ -93,7 +93,8 @@ export const THREAT_PATTERNS = [
   },
   {
     id: "inject_base64",
-    re: /(?:decode|ignore)[\s\S]{0,40}[A-Za-z0-9+/]{48,}={0,2}|[A-Za-z0-9+/]{48,}={0,2}[\s\S]{0,40}(?:decode|ignore)/i,
+    // Cap run length (48–256) to avoid catastrophic backtracking on long alnum prose.
+    re: /(?:decode|ignore)\b[\s\S]{0,40}?[A-Za-z0-9+/]{48,256}={0,2}(?![A-Za-z0-9+/])|[A-Za-z0-9+/]{48,256}={0,2}(?![A-Za-z0-9+/])[\s\S]{0,40}?\b(?:decode|ignore)\b/i,
     reason: "encoded payload smuggle",
   },
   {
@@ -108,8 +109,44 @@ export const THREAT_PATTERNS = [
     reason: "credential exfiltration",
   },
   {
+    id: "exfil_github_pat",
+    re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+    reason: "github fine-grained pat",
+  },
+  {
+    id: "exfil_gitlab_pat",
+    re: /\bglpat-[A-Za-z0-9_-]{16,}\b/,
+    reason: "gitlab personal access token",
+  },
+  {
+    id: "exfil_stripe_whsec",
+    re: /\bwhsec_[A-Za-z0-9_-]{16,}\b/,
+    reason: "stripe webhook secret",
+  },
+  {
+    id: "exfil_google_api",
+    re: /\bAIza[0-9A-Za-z_-]{20,}\b/,
+    reason: "google api key",
+  },
+  {
+    id: "exfil_google_oauth",
+    re: /\bya29\.[0-9A-Za-z_-]{20,}\b/,
+    reason: "google oauth access token",
+  },
+  {
+    id: "exfil_aws_sts",
+    re: /\bASIA[0-9A-Z]{16}\b/,
+    reason: "aws temporary access key",
+  },
+  {
+    id: "exfil_jwt",
+    re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
+    reason: "jwt bearer token",
+  },
+  {
     id: "exfil_secret",
-    re: /\b(api[_-]?key|secret|password|token)\s*[:=]\s*['"]?[A-Za-z0-9._-]{12,}/i,
+    // Allow natural language "password is hunter2" as well as key=value forms.
+    re: /\b(api[_-]?key|secret|password|token)\s*(?:[:=]|is)\s*['"]?[A-Za-z0-9._-]{8,}/i,
     reason: "credential assignment",
   },
   {
@@ -139,8 +176,10 @@ const INVISIBLE_RE =
   /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u00AD\u034F\u061C\u180E\u17B4\u17B5]/g
 
 /**
- * Normalize text before pattern matching: NFKC (full-width Latin → ASCII),
- * strip invisibles to spaces, clamp length.
+ * Normalize text before pattern matching: NFKC (full-width Latin → ASCII), clamp.
+ * Invisibles are handled in two variants inside `scanForThreats`:
+ * - strip → empty: closes i\\u200Dgnore → ignore
+ * - strip → space: closes ignore\\u200Bprevious → ignore previous
  */
 export function normalizeForScan(text: string): string {
   const capped = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text
@@ -150,15 +189,29 @@ export function normalizeForScan(text: string): string {
   } catch {
     normalized = capped
   }
+  // Default public form uses space (preserves multi-word boundaries).
   return normalized.replace(INVISIBLE_RE, " ")
+}
+
+function normalizeNfkc(text: string): string {
+  const capped = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text
+  try {
+    return capped.normalize("NFKC")
+  } catch {
+    return capped
+  }
 }
 
 /**
  * Returns the ids of all threat patterns matched in `text` (empty when clean).
  */
 export function scanForThreats(text: string): string[] {
-  const normalized = normalizeForScan(text)
-  return THREAT_PATTERNS.filter((pattern) => pattern.re.test(normalized)).map((pattern) => pattern.id)
+  const nfkc = normalizeNfkc(text)
+  const spaced = nfkc.replace(INVISIBLE_RE, " ")
+  const joined = nfkc.replace(INVISIBLE_RE, "")
+  return THREAT_PATTERNS.filter((pattern) => pattern.re.test(spaced) || pattern.re.test(joined)).map(
+    (pattern) => pattern.id,
+  )
 }
 
 /** Placeholder that replaces blocked content in injected summaries. */

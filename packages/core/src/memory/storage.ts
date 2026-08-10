@@ -1,4 +1,5 @@
 import path from "path"
+import { realpathSync, existsSync, lstatSync } from "fs"
 import { Effect } from "effect"
 import { FSUtil } from "../fs-util"
 
@@ -7,11 +8,39 @@ export interface MemoryRoots {
   readonly workspaceDir: string | undefined
 }
 
-export function resolveRoots(globalBase: string, projectDirectory: string | undefined): MemoryRoots {
-  return {
-    globalDir: globalBase,
-    workspaceDir: projectDirectory ? path.join(projectDirectory, ".opencode", "memory") : undefined,
+/**
+ * Resolve a memory root path without following a hijacked symlink out of its
+ * expected parent. If `dir` itself is a symlink whose target escapes
+ * `mustBeUnder`, returns undefined (caller disables that scope).
+ * Non-existent paths stay lexical (created later under the intended parent).
+ */
+export function safeMemoryRoot(dir: string, mustBeUnder?: string): string | undefined {
+  const abs = path.resolve(dir)
+  if (!existsSync(abs)) {
+    if (mustBeUnder !== undefined && !FSUtil.contains(path.resolve(mustBeUnder), abs)) return undefined
+    return abs
   }
+  try {
+    const stat = lstatSync(abs)
+    if (stat.isSymbolicLink() && mustBeUnder !== undefined) {
+      const real = realpathSync(abs)
+      const parentReal = realpathSync(path.resolve(mustBeUnder))
+      if (!FSUtil.contains(parentReal, real)) return undefined
+      return real
+    }
+    return realpathSync(abs)
+  } catch {
+    return abs
+  }
+}
+
+export function resolveRoots(globalBase: string, projectDirectory: string | undefined): MemoryRoots {
+  const globalDir = safeMemoryRoot(globalBase) ?? path.resolve(globalBase)
+  const workspaceDir =
+    projectDirectory !== undefined
+      ? safeMemoryRoot(path.join(projectDirectory, ".opencode", "memory"), projectDirectory)
+      : undefined
+  return { globalDir, workspaceDir }
 }
 
 export function memoryDir(root: MemoryRoots, relative: string): string {

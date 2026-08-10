@@ -45,6 +45,9 @@ describe("Memory SystemContext", () => {
           expect(generation.baseline).toContain("workspace note")
           expect(generation.baseline).toContain("global note")
           expect(generation.baseline).toContain("## Memory")
+          expect(generation.baseline).toContain("USER/PROJECT DATA")
+          expect(generation.baseline).toContain("untrusted")
+          expect(generation.baseline).toContain("USER-PROVIDED MEMORY DATA")
           expect(generation.baseline.indexOf("workspace-memory")).toBeLessThan(
             generation.baseline.indexOf("global-memory"),
           )

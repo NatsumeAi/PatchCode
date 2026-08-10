@@ -40,6 +40,14 @@ export function ftsQuery(query: string): string {
   return terms.join(" OR ")
 }
 
+/** Safe path label for model context (never inject raw malicious filenames). */
+export function safeRecallPath(pathLabel: string): string {
+  if (pathLabel.length === 0 || pathLabel.length > 512) return "[blocked-path]"
+  if (/[\u0000-\u001f\u007f]/.test(pathLabel)) return "[blocked-path]"
+  if (scanForThreats(pathLabel).length > 0) return "[blocked-path]"
+  return pathLabel
+}
+
 /** Renders the top hits as a bounded, citation-carrying markdown block. */
 export function formatRecallBlock(
   hits: ReadonlyArray<{ path: string; text: string; source?: string; ageDays?: number }>,
@@ -48,7 +56,7 @@ export function formatRecallBlock(
   const lines = hits.map((hit) => {
     const note = staleNote(hit.ageDays ?? 0, (hit.source ?? "workspace") as "global" | "workspace" | "session")
     const text = `${hit.text.slice(0, RECALL_CHUNK_MAX_CHARS)} ${note}`.trim()
-    return `- ${hit.path}: ${text}`
+    return `- ${safeRecallPath(hit.path)}: ${text}`
   })
   return `## Relevant memory\n${lines.join("\n")}`.slice(0, RECALL_BLOCK_MAX_CHARS)
 }
@@ -78,6 +86,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     const kept = rankResults(hits)
       .filter((hit) => !isContentFree(hit.text))
       .filter((hit) => scanForThreats(hit.text).length === 0)
+      .filter((hit) => scanForThreats(hit.path).length === 0)
       .slice(0, RECALL_TOP_N)
       .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
     yield* index

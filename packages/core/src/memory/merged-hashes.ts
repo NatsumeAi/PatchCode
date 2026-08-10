@@ -14,12 +14,15 @@ export const contentHash = (id: string, text: string): string => {
   return hasher.digest("hex")
 }
 
-/** Loads the append-only hash ledger into a Set (empty when missing). */
+/** Loads the append-only hash ledger into a Set (empty when missing/unreadable). */
 export const loadMergedHashes = Effect.fn("Memory.loadMergedHashes")(function* (
   fs: FSUtil.Interface,
   baseDir: string,
 ) {
-  const text = yield* readTextSafe(fs, mergedHashesPath(baseDir))
+  // Never defect the consolidation path on a corrupt ledger (directory, EACCES).
+  const text = yield* readTextSafe(fs, mergedHashesPath(baseDir)).pipe(
+    Effect.catch(() => Effect.succeed(undefined as string | undefined)),
+  )
   if (text === undefined || text.trim() === "") return new Set<string>()
   const set = new Set<string>()
   for (const line of text.split("\n")) {

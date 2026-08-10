@@ -137,6 +137,10 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
     return { ok: false, reason: "threat" } satisfies MergeOutcome
   }
 
+  // Snapshot prior archive so a ledger failure can roll back MEMORY.md. Without
+  // rollback, the next run re-merges the same sources into an already-updated
+  // archive and duplicates content (sources kept + ledger missing hashes).
+  const priorArchive = yield* readTextSafe(fs, target)
   const written = yield* writeTextAtomic(fs, target, merged)
   if (!written) {
     yield* Effect.logWarning("memory consolidate: atomic MEMORY.md write failed; sources kept")
@@ -146,8 +150,12 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   const hashes = included.map((source) => contentHash(source.id, source.text))
   const ledgerOk = yield* appendMergedHashes(fs, base, hashes)
   if (!ledgerOk) {
-    // Do not delete sources when the idempotency ledger fails — re-merge is safer than data loss.
-    yield* Effect.logWarning("memory consolidate: hash ledger append failed; sources kept for retry")
+    yield* Effect.logWarning("memory consolidate: hash ledger append failed; rolling back MEMORY.md; sources kept")
+    if (priorArchive === undefined) {
+      yield* fs.remove(target).pipe(Effect.catch(() => Effect.void))
+    } else {
+      yield* writeTextAtomic(fs, target, priorArchive).pipe(Effect.catch(() => Effect.succeed(false)))
+    }
     return { ok: false, reason: "ledger" } satisfies MergeOutcome
   }
   yield* deleteSources(fs, included)
@@ -344,8 +352,13 @@ const layer = Layer.effect(
     })
     const svc = Service.of({
       consolidate: Effect.fn("Memory.consolidate")(function* () {
+        const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
         const model = yield* models.resolve(syntheticSession).pipe(Effect.catch(() => Effect.succeed(undefined)))
-        if (!model) return
+        if (!model) {
+          // Distinguish "never ran / disabled" from "provider unavailable" in health.
+          yield* noteOutcome(fs, roots, "failed", "no-model")
+          return
+        }
         yield* runDualRootConsolidation({
           fs,
           globalDir: path.join(global.data, "memory"),

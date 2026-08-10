@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import path from "path"
+import { symlinkSync, mkdirSync, writeFileSync } from "fs"
 import { Effect } from "effect"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -11,13 +13,31 @@ const it = testEffect(LayerNode.compile(FSUtil.node))
 describe("Memory storage", () => {
   test("resolveRoots maps global base and workspace project dir", () => {
     const roots = resolveRoots("/base/memory", "/proj")
-    expect(roots.globalDir).toBe("/base/memory")
-    expect(roots.workspaceDir).toBe("/proj/.opencode/memory")
+    expect(roots.globalDir).toBe(path.resolve("/base/memory"))
+    expect(roots.workspaceDir).toBe(path.resolve("/proj/.opencode/memory"))
   })
 
   test("resolveRoots omits workspace when project directory is absent", () => {
     expect(resolveRoots("/base/memory", undefined).workspaceDir).toBeUndefined()
   })
+
+  it.effect("resolveRoots disables workspace when memory root is a symlink escaping the project", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) =>
+        Effect.sync(() => {
+          const proj = path.join(dir.path, "proj")
+          const outside = path.join(dir.path, "attacker")
+          mkdirSync(path.join(proj, ".opencode"), { recursive: true })
+          mkdirSync(outside, { recursive: true })
+          writeFileSync(path.join(outside, "evil.md"), "x")
+          symlinkSync(outside, path.join(proj, ".opencode", "memory"))
+          const roots = resolveRoots(path.join(dir.path, "global-mem"), proj)
+          expect(roots.workspaceDir).toBeUndefined()
+        }),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ),
+  )
 
   test("memoryDir rejects paths escaping the root", () => {
     const roots = resolveRoots("/base/memory", "/proj")

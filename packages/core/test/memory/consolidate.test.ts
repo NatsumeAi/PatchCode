@@ -225,9 +225,11 @@ describe("Memory consolidation", () => {
             },
           }
           yield* runConsolidation({ fs: ledgerFailFs, roots, llm: yield* LLMClient.Service, model })
-          // MEMORY may have been written; sources must still be present for retry.
+          // Sources kept and MEMORY.md rolled back so a retry does not duplicate.
           const still = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "ledger.md"))
           expect(still).toBe(body)
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem === undefined || !mem.includes("## Merged")).toBe(true)
         }),
       ),
     ),
