@@ -15,7 +15,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { MemoryDrainWatcher } from "../../src/memory/drain-watcher"
+import { MemoryDrainWatcher, drainTick, makeDrainState } from "../../src/memory/drain-watcher"
 import { readTextSafe, resolveRoots } from "../../src/memory/storage"
 import { sessionLogPath } from "../../src/memory/session-logs"
 
@@ -185,6 +185,72 @@ describe("Memory drain watcher", () => {
             ),
           ),
         ),
+      ),
+    ),
+  )
+
+  it.live("scope finalizer flushes pending whose idle debounce already elapsed", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          active.current = new Set([String(sessionID)])
+          active.polls = 0
+          // Nested scope: long poll so the scheduled fiber does not flush after
+          // pending is marked; the scope finalizer must perform that last drainTick.
+          yield* Effect.gen(function* () {
+            yield* MemoryDrainWatcher.startDrainWatcher({
+              pollInterval: Duration.millis(400),
+              idleDebounce: Duration.millis(40),
+            })
+            // First immediate tick sees active.
+            yield* Effect.sleep(Duration.millis(80))
+            active.current = new Set()
+            // Next spaced tick (~400ms from start) marks pending; close the
+            // nested scope before the following poll would flush (~800ms).
+            yield* Effect.sleep(Duration.millis(400))
+          }).pipe(Effect.scoped)
+
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))
+          const logPath = sessionLogPath(roots, String(sessionID), new Date())
+          const text = yield* readTextSafe(fs, logPath)
+          expect(text).toContain("# Session")
+          expect(text).toContain(String(sessionID))
+          // Must land under workspace when session.location.directory is set.
+          expect(logPath.includes(path.join(dir.path, "proj", ".opencode", "memory"))).toBe(true)
+        }).pipe(Effect.provide(layer(dir.path))),
+      ),
+    ),
+  )
+
+  it.live("drainTick uses workspace roots from session location.directory", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const store = yield* SessionStore.Service
+          const state = makeDrainState()
+          const id = String(sessionID)
+          state.seen.add(id)
+          state.pending.set(id, 0)
+          const rootsOf = (sid: string) =>
+            Effect.gen(function* () {
+              const session = yield* store.get(SessionSchema.ID.make(sid))
+              return resolveRoots(path.join(dir.path, "global", "memory"), session.location?.directory)
+            })
+          yield* drainTick(state, 10_000, new Set(), store, rootsOf, fs, Duration.millis(1))
+          const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))
+          const text = yield* readTextSafe(fs, sessionLogPath(roots, id, new Date()))
+          expect(text).toContain("# Session")
+          expect(roots.workspaceDir).toContain(path.join(".opencode", "memory"))
+          expect(state.seen.has(id)).toBe(false)
+        }).pipe(Effect.provide(layer(dir.path))),
       ),
     ),
   )

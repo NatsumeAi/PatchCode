@@ -26,6 +26,9 @@ export const makeDrainState = (): DrainState => ({ seen: new Set(), pending: new
  * One poll cycle: tracks sessions that left `active` and, after the idle
  * debounce, appends a zero-LLM metadata log for non-trivial sessions.
  * Exposed for direct testing; the watcher fiber calls it on a schedule.
+ *
+ * Skip reasons are logged (meta fail, trivial). Append failures re-queue as
+ * already-due so the next poll retries without a full debounce wait.
  */
 export const drainTick = Effect.fn("Memory.drainTick")(function* (
   state: DrainState,
@@ -46,8 +49,20 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
       const meta = yield* extractSessionMeta(store, SessionSchema.ID.make(id)).pipe(
         Effect.catch(() => Effect.succeed(undefined)),
       )
-      if (meta === undefined) continue
-      if (isTrivialSession({ userPromptCount: meta.userPrompts, userTextBytes: meta.userTextBytes })) continue
+      if (meta === undefined) {
+        yield* Effect.logInfo(`memory drain skip: meta fail for session ${id}`)
+        // Re-queue as already-due so a transient store failure can recover.
+        state.pending.set(id, now - Duration.toMillis(idleDebounce))
+        continue
+      }
+      if (isTrivialSession({ userPromptCount: meta.userPrompts, userTextBytes: meta.userTextBytes })) {
+        yield* Effect.logInfo(
+          `memory drain skip: trivial session ${id} (prompts=${meta.userPrompts} bytes=${meta.userTextBytes})`,
+        )
+        // Permanent for this process: do not re-log trivial sessions every poll.
+        state.seen.delete(id)
+        continue
+      }
       const lines = [
         `# Session ${id}`,
         `- date: ${meta.date}`,
@@ -77,6 +92,9 @@ export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; i
     const store = yield* SessionStore.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
+    const idleDebounce = options.idleDebounce ?? IDLE_DEBOUNCE
+    // Per-session roots: prefer the session's location.directory so workspace
+    // sessions write under <project>/.opencode/memory, not only global.
     const rootsOf = (id: string): Effect.Effect<MemoryRoots> =>
       Effect.gen(function* () {
         const session = yield* Effect.orElseSucceed(store.get(SessionSchema.ID.make(id)), () => undefined)
@@ -89,8 +107,18 @@ export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; i
         Clock.currentTimeMillis,
         execution.active.pipe(Effect.map((ids) => new Set([...ids].map((id) => String(id))))),
       ])
-      yield* drainTick(state, now, active, store, rootsOf, fs, options.idleDebounce ?? IDLE_DEBOUNCE)
+      yield* drainTick(state, now, active, store, rootsOf, fs, idleDebounce)
     })
+
+    // Best-effort final drain on scope close: flush any pending sessions whose
+    // idle debounce has already elapsed (process shutdown / location teardown).
+    yield* Effect.addFinalizer(() =>
+      tick.pipe(
+        Effect.catch((error) =>
+          Effect.logWarning(`memory drain finalizer tick failed: ${String(error)}`).pipe(Effect.asVoid),
+        ),
+      ),
+    )
 
     yield* tick.pipe(
       Effect.catch(() => Effect.void),
