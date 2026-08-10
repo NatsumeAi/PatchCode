@@ -19,6 +19,7 @@ import { resolveRoots } from "@opencode-ai/core/memory/storage"
 import { resolveScopedFile } from "@opencode-ai/core/memory/paths"
 import { collectHealth } from "@opencode-ai/core/memory/health"
 import { openConfiguredMemoryIndex } from "@opencode-ai/core/memory/reindex"
+import { BLOCK_PLACEHOLDER, scanForThreats } from "@opencode-ai/core/memory/scan"
 import { defaultTransferAllowedRoots, exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
@@ -257,8 +258,13 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const file = yield* resolveInRoots(fs, roots, ctx.query.path)
       if (file === undefined) return { content: "", truncated: false }
       const text = yield* Effect.orElseSucceed(fs.readFileStringSafe(file), () => undefined)
-      const content = (text ?? "").slice(0, 40_000)
-      return { content, truncated: (text?.length ?? 0) > 40_000 }
+      const raw = text ?? ""
+      const threatIds = scanForThreats(raw)
+      if (threatIds.length > 0) {
+        return { content: BLOCK_PLACEHOLDER(threatIds), truncated: false }
+      }
+      const content = raw.slice(0, 40_000)
+      return { content, truncated: raw.length > 40_000 }
     })
 
     const memoryHealth = Effect.fn("ExperimentalHttpApi.memoryHealth")(function* () {
@@ -305,7 +311,10 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
       const allowedRoots = defaultTransferAllowedRoots(Global.Path.data, route.directory)
-      return yield* importMemory(fs, roots, ctx.payload.source, { allowedRoots }).pipe(
+      return yield* importMemory(fs, roots, ctx.payload.source, {
+        force: ctx.payload.force,
+        allowedRoots,
+      }).pipe(
         Effect.map((result) => ({ ...result, error: undefined })),
         Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0, error: "import failed" })),
       )

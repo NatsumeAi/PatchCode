@@ -118,6 +118,7 @@ export const MemoryExportPayload = Schema.Struct({
 }).annotate({ identifier: "MemoryExportPayload" })
 export const MemoryImportPayload = Schema.Struct({
   source: Schema.String,
+  force: Schema.optional(Schema.Boolean),
 }).annotate({ identifier: "MemoryImportPayload" })
 export const MemoryImportResponse = Schema.Struct({
   imported: Schema.Number,
