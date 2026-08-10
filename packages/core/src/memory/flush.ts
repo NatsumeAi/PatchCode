@@ -17,6 +17,9 @@ import { appendSessionLog, sessionLogPath } from "./session-logs"
 import { scanForThreats } from "./scan"
 import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
 import { recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
+import { isNoReply, stripModelWrapper } from "./text-utils"
+
+export { isNoReply, stripModelWrapper } from "./text-utils"
 
 /** Cap prior flush excerpt included in the delta system prompt (chars). */
 const PRIOR_FLUSH_EXCERPT_CAP = 8_000
@@ -36,12 +39,6 @@ export interface Interface {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/MemoryFlush") {}
-
-/** True when the model responded with the NO_REPLY sentinel (case-insensitive, trimmed). */
-export function isNoReply(text: string): boolean {
-  return text.trim().toUpperCase() === "NO_REPLY"
-}
-
 /**
  * Returns true when this session has not had a content flush within the cooldown window.
  * Call sites (and `flushSession`) share this so manual + auto compact cannot double-write.
@@ -121,7 +118,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     Stream.mkString,
     Effect.catch(() => Effect.succeed("")),
   )
-  const cleaned = text.trim()
+  const cleaned = stripModelWrapper(text)
   if (cleaned.length === 0 || isNoReply(cleaned)) {
     if (isNoReply(cleaned)) {
       recordFlushNoReply()

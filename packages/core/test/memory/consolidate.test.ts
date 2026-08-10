@@ -257,6 +257,57 @@ describe("Memory consolidation", () => {
     ),
   )
 
+  it.effect("keeps short user notes below noise floor (does not delete)", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Explicit /remember-style short note — must not be silently deleted.
+          yield* plantNote(fs, roots, "short.md", "always use bun test")
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- x" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const still = yield* readTextSafe(
+            fs,
+            path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "short.md"),
+          )
+          expect(still).toBe("always use bun test")
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("no_reply variant does not write MEMORY or delete sources", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const body =
+            "## Decision\nUse effect layers for memory consolidation so short notes survive"
+          yield* plantNote(fs, roots, "keep.md", body)
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "no_reply" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const still = yield* readTextSafe(
+            fs,
+            path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "keep.md"),
+          )
+          expect(still).toBe(body)
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
   it.effect("deletes threat-laden sources without merging", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -335,13 +335,16 @@ describe("Memory flush", () => {
 })
 
 describe("Memory flush helpers", () => {
-  test("isNoReply matches trimmed case-insensitive NO_REPLY only", () => {
+  test("isNoReply matches Grok-style NO_REPLY variants", () => {
     expect(isNoReply("NO_REPLY")).toBe(true)
     expect(isNoReply("  no_reply  ")).toBe(true)
     expect(isNoReply("No_Reply")).toBe(true)
-    expect(isNoReply("no reply")).toBe(false)
+    expect(isNoReply("no reply")).toBe(true)
+    expect(isNoReply("noreply")).toBe(true)
+    expect(isNoReply("No-Reply")).toBe(true)
     expect(isNoReply("NO_REPLY please")).toBe(false)
     expect(isNoReply("")).toBe(false)
+    expect(isNoReply("## Decisions\nkeep")).toBe(false)
   })
 
   test("shouldFlushSession / markFlushed enforce a per-session cooldown", () => {

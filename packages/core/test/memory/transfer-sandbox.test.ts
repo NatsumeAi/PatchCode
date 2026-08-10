@@ -9,7 +9,9 @@ import {
   defaultTransferAllowedRoots,
   exportMemory,
   importMemory,
+  resolveSandboxEffectivePath,
 } from "../../src/memory/transfer"
+import { symlinkSync, mkdirSync, writeFileSync, existsSync } from "fs"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 
@@ -56,6 +58,86 @@ describe("Memory transfer sandbox", () => {
           const escape = path.join(root, "..", "outside")
           const exit = yield* assertSandboxPath(escape, [root]).pipe(Effect.exit)
           expect(exit._tag).toBe("Failure")
+        }),
+      ),
+    ),
+  )
+
+  it.effect("assertSandboxPath rejects symlink intermediate that escapes (ENOENT leaf)", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const project = path.join(dir.path, "project")
+          const outside = path.join(dir.path, "etc-elsewhere")
+          mkdirSync(project, { recursive: true })
+          mkdirSync(outside, { recursive: true })
+          const link = path.join(project, "packlink")
+          symlinkSync(outside, link)
+          // Leaf does not exist — classic FSUtil.resolve ENOENT hole.
+          const target = path.join(link, "newpack")
+          const effective = resolveSandboxEffectivePath(target)
+          expect(effective.startsWith(outside)).toBe(true)
+          const exit = yield* assertSandboxPath(target, [project]).pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+        }),
+      ),
+    ),
+  )
+
+  it.effect("exportMemory fails closed when target follows symlink out of sandbox", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Decisions\nuse layers")
+          const project = path.join(dir.path, "project")
+          const outside = path.join(dir.path, "etc-elsewhere")
+          mkdirSync(project, { recursive: true })
+          mkdirSync(outside, { recursive: true })
+          symlinkSync(outside, path.join(project, "packlink"))
+          const target = path.join(project, "packlink", "newpack")
+          const exit = yield* exportMemory(fs, roots, target, {
+            includeRaw: false,
+            allowedRoots: [project],
+          }).pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+          expect(existsSync(path.join(outside, "newpack", "manifest.json"))).toBe(false)
+        }),
+      ),
+    ),
+  )
+
+  it.effect("importMemory skips pack-internal symlink files", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const pack = path.join(dir.path, "memory-packs", "pack-sym")
+          mkdirSync(pack, { recursive: true })
+          const outside = path.join(dir.path, "secret-outside.md")
+          writeFileSync(outside, "## Secret\nshould not import")
+          writeFileSync(
+            path.join(pack, "manifest.json"),
+            JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), scopes: ["global"], includeRaw: false }),
+          )
+          symlinkSync(outside, path.join(pack, "MEMORY.md"))
+          const result = yield* importMemory(fs, roots, pack, {
+            allowedRoots: [path.join(dir.path, "memory-packs")],
+          })
+          expect(result.imported).toBe(0)
+          const local = path.join(roots.globalDir, "MEMORY.md")
+          expect(existsSync(local)).toBe(false)
         }),
       ),
     ),

@@ -1,4 +1,5 @@
 import path from "path"
+import { lstatSync, realpathSync } from "fs"
 import { Effect, Option, Schema } from "effect"
 import { FSUtil } from "../fs-util"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
@@ -30,7 +31,74 @@ export function defaultTransferAllowedRoots(globalData: string, projectDir?: str
 }
 
 /**
- * Resolve realpath of `target` and require it to be contained in one of
+ * Deepest path prefix that exists (file, dir, or symlink). Does not follow the
+ * final symlink for "exists" — lstat succeeds on the link itself.
+ */
+function deepestExistingPath(absolute: string): string {
+  let cur = path.resolve(absolute)
+  for (;;) {
+    try {
+      lstatSync(cur)
+      return cur
+    } catch {
+      const parent = path.dirname(cur)
+      if (parent === cur) return cur
+      cur = parent
+    }
+  }
+}
+
+/**
+ * Resolve where a path would land after following symlinks on every existing
+ * ancestor. Non-existent leaf components stay lexical under the realpath of
+ * the deepest existing ancestor — so `sandbox/link/new` where `link` → `/out`
+ * resolves to `/out/new`, not a lexical path still under the sandbox.
+ *
+ * This closes the ENOENT fallback hole in `FSUtil.resolve` (realpathSync fails
+ * on missing leaves and returns the lexical path, which still appears inside
+ * the sandbox while writes follow the intermediate symlink out).
+ */
+export function resolveSandboxEffectivePath(target: string): string {
+  const absolute = path.resolve(target)
+  const existing = deepestExistingPath(absolute)
+  let realExisting: string
+  try {
+    realExisting = realpathSync(existing)
+  } catch {
+    // Broken symlink or unreadable — treat as non-existent parent walk.
+    const parent = path.dirname(existing)
+    try {
+      realExisting = realpathSync(parent)
+      const leaf = path.basename(existing)
+      const rest = path.relative(existing, absolute)
+      const via = path.join(realExisting, leaf, rest === "" ? "" : rest)
+      return path.normalize(via)
+    } catch {
+      return absolute
+    }
+  }
+  const rest = path.relative(existing, absolute)
+  if (rest === "" || rest === ".") return path.normalize(realExisting)
+  // rest must not escape via ".."
+  if (rest === ".." || rest.startsWith(`..${path.sep}`) || path.isAbsolute(rest)) {
+    return path.normalize(realExisting)
+  }
+  return path.normalize(path.join(realExisting, rest))
+}
+
+function realpathRoot(root: string): string {
+  const abs = path.resolve(root)
+  try {
+    return realpathSync(abs)
+  } catch {
+    // Root may not exist yet (e.g. memory-packs). Use lexical absolute path.
+    return abs
+  }
+}
+
+/**
+ * Resolve where `target` would land after following symlinks on existing
+ * ancestors, and require that effective path to be contained in one of
  * `allowedRoots`. Fail closed when roots are empty or path escapes.
  */
 export const assertSandboxPath = Effect.fn("Memory.assertSandboxPath")(function* (
@@ -40,13 +108,21 @@ export const assertSandboxPath = Effect.fn("Memory.assertSandboxPath")(function*
   if (allowedRoots.length === 0) {
     return yield* new SandboxError({ target, reason: "no allowed roots" })
   }
-  const resolved = FSUtil.resolve(target)
+  const effective = resolveSandboxEffectivePath(target)
   for (const root of allowedRoots) {
-    if (FSUtil.contains(FSUtil.resolve(root), resolved)) return resolved
+    if (FSUtil.contains(realpathRoot(root), effective)) return effective
   }
   return yield* new SandboxError({ target, reason: "path escapes sandbox" })
 })
 
+/** True when `file` exists and is a symbolic link (not followed). */
+export function isSymlinkPath(file: string): boolean {
+  try {
+    return lstatSync(file).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
 /**
  * Exports curated memory (plus raw notes/sessions only with includeRaw) into a
  * pack dir. Returns how many files were written successfully (atomics only).
@@ -122,7 +198,13 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
   let skipped = 0
   const copy = (relative: string): Effect.Effect<void, Error> =>
     Effect.gen(function* () {
-      const text = yield* readTextSafe(fs, path.join(safeSource, relative))
+      const srcFile = path.join(safeSource, relative)
+      // Refuse pack-internal symlinks (follow-on read would escape pack root).
+      if (isSymlinkPath(srcFile)) {
+        skipped++
+        return
+      }
+      const text = yield* readTextSafe(fs, srcFile)
       if (text === undefined) return
       if (scanForThreats(text).length > 0) {
         skipped++
@@ -130,7 +212,7 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
       }
       const target = path.join(base, relative)
       const localMtime = yield* mtimeOf(fs, target)
-      const srcMtime = yield* mtimeOf(fs, path.join(safeSource, relative))
+      const srcMtime = yield* mtimeOf(fs, srcFile)
       const existing = yield* readTextSafe(fs, target)
       if (!force && existing !== undefined && localMtime >= srcMtime) {
         skipped++

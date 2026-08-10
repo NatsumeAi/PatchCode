@@ -339,6 +339,9 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     }) {
       const note = ctx.payload.note.trim()
       if (note.length === 0) return yield* new HttpApiError.BadRequest({})
+      // Same threat gate as memory_add_note tool — do not allow HTTP to bypass scan.
+      const threatIds = scanForThreats(note)
+      if (threatIds.length > 0) return yield* new HttpApiError.BadRequest({})
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
@@ -347,7 +350,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       )
     })
-
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)

@@ -71,19 +71,39 @@ export function recordFlushFailed(reason?: string): void {
   void reason
 }
 
+/** Higher = more important for dual-root rollup (workspace then global). */
+const CONSOLIDATE_STATUS_RANK: Record<ConsolidateStatus, number> = {
+  never: 0,
+  nothing: 1,
+  skipped: 2,
+  failed: 3,
+  completed: 4,
+}
+
+/**
+ * Record a consolidate outcome. Dual-root runs call this twice (workspace then
+ * global); a later "nothing" must not overwrite an earlier "completed".
+ */
 export function recordConsolidate(input: {
   readonly status: Exclude<ConsolidateStatus, "never">
   readonly reason?: string
   readonly sourcesMerged?: number
 }): void {
-  stats.lastConsolidateAt = Date.now()
-  stats.lastConsolidateStatus = input.status
-  stats.lastConsolidateReason = input.reason
   if (input.sourcesMerged !== undefined && input.sourcesMerged > 0) {
     stats.sourcesMerged += input.sourcesMerged
   }
+  const prev = stats.lastConsolidateStatus
+  const nextRank = CONSOLIDATE_STATUS_RANK[input.status]
+  const prevRank = CONSOLIDATE_STATUS_RANK[prev]
+  // Never demote completed → nothing/skipped; keep the stronger status.
+  if (nextRank < prevRank) {
+    stats.lastConsolidateAt = Date.now()
+    return
+  }
+  stats.lastConsolidateAt = Date.now()
+  stats.lastConsolidateStatus = input.status
+  stats.lastConsolidateReason = input.reason
 }
-
 export function statusFilePath(baseDir: string): string {
   return path.join(baseDir, STATUS_FILE)
 }

@@ -27,12 +27,12 @@ import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
+import { hasMarkdownStructure, isNoReply, stripModelWrapper } from "./text-utils"
 import {
   persistConsolidateStatus,
   recordConsolidate,
   type ConsolidateStatus,
 } from "./observability"
-
 const MEMORY_CAP_CHARS = 64 * 1024
 const MERGE_INPUT_CAP_CHARS = 32 * 1024
 
@@ -114,10 +114,15 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
     ],
     tools: [],
   })
-  const merged = (yield* streamText(llm, request)).trim()
-  if (merged.length === 0 || merged === "NO_REPLY") {
+  const raw = (yield* streamText(llm, request)).trim()
+  const merged = stripModelWrapper(raw)
+  if (merged.length === 0 || isNoReply(merged)) {
     yield* Effect.logInfo("memory consolidate: LLM returned empty or NO_REPLY; sources kept")
     return { ok: false, reason: "no-reply" } satisfies MergeOutcome
+  }
+  if (!hasMarkdownStructure(merged)) {
+    yield* Effect.logWarning("memory consolidate: merge output lacks markdown structure; sources kept")
+    return { ok: false, reason: "no-markdown" } satisfies MergeOutcome
   }
   if (merged.length > MEMORY_CAP_CHARS) {
     yield* Effect.logWarning("memory consolidate: merged archive over cap; sources kept")
@@ -137,12 +142,13 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   const hashes = included.map((source) => contentHash(source.id, source.text))
   const ledgerOk = yield* appendMergedHashes(fs, base, hashes)
   if (!ledgerOk) {
-    yield* Effect.logWarning("memory consolidate: hash ledger append failed; sources still deleted after MEMORY write")
+    // Do not delete sources when the idempotency ledger fails — re-merge is safer than data loss.
+    yield* Effect.logWarning("memory consolidate: hash ledger append failed; sources kept for retry")
+    return { ok: false, reason: "ledger" } satisfies MergeOutcome
   }
   yield* deleteSources(fs, included)
   return { ok: true, sourcesMerged: included.length } satisfies MergeOutcome
 })
-
 const noteOutcome = Effect.fn("Memory.noteConsolidateOutcome")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
@@ -185,12 +191,16 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       const sources = yield* listMergeSources(fs, roots)
       const contents: Array<MergeSource> = []
       for (const source of sources) {
+        // Noise floor: only auto-delete candidate stubs. User notes and session
+        // logs below the floor are kept for a human/future pass (never silent loss).
         if (source.text.trim().length < NOISE_FLOOR_CHARS) {
-          yield* deleteSources(fs, [source])
+          if (source.kind === "candidate") yield* deleteSources(fs, [source])
           continue
         }
         if (scanForThreats(source.text).length > 0) {
-          yield* deleteSources(fs, [source])
+          // Threat: delete only candidates; quarantine user notes/sessions by skip (keep on disk).
+          if (source.kind === "candidate") yield* deleteSources(fs, [source])
+          else yield* Effect.logWarning(`memory consolidate: skipping threatened ${source.kind} source ${source.id}`)
           continue
         }
         contents.push(source)
@@ -223,14 +233,17 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       const outcome = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
       if (outcome.ok) {
         yield* markConsolidated(fs, roots)
-        yield* regenerateSummary(fs, roots, llm, model)
-        yield* noteOutcome(fs, roots, "completed", undefined, outcome.sourcesMerged)
+        const summaryOk = yield* regenerateSummary(fs, roots, llm, model)
+        if (!summaryOk) {
+          yield* noteOutcome(fs, roots, "failed", "summary", outcome.sourcesMerged)
+        } else {
+          yield* noteOutcome(fs, roots, "completed", undefined, outcome.sourcesMerged)
+        }
       } else if (outcome.reason === "already-merged" || outcome.reason === "no-reply" || outcome.reason === "budget-empty") {
         yield* noteOutcome(fs, roots, "nothing", outcome.reason)
       } else {
         yield* noteOutcome(fs, roots, "failed", outcome.reason)
-      }
-    } finally {
+      }    } finally {
       yield* Fiber.interrupt(heartbeat).pipe(Effect.catch(() => Effect.void))
     }
   } finally {
