@@ -57,7 +57,13 @@ export const drainTick = Effect.fn("Memory.drainTick")(function* (
         ...(meta.topics.length > 0 ? [`- topics: ${meta.topics.join(" | ")}`] : []),
       ].join("\n")
       const roots = yield* rootsOf(id)
-      yield* appendSessionLog(fs, roots, id, new Date(), lines)
+      const written = yield* appendSessionLog(fs, roots, id, new Date(), lines)
+      if (!written) {
+        yield* Effect.logWarning(`memory drain append failed for session ${id}`)
+        // Re-queue as already-due so the next poll retries without a full debounce.
+        state.pending.set(id, now - Duration.toMillis(idleDebounce))
+        continue
+      }
       state.seen.delete(id)
     }
   }

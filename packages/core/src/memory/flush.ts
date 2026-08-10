@@ -61,9 +61,11 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   }
 
   const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
-  yield* appendSessionLog(fs, roots, String(session.id), new Date(), cleaned)
+  const written = yield* appendSessionLog(fs, roots, String(session.id), new Date(), cleaned)
+  if (!written) {
+    yield* Effect.logWarning(`memory flush atomic write failed for session ${String(session.id)}`)
+  }
 })
-
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
