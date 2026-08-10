@@ -40,7 +40,8 @@ describe("Memory candidates", () => {
         Effect.gen(function* () {
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
-          yield* writeCandidate(fs, roots, "note-1", "## Notes\nremember to verify")
+          const wrote = yield* writeCandidate(fs, roots, "note-1", "## Notes\nremember to verify")
+          expect(wrote).toBe(true)
           const list = yield* listCandidates(fs, roots, 0)
           expect(list.length).toBe(1)
           expect(list[0]!.id).toBe("note-1")

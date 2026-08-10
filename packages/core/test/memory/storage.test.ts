@@ -56,6 +56,23 @@ describe("Memory storage", () => {
     ),
   )
 
+  it.effect("writeTextAtomic removes the temp file after rename failure", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const file = `${dir.path}/mem/MEMORY.md`
+          yield* fs.makeDirectory(file, { recursive: true })
+          const ok = yield* writeTextAtomic(fs, file, "payload")
+          expect(ok).toBe(false)
+          const tmpExists = yield* fs.exists(`${file}.tmp`).pipe(Effect.orElseSucceed(() => false))
+          expect(tmpExists).toBe(false)
+        }),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ),
+  )
+
   it.effect("readTextSafe returns undefined for missing file", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),

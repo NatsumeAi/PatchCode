@@ -49,7 +49,10 @@ export function renderSummaryBlock(loaded: LoadedSummary): string {
   return parts.join("\n\n")
 }
 
-/** Regenerates `memory_summary.md` from the curated archive via the LLM (threat-scanned). */
+/**
+ * Regenerates `memory_summary.md` from the curated archive via the LLM
+ * (threat-scanned). Returns `true` only when the atomic write succeeded.
+ */
 export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
@@ -58,7 +61,7 @@ export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function*
 ) {
   const base = roots.workspaceDir ?? roots.globalDir
   const archive = yield* readTextSafe(fs, path.join(base, "MEMORY.md"))
-  if (archive === undefined || archive.trim() === "") return
+  if (archive === undefined || archive.trim() === "") return false
   const request = LLM.request({
     model,
     system: [SystemPart.make(SUMMARY_SYSTEM)],
@@ -72,7 +75,7 @@ export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function*
     Effect.catch(() => Effect.succeed("")),
   )
   const cleaned = text.trim()
-  if (cleaned.length === 0) return
-  if (scanForThreats(cleaned).length > 0) return
-  yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned.slice(0, SUMMARY_BUDGETS.global))
+  if (cleaned.length === 0) return false
+  if (scanForThreats(cleaned).length > 0) return false
+  return yield* writeTextAtomic(fs, path.join(base, "memory_summary.md"), cleaned.slice(0, SUMMARY_BUDGETS.global))
 })

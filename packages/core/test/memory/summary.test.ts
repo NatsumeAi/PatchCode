@@ -86,6 +86,35 @@ describe("Memory summaries", () => {
 })
 
 describe("Memory summary regeneration", () => {
+  it.effect("regenerateSummary returns false when MEMORY.md is missing", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const model = Model.make({ id: "memory-test", provider: "test", route: openAICompatibleRoutes[0]! })
+          const llm = yield* LLMClient.Service
+          const ok = yield* regenerateSummary(fs, roots, llm, model)
+          expect(ok).toBe(false)
+        }).pipe(
+          Effect.provide(
+            Layer.succeed(
+              LLMClient.Service,
+              LLMClient.Service.of({
+                stream: () => Stream.empty,
+                prepare: () => Effect.die("unused"),
+                generate: () => Effect.die("unused"),
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+
   it.effect("regenerateSummary writes scanned summary from MEMORY.md", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -98,7 +127,8 @@ describe("Memory summary regeneration", () => {
           yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Decisions\nUse layers")
           const model = Model.make({ id: "memory-test", provider: "test", route: openAICompatibleRoutes[0]! })
           const llm = yield* LLMClient.Service
-          yield* regenerateSummary(fs, roots, llm, model)
+          const ok = yield* regenerateSummary(fs, roots, llm, model)
+          expect(ok).toBe(true)
           const summary = yield* readTextSafe(fs, path.join(roots.globalDir, "memory_summary.md"))
           expect(summary).toContain("## Decisions")
         }).pipe(

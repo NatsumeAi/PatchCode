@@ -20,15 +20,15 @@ export const mergeKeyOf = (sourceId: string, content: string): string => {
   return `<!-- memory-candidate:${hasher.digest("hex")} -->`
 }
 
+/** Writes a candidate; returns whether the atomic write succeeded. */
 export const writeCandidate = Effect.fn("Memory.writeCandidate")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
   id: string,
   content: string,
 ) {
-  yield* writeTextAtomic(fs, candidatePath(roots, id), content)
+  return yield* writeTextAtomic(fs, candidatePath(roots, id), content)
 })
-
 export const listCandidates = Effect.fn("Memory.listCandidates")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,

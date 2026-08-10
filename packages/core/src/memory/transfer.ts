@@ -14,7 +14,10 @@ export interface TransferManifest {
 const CURATED_FILES = ["MEMORY.md", "memory_summary.md"]
 const RAW_DIRS = ["extensions/ad_hoc/notes", "sessions"]
 
-/** Exports curated memory (plus raw notes/sessions only with includeRaw) into a pack dir. */
+/**
+ * Exports curated memory (plus raw notes/sessions only with includeRaw) into a
+ * pack dir. Returns how many files were written successfully (atomics only).
+ */
 export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
@@ -29,10 +32,14 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
     scopes: [roots.workspaceDir !== undefined ? "workspace" : "global"],
     includeRaw,
   }
-  yield* writeTextAtomic(fs, path.join(target, "manifest.json"), JSON.stringify(manifest, null, 2))
+  let exported = 0
+  if (yield* writeTextAtomic(fs, path.join(target, "manifest.json"), JSON.stringify(manifest, null, 2))) {
+    exported++
+  }
   for (const name of CURATED_FILES) {
     const text = yield* readTextSafe(fs, path.join(base, name))
-    if (text !== undefined) yield* writeTextAtomic(fs, path.join(target, name), text)
+    if (text === undefined) continue
+    if (yield* writeTextAtomic(fs, path.join(target, name), text)) exported++
   }
   if (includeRaw) {
     for (const dir of RAW_DIRS) {
@@ -40,12 +47,13 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
       for (const entry of entries) {
         if (entry.type !== "file") continue
         const text = yield* readTextSafe(fs, path.join(base, dir, entry.name))
-        if (text !== undefined) yield* writeTextAtomic(fs, path.join(target, dir, entry.name), text)
+        if (text === undefined) continue
+        if (yield* writeTextAtomic(fs, path.join(target, dir, entry.name), text)) exported++
       }
     }
   }
+  return { exported }
 })
-
 const mtimeOf = (fs: FSUtil.Interface, file: string) =>
   fs.stat(file).pipe(
     Effect.map((info) => Option.getOrElse(info.mtime, () => new Date(0)).getTime()),
@@ -91,8 +99,9 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
         skipped++
         return
       }
-      yield* writeTextAtomic(fs, target, text)
-      imported++
+      const ok = yield* writeTextAtomic(fs, target, text)
+      if (ok) imported++
+      else skipped++
     })
   for (const name of CURATED_FILES) yield* copy(name)
   if (manifest.includeRaw) {

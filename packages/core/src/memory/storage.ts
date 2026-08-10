@@ -35,6 +35,8 @@ export const readTextSafe = Effect.fn("Memory.readTextSafe")(function* (fs: FSUt
  * Returns `true` when the rename (and therefore the write) succeeded, `false`
  * when the temp file was written but the atomic rename failed — callers that
  * delete source data only after a confirmed write must gate on this result.
+ * On rename failure the temp file is best-effort removed so retries do not
+ * accumulate stale `.tmp` files.
  */
 export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   fs: FSUtil.Interface,
@@ -46,9 +48,13 @@ export const writeTextAtomic = Effect.fn("Memory.writeTextAtomic")(function* (
   yield* fs.writeWithDirs(tmp, content)
   return yield* fs.rename(tmp, filePath).pipe(
     Effect.tapError((error) => Effect.logWarning(`memory atomic rename failed for ${filePath}: ${String(error)}`)),
-    Effect.match({
-      onSuccess: () => true,
-      onFailure: () => false,
+    Effect.matchEffect({
+      onSuccess: () => Effect.succeed(true as const),
+      onFailure: () =>
+        fs.remove(tmp).pipe(
+          Effect.catch(() => Effect.void),
+          Effect.as(false as const),
+        ),
     }),
   )
 })
