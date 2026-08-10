@@ -1,7 +1,12 @@
 # Memory FULL Remediation — Status (2026-08-10)
 
 > Acceptance gate evidence for `2026-08-10-memory-full-remediation.md` Wave G.
-> Suite: `cd packages/core && bun test test/memory/` — **181 pass / 0 fail** (2026-08-10).
+> Suite: `cd packages/core && bun test test/memory/` — **185+ pass / 0 fail** (post review must-fix `c2a1549895`).
+>
+> **Post-review remediation (2026-08-10):** Independent audit ACCEPT-WITH-GAPS must-fix closed:
+> symlink sandbox escape, pack symlink skip, NO_REPLY normalize, short-note noise keep,
+> remember HTTP threat scan, dual-root health status rank, ledger-fail keep sources, summary fail status.
+> Remaining open items are lower P2/P3 from the audit (backoff, Hermes-scale scan, dual export, etc.).
 
 ## Product journey (G1)
 
