@@ -21,6 +21,7 @@ import { collectHealth } from "@opencode-ai/core/memory/health"
 import { openConfiguredMemoryIndex } from "@opencode-ai/core/memory/reindex"
 import { BLOCK_PLACEHOLDER, scanForThreats } from "@opencode-ai/core/memory/scan"
 import { defaultTransferAllowedRoots, exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
+import { writeMemoryNote } from "@opencode-ai/core/memory/tools"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -34,6 +35,8 @@ import {
   MemoryImportResponse,
   MemoryReadQuery,
   MemoryReadResponse,
+  MemoryRememberPayload,
+  MemoryRememberResponse,
   MemorySessionLogDeleteQuery,
   SessionListQuery,
   ToolListQuery,
@@ -331,6 +334,20 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return true
     })
 
+    const rememberNote = Effect.fn("ExperimentalHttpApi.memoryRemember")(function* (ctx: {
+      payload: typeof MemoryRememberPayload.Type
+    }) {
+      const note = ctx.payload.note.trim()
+      if (note.length === 0) return yield* new HttpApiError.BadRequest({})
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      return yield* writeMemoryNote(fs, roots, note).pipe(
+        Effect.map((result) => ({ filename: result.filename }) satisfies typeof MemoryRememberResponse.Type),
+        Effect.mapError(() => new HttpApiError.BadRequest({})),
+      )
+    })
+
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)
@@ -351,5 +368,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("memoryHealth", memoryHealth)
       .handle("memoryExport", exportMemoryPack)
       .handle("memoryImport", importMemoryPack)
+      .handle("memoryRemember", rememberNote)
   }),
 )

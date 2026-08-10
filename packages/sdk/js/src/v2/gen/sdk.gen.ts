@@ -418,6 +418,8 @@ import type {
   MemoryExportErrors,
   MemoryImportResponses,
   MemoryImportErrors,
+  MemoryRememberResponses,
+  MemoryRememberErrors,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -1473,6 +1475,43 @@ export class Memory extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<MemoryImportResponses, MemoryImportErrors, ThrowOnError>({
       url: "/experimental/memory/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remember a note
+   *
+   * Write an append-only memory note without an LLM round-trip.
+   */
+  public remember<ThrowOnError extends boolean = false>(
+    parameters: {
+      note: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "note" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryRememberResponses, MemoryRememberErrors, ThrowOnError>({
+      url: "/experimental/memory/remember",
       ...options,
       ...params,
       headers: {

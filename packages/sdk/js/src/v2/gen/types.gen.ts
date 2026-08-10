@@ -8319,6 +8319,26 @@ export type MemoryImportErrors = {
   400: unknown
 }
 
+export type MemoryRememberResult = {
+  filename: string
+}
+
+export type MemoryRememberResponses = {
+  /**
+   * Memory note written
+   */
+  200: MemoryRememberResult
+}
+
+export type MemoryRememberResponse = MemoryRememberResponses[keyof MemoryRememberResponses]
+
+export type MemoryRememberErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
 export type WorktreeRemoveResponses = {
   /**
    * Worktree removed

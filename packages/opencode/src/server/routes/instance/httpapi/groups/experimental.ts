@@ -134,6 +134,12 @@ export const MemoryImportResponse = Schema.Struct({
   skipped: Schema.Number,
   error: Schema.optional(Schema.String),
 }).annotate({ identifier: "MemoryImportResponse" })
+export const MemoryRememberPayload = Schema.Struct({
+  note: Schema.String,
+}).annotate({ identifier: "MemoryRememberPayload" })
+export const MemoryRememberResponse = Schema.Struct({
+  filename: Schema.String,
+}).annotate({ identifier: "MemoryRememberResponse" })
 
 export const ExperimentalPaths = {
   capabilities: "/experimental/capabilities",
@@ -153,6 +159,7 @@ export const ExperimentalPaths = {
   memoryHealth: "/experimental/memory/health",
   memoryExport: "/experimental/memory/export",
   memoryImport: "/experimental/memory/import",
+  memoryRemember: "/experimental/memory/remember",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -359,6 +366,19 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "memory.import",
             summary: "Import memory",
             description: "Import a memory pack (never overwrites newer-or-equal local curated files).",
+          }),
+        ),
+        HttpApiEndpoint.post("memoryRemember", ExperimentalPaths.memoryRemember, {
+          query: WorkspaceRoutingQuery,
+          payload: MemoryRememberPayload,
+          success: described(MemoryRememberResponse, "Memory note written"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.remember",
+            summary: "Remember a note",
+            description:
+              "Write an append-only memory note (same path as memory_add_note) without an LLM round-trip. Used by the TUI /remember command.",
           }),
         ),
         HttpApiEndpoint.get("resource", ExperimentalPaths.resource, {
