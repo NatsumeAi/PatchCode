@@ -10,6 +10,17 @@ export interface PruneInput {
   readonly mtimeMs: number
 }
 
+/**
+ * Curated archive paths must never appear on the automatic prune list —
+ * only session notes / logs and other non-curated paths are candidates.
+ */
+export function isPrunablePath(filePath: string): boolean {
+  const base = filePath.replace(/\\/g, "/")
+  if (base === "MEMORY.md" || base === "memory_summary.md") return false
+  if (base.endsWith("/MEMORY.md") || base.endsWith("/memory_summary.md")) return false
+  return true
+}
+
 /** Chunks below the access threshold AND older than the age threshold become prune candidates. */
 export function selectPruneCandidates(
   input: ReadonlyArray<PruneInput>,
@@ -19,6 +30,7 @@ export function selectPruneCandidates(
     .filter(
       (item) =>
         item.chunkId.length > 0 &&
+        isPrunablePath(item.path) &&
         item.accessCount < PRUNE_ACCESS_THRESHOLD &&
         now - item.mtimeMs > PRUNE_AGE_DAYS * DAY_MS,
     )
