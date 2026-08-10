@@ -15,9 +15,7 @@ import { toLLMMessages } from "../session/runner/to-llm-message"
 import { resolveRoots } from "./storage"
 import { appendSessionLog } from "./session-logs"
 import { scanForThreats } from "./scan"
-
-const FLUSH_SYSTEM =
-  "Write a durable markdown summary of this conversation for future reference. Capture: decisions made and their rationale, architectural patterns and preferences, and problem/solution pairs. Discard greetings, small talk, tool-call noise, and session metadata. Structure the output with markdown headings and bullet lists. Output ONLY the markdown summary."
+import { FLUSH_SYSTEM } from "./prompts"
 
 export interface Interface {
   readonly flush: (sessionID: SessionSchema.ID) => Effect.Effect<void>
@@ -53,7 +51,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
     Effect.catch(() => Effect.succeed("")),
   )
   const cleaned = text.trim()
-  if (cleaned.length === 0) return
+  if (cleaned.length === 0 || cleaned === "NO_REPLY") return
   const threatIds = scanForThreats(cleaned)
   if (threatIds.length > 0) {
     yield* Effect.logWarning("memory flush blocked: threat patterns " + threatIds.join(", "))

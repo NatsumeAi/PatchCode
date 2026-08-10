@@ -5,11 +5,10 @@ import type { Model } from "@opencode-ai/llm"
 import { FSUtil } from "../fs-util"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
+import { SUMMARY_SYSTEM } from "./prompts"
 
 export const SUMMARY_BUDGETS = { global: 1500 * 4, workspace: 1000 * 4 }
 
-const SUMMARY_SYSTEM =
-  "Summarize the memory archive for future sessions. Put the MOST IMPORTANT facts first. Output ONLY markdown."
 const SUMMARY_INPUT_CAP_CHARS = 64 * 1024
 
 export interface LoadedSummary {
