@@ -56,6 +56,31 @@ export function resetMemoryStatsForTests(): void {
   stats.flushNoReply = 0
   stats.flushFailed = 0
   stats.sourcesMerged = 0
+  failureBackoffByBase.clear()
+}
+
+// Per-base consecutive failure backoff for over-cap / threat / atomic / ledger.
+const failureBackoffByBase = new Map<string, { count: number; skipUntil: number }>()
+
+/** True when this base should skip consolidate due to recent consecutive failures. */
+export function shouldSkipConsolidateBackoff(baseDir: string, now = Date.now()): boolean {
+  const entry = failureBackoffByBase.get(baseDir)
+  if (entry === undefined) return false
+  return now < entry.skipUntil
+}
+
+/** Record a hard merge failure; exponential backoff after 2+ consecutive failures (max 4h). */
+export function recordConsolidateHardFailure(baseDir: string, now = Date.now()): void {
+  const prev = failureBackoffByBase.get(baseDir)
+  const count = (prev?.count ?? 0) + 1
+  // 30min * 2^(count-2) after second failure, capped at 4h
+  const minutes = count <= 1 ? 0 : Math.min(240, 30 * 2 ** Math.min(count - 2, 3))
+  failureBackoffByBase.set(baseDir, { count, skipUntil: now + minutes * 60_000 })
+}
+
+/** Clear failure backoff after a successful merge or clean nothing-to-do. */
+export function clearConsolidateBackoff(baseDir: string): void {
+  failureBackoffByBase.delete(baseDir)
 }
 
 export function recordFlushSuccess(): void {

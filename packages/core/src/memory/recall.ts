@@ -81,7 +81,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
       .slice(0, RECALL_TOP_N)
       .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
     yield* index
-      .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source })))
+      .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
       .pipe(Effect.catch(() => Effect.void))
     return formatRecallBlock(kept)
   } finally {

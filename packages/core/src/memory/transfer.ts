@@ -136,32 +136,51 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
 ) {
   const safeTarget = yield* assertSandboxPath(target, opts.allowedRoots)
   const includeRaw = opts.includeRaw ?? false
-  const base = roots.workspaceDir ?? roots.globalDir
+  // Dual-root: when workspace is open, export workspace curated at pack root and
+  // global curated under global/; single-root keeps flat layout.
+  const scopes: Array<"global" | "workspace"> =
+    roots.workspaceDir !== undefined ? ["workspace", "global"] : ["global"]
   const manifest: TransferManifest = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    scopes: [roots.workspaceDir !== undefined ? "workspace" : "global"],
+    scopes,
     includeRaw,
   }
   let exported = 0
   if (yield* writeTextAtomic(fs, path.join(safeTarget, "manifest.json"), JSON.stringify(manifest, null, 2))) {
     exported++
   }
-  for (const name of CURATED_FILES) {
-    const text = yield* readTextSafe(fs, path.join(base, name))
-    if (text === undefined) continue
-    if (yield* writeTextAtomic(fs, path.join(safeTarget, name), text)) exported++
-  }
-  if (includeRaw) {
-    for (const dir of RAW_DIRS) {
-      const entries = yield* fs.readDirectoryEntries(path.join(base, dir)).pipe(Effect.catch(() => Effect.succeed([])))
-      for (const entry of entries) {
-        if (entry.type !== "file") continue
-        const text = yield* readTextSafe(fs, path.join(base, dir, entry.name))
+  const writeScope = (base: string, prefix: string): Effect.Effect<void, never> =>
+    Effect.gen(function* () {
+      for (const name of CURATED_FILES) {
+        const text = yield* readTextSafe(fs, path.join(base, name))
         if (text === undefined) continue
-        if (yield* writeTextAtomic(fs, path.join(safeTarget, dir, entry.name), text)) exported++
+        const dest = prefix === "" ? path.join(safeTarget, name) : path.join(safeTarget, prefix, name)
+        if (yield* writeTextAtomic(fs, dest, text)) exported++
       }
-    }
+      if (includeRaw) {
+        for (const dir of RAW_DIRS) {
+          const entries = yield* fs
+            .readDirectoryEntries(path.join(base, dir))
+            .pipe(Effect.catch(() => Effect.succeed([])))
+          for (const entry of entries) {
+            if (entry.type !== "file") continue
+            const text = yield* readTextSafe(fs, path.join(base, dir, entry.name))
+            if (text === undefined) continue
+            const dest =
+              prefix === ""
+                ? path.join(safeTarget, dir, entry.name)
+                : path.join(safeTarget, prefix, dir, entry.name)
+            if (yield* writeTextAtomic(fs, dest, text)) exported++
+          }
+        }
+      }
+    })
+  if (roots.workspaceDir !== undefined) {
+    yield* writeScope(roots.workspaceDir, "")
+    yield* writeScope(roots.globalDir, "global")
+  } else {
+    yield* writeScope(roots.globalDir, "")
   }
   return { exported }
 })

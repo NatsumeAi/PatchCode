@@ -29,10 +29,14 @@ import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
 import { hasMarkdownStructure, isNoReply, stripModelWrapper } from "./text-utils"
 import {
+  clearConsolidateBackoff,
   persistConsolidateStatus,
   recordConsolidate,
+  recordConsolidateHardFailure,
+  shouldSkipConsolidateBackoff,
   type ConsolidateStatus,
 } from "./observability"
+
 const MEMORY_CAP_CHARS = 64 * 1024
 const MERGE_INPUT_CAP_CHARS = 32 * 1024
 
@@ -160,9 +164,23 @@ const noteOutcome = Effect.fn("Memory.noteConsolidateOutcome")(function* (
   yield* persistConsolidateStatus(fs, memoryBase(roots), status, reason).pipe(Effect.catch(() => Effect.succeed(false)))
 })
 
+/** True when MEMORY.md exists but memory_summary.md is missing or empty. */
+const needsSummaryHeal = Effect.fn("Memory.needsSummaryHeal")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
+  const base = memoryBase(roots)
+  const archive = yield* readTextSafe(fs, path.join(base, "MEMORY.md"))
+  if (archive === undefined || archive.trim() === "") return false
+  const summary = yield* readTextSafe(fs, path.join(base, "memory_summary.md"))
+  return summary === undefined || summary.trim() === ""
+})
+
 /** Gated consolidation: lock + min interval + noise/threat filtering + merge + summary regen. */
 export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (input: MergeInput) {
   const { fs, roots, llm, model } = input
+  const base = memoryBase(roots)
+  if (shouldSkipConsolidateBackoff(base)) {
+    yield* noteOutcome(fs, roots, "skipped", "backoff")
+    return
+  }
   const locked = yield* acquireMergeLock(fs, roots)
   if (!locked) {
     yield* noteOutcome(fs, roots, "skipped", "lock-held")
@@ -206,6 +224,18 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         contents.push(source)
       }
       if (contents.length === 0) {
+        // Self-heal: MEMORY exists but summary missing after a prior partial success.
+        if (yield* needsSummaryHeal(fs, roots)) {
+          const summaryOk = yield* regenerateSummary(fs, roots, llm, model)
+          if (summaryOk) {
+            clearConsolidateBackoff(base)
+            yield* noteOutcome(fs, roots, "completed", "summary-heal")
+          } else {
+            yield* noteOutcome(fs, roots, "failed", "summary-heal")
+          }
+          return
+        }
+        clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", "no-sources")
         return
       }
@@ -232,18 +262,33 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       }
       const outcome = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
       if (outcome.ok) {
-        yield* markConsolidated(fs, roots)
+        // Write summary before markConsolidated so a crash leaves sources gone
+        // only after we at least attempted summary — heal path covers empty summary.
         const summaryOk = yield* regenerateSummary(fs, roots, llm, model)
+        yield* markConsolidated(fs, roots)
+        clearConsolidateBackoff(base)
         if (!summaryOk) {
           yield* noteOutcome(fs, roots, "failed", "summary", outcome.sourcesMerged)
         } else {
           yield* noteOutcome(fs, roots, "completed", undefined, outcome.sourcesMerged)
         }
       } else if (outcome.reason === "already-merged" || outcome.reason === "no-reply" || outcome.reason === "budget-empty") {
+        clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", outcome.reason)
       } else {
+        // Hard failures (over-cap, threat, atomic, ledger, no-markdown): backoff to avoid token burn.
+        if (
+          outcome.reason === "over-cap" ||
+          outcome.reason === "threat" ||
+          outcome.reason === "atomic" ||
+          outcome.reason === "ledger" ||
+          outcome.reason === "no-markdown"
+        ) {
+          recordConsolidateHardFailure(base)
+        }
         yield* noteOutcome(fs, roots, "failed", outcome.reason)
-      }    } finally {
+      }
+    } finally {
       yield* Fiber.interrupt(heartbeat).pipe(Effect.catch(() => Effect.void))
     }
   } finally {

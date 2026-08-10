@@ -5,7 +5,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LLMClient, LLMEvent, Model } from "@opencode-ai/llm"
 import { routes as openAICompatibleRoutes } from "@opencode-ai/llm/providers/openai-compatible"
-import { readTextSafe, resolveRoots } from "../../src/memory/storage"
+import { readTextSafe, resolveRoots, writeTextAtomic } from "../../src/memory/storage"
 import { runConsolidation, runDualRootConsolidation } from "../../src/memory/consolidate"
 import { openMemoryIndex } from "../../src/memory/reindex"
 import { writeCandidate } from "../../src/memory/candidates"
@@ -277,6 +277,51 @@ describe("Memory consolidation", () => {
           expect(still).toBe("always use bun test")
           const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
           expect(mem).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("keeps sources when merge output exceeds MEMORY cap", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const body = "## Decision\nMust survive over-cap merge output without deletion of this note content"
+          yield* plantNote(fs, roots, "cap.md", body)
+          // Over 64K with markdown structure so we hit over-cap not no-markdown.
+          const huge = `## Huge\n${"x".repeat(65 * 1024)}`
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: huge })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const still = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "cap.md"))
+          expect(still).toBe(body)
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("heals missing summary when MEMORY exists and sources are empty", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Decisions\nUse Effect layers")
+          // No sources; summary missing — should regenerate.
+          streamOutput = [LLMEvent.textDelta({ id: "s1", text: "Effect layers are preferred." })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const summary = yield* readTextSafe(fs, path.join(roots.globalDir, "memory_summary.md"))
+          expect(summary).toBeTruthy()
+          expect(summary).toContain("Effect")
         }),
       ),
     ),

@@ -21,6 +21,8 @@ export interface ChunkHit {
   readonly score: number
   readonly source: "global" | "workspace" | "session"
   readonly ageDays: number
+  /** Owning index database (not semantic source). Required for correct access bumps. */
+  readonly root: "global" | "workspace"
 }
 
 export interface IndexChunk {
@@ -32,6 +34,8 @@ export interface IndexChunk {
   readonly text: string
   readonly startLine?: number
   readonly vectors?: ReadonlyArray<number>
+  /** Owning index database. */
+  readonly root: "global" | "workspace"
 }
 
 export interface MemoryIndex {
@@ -50,7 +54,12 @@ export interface MemoryIndex {
   readonly deletePath: (root: "global" | "workspace", filePath: string) => Effect.Effect<void, IndexError>
   readonly search: (query: string, limit: number) => Effect.Effect<Array<ChunkHit>, IndexError>
   readonly incrementAccess: (
-    hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,
+    hits: ReadonlyArray<{
+      id: number
+      source: "global" | "workspace" | "session"
+      /** Prefer explicit root when present (session chunks can live in either db). */
+      root?: "global" | "workspace"
+    }>,
   ) => Effect.Effect<void, IndexError>
   readonly chunkIdsForPath: (
     filePath: string,
@@ -61,7 +70,6 @@ export interface MemoryIndex {
   readonly close: () => Effect.Effect<void>
   readonly provider?: import("./embedding").EmbeddingProvider
 }
-
 const CREATE_CHUNKS = `CREATE TABLE IF NOT EXISTS chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   hash TEXT NOT NULL,
@@ -256,13 +264,13 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       yield* searchOne(global.db, "global")
       if (workspace !== undefined) yield* searchOne(workspace.db, "workspace")
       if (provider === undefined) {
-        return hits.map(({ root: _root, ...hit }) => hit)
+        return hits
       }
       // Hybrid path: cosine over stored vectors + BM25, root-qualified ids, then MMR.
       const queryVector = yield* provider.embedBatch([query]).pipe(Effect.catch(() => Effect.succeed([])))
       const qv = queryVector[0]
       if (qv === undefined || qv.length === 0) {
-        return hits.map(({ root: _root, ...hit }) => hit)
+        return hits
       }
       const collectChunks = (db: SyncDB, root: RootKey): Effect.Effect<Array<RootedChunk>, IndexError> =>
         q(() => db.all(sql`SELECT id, path, start_line, source, text, vectors FROM chunks`)).pipe(
@@ -350,21 +358,26 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       const byKey = new Map(scored.map((item) => [hitKey(item.root, item.id), item]))
       return mmr.flatMap((item) => {
         const hit = byKey.get(item.id as `${RootKey}:${number}`)
-        if (hit === undefined) return []
-        const { root: _root, ...rest } = hit
-        return [rest]
+        return hit === undefined ? [] : [hit]
       })
     }),
     incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (
-      hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,
+      hits: ReadonlyArray<{
+        id: number
+        source: "global" | "workspace" | "session"
+        root?: "global" | "workspace"
+      }>,
     ) {
       if (hits.length === 0) return
-      const globalIds = hits
-        .filter((hit) => hit.source === "global" || (hit.source === "session" && workspace === undefined))
-        .map((hit) => hit.id)
-      const workspaceIds = hits
-        .filter((hit) => hit.source === "workspace" || (hit.source === "session" && workspace !== undefined))
-        .map((hit) => hit.id)
+      // Prefer explicit owning root; fall back to source-based routing for legacy callers.
+      const owningRoot = (hit: { source: string; root?: "global" | "workspace" }): "global" | "workspace" => {
+        if (hit.root === "global" || hit.root === "workspace") return hit.root
+        if (hit.source === "workspace") return "workspace"
+        if (hit.source === "session") return workspace !== undefined ? "workspace" : "global"
+        return "global"
+      }
+      const globalIds = hits.filter((hit) => owningRoot(hit) === "global").map((hit) => hit.id)
+      const workspaceIds = hits.filter((hit) => owningRoot(hit) === "workspace").map((hit) => hit.id)
       if (globalIds.length > 0) {
         yield* q(() =>
           global.db.run(sql`UPDATE chunks SET access_count = access_count + 1 WHERE id IN (${inClause(globalIds)})`),
@@ -402,7 +415,7 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       return [...globalIds, ...workspaceIds]
     }),
     listChunks: Effect.fn("MemoryIndex.listChunks")(function* () {
-      const collect = (db: SyncDB): Effect.Effect<Array<IndexChunk>, IndexError> =>
+      const collect = (db: SyncDB, root: "global" | "workspace"): Effect.Effect<Array<IndexChunk>, IndexError> =>
         q(() => db.all(sql`SELECT id, path, source, access_count, mtime_ms, text FROM chunks`)).pipe(
           Effect.map((result) =>
               rowsOf(result).map((row) => ({
@@ -412,12 +425,13 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
                 accessCount: Number(row.access_count),
                 mtimeMs: Number(row.mtime_ms),
                 text: String(row.text),
+                root,
               })),
             ),
           )
       const [globalChunks, workspaceChunks] = yield* Effect.all([
-        collect(global.db),
-        workspace === undefined ? Effect.succeed([]) : collect(workspace.db),
+        collect(global.db, "global"),
+        workspace === undefined ? Effect.succeed([]) : collect(workspace.db, "workspace"),
       ])
       return [...globalChunks, ...workspaceChunks]
     }),
@@ -517,15 +531,12 @@ export const ensureIndexed = Effect.fn("Memory.ensureIndexed")(function* (
   yield* mark(roots.globalDir, roots.globalDir)
   if (roots.workspaceDir !== undefined) yield* mark(roots.workspaceDir, roots.workspaceDir)
   // Drop orphan chunks whose files were deleted since the last index pass.
+  // Route delete by owning db (`chunk.root`), never by semantic source alone —
+  // a global session chunk must not be deleted from the workspace index.
   const indexed = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
   for (const chunk of indexed) {
     if (!seen.has(chunk.path)) {
-      // Session chunks live in the workspace index when a workspace exists
-      // (per-session capture), otherwise in global — mirror incrementAccess.
-      const root = chunk.source === "workspace" || (chunk.source === "session" && roots.workspaceDir !== undefined) ? "workspace" : "global"
-      yield* index.deletePath(root, chunk.path).pipe(
-        Effect.catch(() => Effect.void),
-      )
+      yield* index.deletePath(chunk.root, chunk.path).pipe(Effect.catch(() => Effect.void))
     }
   }
 })

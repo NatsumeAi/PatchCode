@@ -242,7 +242,10 @@ describe("Memory drain watcher", () => {
           const rootsOf = (sid: string) =>
             Effect.gen(function* () {
               const session = yield* store.get(SessionSchema.ID.make(sid))
-              return resolveRoots(path.join(dir.path, "global", "memory"), session.location?.directory)
+              return resolveRoots(
+                path.join(dir.path, "global", "memory"),
+                session.location?.directory ?? path.join(dir.path, "proj"),
+              )
             })
           yield* drainTick(state, 10_000, new Set(), store, rootsOf, fs, Duration.millis(1))
           const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))

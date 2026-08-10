@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
-import { SessionMessage } from "../session/message"
+import { scanForThreats } from "./scan"
 
 const MAX_TOPICS = 5
 const MAX_TOPIC_CHARS = 200
@@ -14,6 +14,18 @@ export interface SessionMeta {
   readonly topics: string[]
   readonly assistantMessages: number
   readonly toolResults: number
+}
+
+/**
+ * Sanitize a topic snippet for session metadata logs: clamp length, collapse
+ * whitespace, drop threat-laden text (metadata-only privacy discipline).
+ */
+export function sanitizeTopic(text: string, maxChars = MAX_TOPIC_CHARS): string | undefined {
+  const collapsed = text.replace(/\s+/g, " ").trim()
+  if (collapsed.length === 0) return undefined
+  const clipped = collapsed.slice(0, maxChars)
+  if (scanForThreats(clipped).length > 0) return undefined
+  return clipped
 }
 
 /** Zero-LLM metadata from session history: prompt counts, topics, sizes. */
@@ -33,7 +45,10 @@ export const extractSessionMeta = Effect.fn("Memory.extractSessionMeta")(functio
       if (text.length > 0) {
         userTextBytes += text.length
         userPrompts++
-        if (topics.length < MAX_TOPICS) topics.push(text.slice(0, MAX_TOPIC_CHARS))
+        if (topics.length < MAX_TOPICS) {
+          const topic = sanitizeTopic(text)
+          if (topic !== undefined) topics.push(topic)
+        }
       }
     } else if (message.type === "assistant") {
       assistantMessages++

@@ -217,30 +217,48 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
           const max = Math.min(input.max_results ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS)
           const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (index !== undefined) {
+            let ftsFailed = false
             try {
               yield* ensureIndexed(index, fs, roots).pipe(Effect.catch(() => Effect.void))
-              const hits = yield* index.search(ftsQuery(input.query), max * 4).pipe(Effect.catch(() => Effect.succeed([])))
-              const ranked = rankResults(
-                hits
-                  .filter((hit) => !isContentFree(hit.text))
-                  .filter((hit) => scanForThreats(hit.text).length === 0)
-                  .map((hit) => ({ ...hit, source: hit.source })),
-              ).slice(0, max)
-              yield* index
-                .incrementAccess(ranked.map((hit) => ({ id: hit.id, source: hit.source })))
-                .pipe(Effect.catch(() => Effect.void))
-              return {
-                matches: ranked.map((hit) => {
-                  const threatIds = scanForThreats(hit.text)
-                  const text = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : hit.text
-                  return { path: hit.path, line: hit.line, text: `${text} ${staleNote(hit.ageDays, hit.source)}`.trim() }
+              const hits = yield* index.search(ftsQuery(input.query), max * 4).pipe(
+                Effect.catch(() => {
+                  ftsFailed = true
+                  return Effect.succeed([] as Array<{
+                    id: number
+                    path: string
+                    line: number
+                    text: string
+                    score: number
+                    source: "global" | "workspace" | "session"
+                    ageDays: number
+                    root: "global" | "workspace"
+                  }>)
                 }),
+              )
+              if (!ftsFailed) {
+                const ranked = rankResults(
+                  hits
+                    .filter((hit) => !isContentFree(hit.text))
+                    .filter((hit) => scanForThreats(hit.text).length === 0)
+                    .map((hit) => ({ ...hit, source: hit.source })),
+                ).slice(0, max)
+                yield* index
+                  .incrementAccess(ranked.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
+                  .pipe(Effect.catch(() => Effect.void))
+                return {
+                  matches: ranked.map((hit) => {
+                    const threatIds = scanForThreats(hit.text)
+                    const text = threatIds.length > 0 ? BLOCK_PLACEHOLDER(threatIds) : hit.text
+                    return { path: hit.path, line: hit.line, text: `${text} ${staleNote(hit.ageDays, hit.source)}`.trim() }
+                  }),
+                }
               }
+              // FTS failed — fall through to grep walk after close.
             } finally {
               yield* index.close().pipe(Effect.catch(() => Effect.void))
             }
           }
-          // Fallback walk both roots when the index is unavailable.
+          // Fallback walk both roots when the index is unavailable or FTS errors.
           const query = input.query.toLowerCase()
           const matches: Array<{ path: string; line: number; text: string }> = []
           const walk = (dir: string, rootBase: string, source: MemoryScope): Effect.Effect<void> =>
