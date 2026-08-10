@@ -8236,6 +8236,12 @@ export type MemoryHealth = {
   zeroAccessChunks: number
   pruneCandidates: number
   lastConsolidatedAt?: number
+  lastConsolidateStatus?: "completed" | "nothing" | "skipped" | "failed" | "never"
+  lastConsolidateReason?: string
+  flushSuccess?: number
+  flushNoReply?: number
+  flushFailed?: number
+  sourcesMerged?: number
 }
 
 export type MemoryImportResult = {

@@ -27,6 +27,11 @@ import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
+import {
+  persistConsolidateStatus,
+  recordConsolidate,
+  type ConsolidateStatus,
+} from "./observability"
 
 const MEMORY_CAP_CHARS = 64 * 1024
 const MERGE_INPUT_CAP_CHARS = 32 * 1024
@@ -51,6 +56,10 @@ const streamText = (llm: LLMClientShape, request: LLMRequest) =>
 
 const formatSourceBlock = (source: MergeSource): string =>
   `### SOURCE ${source.id}\n${source.text}`
+
+export type MergeOutcome =
+  | { readonly ok: true; readonly sourcesMerged: number }
+  | { readonly ok: false; readonly reason: string }
 
 /**
  * Merges budgeted sources into MEMORY.md via the dream LLM. Idempotent via
@@ -81,10 +90,10 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   }
   // Duplicate sources already recorded in the ledger can be cleaned up.
   if (already.length > 0) yield* deleteSources(fs, already)
-  if (pending.length === 0) return false
+  if (pending.length === 0) return { ok: false, reason: "already-merged" } satisfies MergeOutcome
 
   const { included } = budgetSources(pending, MERGE_INPUT_CAP_CHARS)
-  if (included.length === 0) return false
+  if (included.length === 0) return { ok: false, reason: "budget-empty" } satisfies MergeOutcome
 
   const input = included.map(formatSourceBlock).join("\n\n---\n\n")
   const boundedPruneList = pruneList.slice(0, 200)
@@ -108,21 +117,21 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   const merged = (yield* streamText(llm, request)).trim()
   if (merged.length === 0 || merged === "NO_REPLY") {
     yield* Effect.logInfo("memory consolidate: LLM returned empty or NO_REPLY; sources kept")
-    return false
+    return { ok: false, reason: "no-reply" } satisfies MergeOutcome
   }
   if (merged.length > MEMORY_CAP_CHARS) {
     yield* Effect.logWarning("memory consolidate: merged archive over cap; sources kept")
-    return false
+    return { ok: false, reason: "over-cap" } satisfies MergeOutcome
   }
   if (scanForThreats(merged).length > 0) {
     yield* Effect.logWarning("memory consolidate: threat patterns in LLM output; sources kept")
-    return false
+    return { ok: false, reason: "threat" } satisfies MergeOutcome
   }
 
   const written = yield* writeTextAtomic(fs, target, merged)
   if (!written) {
     yield* Effect.logWarning("memory consolidate: atomic MEMORY.md write failed; sources kept")
-    return false
+    return { ok: false, reason: "atomic" } satisfies MergeOutcome
   }
 
   const hashes = included.map((source) => contentHash(source.id, source.text))
@@ -131,16 +140,33 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
     yield* Effect.logWarning("memory consolidate: hash ledger append failed; sources still deleted after MEMORY write")
   }
   yield* deleteSources(fs, included)
-  return true
+  return { ok: true, sourcesMerged: included.length } satisfies MergeOutcome
+})
+
+const noteOutcome = Effect.fn("Memory.noteConsolidateOutcome")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  status: Exclude<ConsolidateStatus, "never">,
+  reason?: string,
+  sourcesMerged?: number,
+) {
+  recordConsolidate({ status, reason, sourcesMerged })
+  yield* persistConsolidateStatus(fs, memoryBase(roots), status, reason).pipe(Effect.catch(() => Effect.succeed(false)))
 })
 
 /** Gated consolidation: lock + min interval + noise/threat filtering + merge + summary regen. */
 export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (input: MergeInput) {
   const { fs, roots, llm, model } = input
   const locked = yield* acquireMergeLock(fs, roots)
-  if (!locked) return
+  if (!locked) {
+    yield* noteOutcome(fs, roots, "skipped", "lock-held")
+    return
+  }
   try {
-    if (!(yield* shouldConsolidate(fs, roots))) return
+    if (!(yield* shouldConsolidate(fs, roots))) {
+      yield* noteOutcome(fs, roots, "skipped", "too-soon")
+      return
+    }
     // Heartbeat: refresh the lock every 5 minutes so a long LLM merge cannot be
     // reclaimed as stale by a concurrent process (STALE_LOCK_SECS = 3600). The
     // fiber is explicitly interrupted when the consolidation body finishes —
@@ -169,7 +195,10 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         }
         contents.push(source)
       }
-      if (contents.length === 0) return
+      if (contents.length === 0) {
+        yield* noteOutcome(fs, roots, "nothing", "no-sources")
+        return
+      }
       const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
       let pruneList: Array<{ chunkId: string; path: string; excerpt: string }> = []
       if (index !== undefined) {
@@ -191,10 +220,15 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
           yield* index.close().pipe(Effect.catch(() => Effect.void))
         }
       }
-      const merged = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
-      if (merged) {
+      const outcome = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
+      if (outcome.ok) {
         yield* markConsolidated(fs, roots)
         yield* regenerateSummary(fs, roots, llm, model)
+        yield* noteOutcome(fs, roots, "completed", undefined, outcome.sourcesMerged)
+      } else if (outcome.reason === "already-merged" || outcome.reason === "no-reply" || outcome.reason === "budget-empty") {
+        yield* noteOutcome(fs, roots, "nothing", outcome.reason)
+      } else {
+        yield* noteOutcome(fs, roots, "failed", outcome.reason)
       }
     } finally {
       yield* Fiber.interrupt(heartbeat).pipe(Effect.catch(() => Effect.void))

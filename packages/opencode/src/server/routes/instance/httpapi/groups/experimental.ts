@@ -111,6 +111,15 @@ export const MemoryHealthResponse = Schema.Struct({
   zeroAccessChunks: Schema.Number,
   pruneCandidates: Schema.Number,
   lastConsolidatedAt: Schema.optional(Schema.Number),
+  // Observability (optional / backward compatible)
+  lastConsolidateStatus: Schema.optional(
+    Schema.Literals(["completed", "nothing", "skipped", "failed", "never"]),
+  ),
+  lastConsolidateReason: Schema.optional(Schema.String),
+  flushSuccess: Schema.optional(Schema.Number),
+  flushNoReply: Schema.optional(Schema.Number),
+  flushFailed: Schema.optional(Schema.Number),
+  sourcesMerged: Schema.optional(Schema.Number),
 }).annotate({ identifier: "MemoryHealthResponse" })
 export const MemoryExportPayload = Schema.Struct({
   target: Schema.String,

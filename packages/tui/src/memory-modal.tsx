@@ -36,8 +36,12 @@ export function MemoryModal(props: { onClose?: () => void }) {
       const health = await sdk.client.experimental.memory.health()
       const h = health.data
       if (h) {
+        const consolidate =
+          h.lastConsolidateStatus !== undefined
+            ? ` · last consolidate: ${h.lastConsolidateStatus}${h.lastConsolidateReason ? ` (${h.lastConsolidateReason})` : ""}`
+            : ""
         setStats(
-          `files ${h.files} · chunks ${h.chunks} (g${h.bySource.global}/w${h.bySource.workspace}/s${h.bySource.session}) · zero-access ${h.zeroAccessChunks} · prune candidates ${h.pruneCandidates}`,
+          `files ${h.files} · chunks ${h.chunks} (g${h.bySource.global}/w${h.bySource.workspace}/s${h.bySource.session}) · zero-access ${h.zeroAccessChunks} · prune candidates ${h.pruneCandidates}${consolidate}`,
         )
       }
     } catch (cause) {

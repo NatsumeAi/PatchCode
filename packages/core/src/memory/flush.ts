@@ -16,6 +16,7 @@ import { readTextSafe, resolveRoots } from "./storage"
 import { appendSessionLog, sessionLogPath } from "./session-logs"
 import { scanForThreats } from "./scan"
 import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
+import { recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
 
 /** Cap prior flush excerpt included in the delta system prompt (chars). */
 const PRIOR_FLUSH_EXCERPT_CAP = 8_000
@@ -123,12 +124,14 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   const cleaned = text.trim()
   if (cleaned.length === 0 || isNoReply(cleaned)) {
     if (isNoReply(cleaned)) {
+      recordFlushNoReply()
       yield* Effect.logInfo(`memory flush NO_REPLY for session ${sessionKey}`)
     }
     return
   }
   const threatIds = scanForThreats(cleaned)
   if (threatIds.length > 0) {
+    recordFlushFailed("threat")
     yield* Effect.logWarning("memory flush blocked: threat patterns " + threatIds.join(", "))
     return
   }
@@ -136,9 +139,11 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   const block = `## Flush\n\n${cleaned}`
   const written = yield* appendSessionLog(fs, roots, sessionKey, new Date(), block)
   if (!written) {
+    recordFlushFailed("atomic")
     yield* Effect.logWarning(`memory flush atomic write failed for session ${sessionKey}`)
     return
   }
+  recordFlushSuccess()
   markFlushed(sessionKey)
 })
 const layer = Layer.effect(
