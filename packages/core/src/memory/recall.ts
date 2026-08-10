@@ -10,7 +10,7 @@ import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { resolveRoots, type MemoryRoots } from "./storage"
 import { openMemoryIndex, ensureIndexed } from "./reindex"
-import { rankResults, staleNote } from "./ranking"
+import { rankResults, isContentFree, staleNote } from "./ranking"
 import { scanForThreats } from "./scan"
 
 export const RECALL_TOP_N = 5
@@ -76,8 +76,9 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     yield* ensureIndexed(index, fs, roots).pipe(Effect.catch(() => Effect.void))
     const hits = yield* index.search(ftsQuery(query), RECALL_TOP_N * 4).pipe(Effect.catch(() => Effect.succeed([])))
     const kept = rankResults(hits)
-      .slice(0, RECALL_TOP_N)
+      .filter((hit) => !isContentFree(hit.text))
       .filter((hit) => scanForThreats(hit.text).length === 0)
+      .slice(0, RECALL_TOP_N)
       .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
     yield* index
       .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source })))

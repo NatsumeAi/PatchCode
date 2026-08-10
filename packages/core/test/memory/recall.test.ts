@@ -148,6 +148,63 @@ describe("Memory recall", () => {
     ),
   )
 
+  it.effect("buildRecallBlock filters scaffold content-free hits", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Files must exist on disk so ensureIndexed does not drop orphan chunks.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "Add project-specific knowledge here about auth")
+          yield* writeTextAtomic(
+            fs,
+            path.join(roots.globalDir, "notes.md"),
+            "auth uses session tokens for every request in this project",
+          )
+          const index = yield* openMemoryIndex(fs, roots)
+          // Scaffold text matches the FTS query ("auth") but must still be filtered.
+          yield* index.insert("global", {
+            path: "MEMORY.md",
+            source: "global",
+            text: "Add project-specific knowledge here about auth",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          yield* index.insert("global", {
+            path: "notes.md",
+            source: "global",
+            text: "auth uses session tokens for every request in this project",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          yield* index.close()
+          const store = Layer.succeed(
+            SessionStore.Service,
+            SessionStore.Service.of({
+              context: () => Effect.succeed([userMessage("how do we handle auth", "msg_r_scaffold")]),
+              get: () => Effect.die("unused"),
+              sessionPermission: () => Effect.die("unused"),
+              runnerContext: () => Effect.die("unused"),
+              message: () => Effect.die("unused"),
+              wait: () => Effect.die("unused"),
+            }),
+          )
+          const block = yield* Effect.gen(function* () {
+            const storeSvc = yield* SessionStore.Service
+            return yield* buildRecallBlock(storeSvc, fs, roots, SessionSchema.ID.make("ses_recall"))
+          }).pipe(Effect.provide(store))
+          expect(block).not.toContain("Add project-specific knowledge here")
+          expect(block).toContain("auth uses session tokens")
+        }),
+      ),
+    ),
+  )
+
   it.effect("buildRecallBlock returns empty when the index is unavailable", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
