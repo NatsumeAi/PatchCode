@@ -1,12 +1,12 @@
 # Memory FULL Remediation — Status (2026-08-10)
 
 > Acceptance gate evidence for `2026-08-10-memory-full-remediation.md` Wave G.
-> Suite: `cd packages/core && bun test test/memory/` — **185+ pass / 0 fail** (post review must-fix `c2a1549895`).
+> Suite: `cd packages/core && bun test test/memory/` — **189 pass / 0 fail** (post open-P2 pass `ee79c8af4a`).
 >
-> **Post-review remediation (2026-08-10):** Independent audit ACCEPT-WITH-GAPS must-fix closed:
-> symlink sandbox escape, pack symlink skip, NO_REPLY normalize, short-note noise keep,
-> remember HTTP threat scan, dual-root health status rank, ledger-fail keep sources, summary fail status.
-> Remaining open items are lower P2/P3 from the audit (backoff, Hermes-scale scan, dual export, etc.).
+> **Post-review remediation (2026-08-10):**
+> - Must-fix (`c2a1549895`): sandbox symlink, pack symlink, NO_REPLY, short-note keep, remember scan, health rank, ledger keep, summary status.
+> - Open P2 pass (`ee79c8af4a`): summary self-heal, hard-fail backoff, root-aware access/orphan, session-meta sanitize, FTS→grep fallback, dual-root export, drain TS fix.
+> Still deferred (optional): Hermes-scale threat catalog (F4), flush cycle file-lock/dedup (F14/F15), ledger-fail unit test mock.
 
 ## Product journey (G1)
 
