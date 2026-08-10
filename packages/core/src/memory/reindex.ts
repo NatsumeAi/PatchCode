@@ -201,8 +201,8 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
         Effect.map((result) => rowsOf(result).map((row) => Number(row.id))),
       )
       if (ids.length === 0) return
-      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${ids})`)).pipe(
-        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${ids})`))),
+      yield* q(() => db.run(sql`DELETE FROM chunks_fts WHERE rowid IN (${inClause(ids)})`)).pipe(
+        Effect.flatMap(() => q(() => db.run(sql`DELETE FROM chunks WHERE id IN (${inClause(ids)})`))),
         Effect.asVoid,
       )
     }),
