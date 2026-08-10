@@ -39,6 +39,43 @@ describe("Memory storage", () => {
     ),
   )
 
+  it.effect("resolveRoots disables workspace when .opencode parent is a symlink escaping", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) =>
+        Effect.sync(() => {
+          const proj = path.join(dir.path, "proj")
+          const outside = path.join(dir.path, "attacker")
+          mkdirSync(proj, { recursive: true })
+          mkdirSync(path.join(outside, "memory"), { recursive: true })
+          writeFileSync(path.join(outside, "memory", "evil.md"), "x")
+          // Intermediate parent hijack: .opencode → attacker (memory lives under it).
+          symlinkSync(outside, path.join(proj, ".opencode"))
+          const roots = resolveRoots(path.join(dir.path, "global-mem"), proj)
+          expect(roots.workspaceDir).toBeUndefined()
+        }),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.effect("resolveRoots disables workspace when .opencode escapes and memory leaf is missing", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) =>
+        Effect.sync(() => {
+          const proj = path.join(dir.path, "proj")
+          const outside = path.join(dir.path, "attacker")
+          mkdirSync(proj, { recursive: true })
+          mkdirSync(outside, { recursive: true })
+          // .opencode → attacker, no memory/ yet — candidate would be attacker/memory.
+          symlinkSync(outside, path.join(proj, ".opencode"))
+          const roots = resolveRoots(path.join(dir.path, "global-mem"), proj)
+          expect(roots.workspaceDir).toBeUndefined()
+        }),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ),
+  )
+
   test("memoryDir rejects paths escaping the root", () => {
     const roots = resolveRoots("/base/memory", "/proj")
     expect(() => memoryDir(roots, "../evil")).toThrow()

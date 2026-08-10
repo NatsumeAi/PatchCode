@@ -1,5 +1,5 @@
 import path from "path"
-import { realpathSync, existsSync, lstatSync } from "fs"
+import { realpathSync, existsSync } from "fs"
 import { Effect } from "effect"
 import { FSUtil } from "../fs-util"
 
@@ -10,28 +10,53 @@ export interface MemoryRoots {
 
 /**
  * Resolve a memory root path without following a hijacked symlink out of its
- * expected parent. If `dir` itself is a symlink whose target escapes
- * `mustBeUnder`, returns undefined (caller disables that scope).
- * Non-existent paths stay lexical (created later under the intended parent).
+ * expected parent. Checks the final component *and* intermediate parents
+ * (e.g. `.opencode` → attacker/ with `memory/` under it). Escapes return
+ * undefined so the caller disables that scope.
+ *
+ * Non-existent paths: realpath the deepest existing ancestor, reconstruct the
+ * candidate, then require it still sits under `mustBeUnder`.
  */
 export function safeMemoryRoot(dir: string, mustBeUnder?: string): string | undefined {
   const abs = path.resolve(dir)
-  if (!existsSync(abs)) {
-    if (mustBeUnder !== undefined && !FSUtil.contains(path.resolve(mustBeUnder), abs)) return undefined
-    return abs
-  }
-  try {
-    const stat = lstatSync(abs)
-    if (stat.isSymbolicLink() && mustBeUnder !== undefined) {
-      const real = realpathSync(abs)
-      const parentReal = realpathSync(path.resolve(mustBeUnder))
-      if (!FSUtil.contains(parentReal, real)) return undefined
-      return real
+  if (mustBeUnder === undefined) {
+    if (!existsSync(abs)) return abs
+    try {
+      return realpathSync(abs)
+    } catch {
+      return abs
     }
-    return realpathSync(abs)
-  } catch {
-    return abs
   }
+
+  const parentAbs = path.resolve(mustBeUnder)
+  // Deepest existing ancestor (handles missing leaf or intermediate).
+  let probe = abs
+  while (!existsSync(probe)) {
+    const parent = path.dirname(probe)
+    if (parent === probe) break
+    probe = parent
+  }
+
+  let realProbe: string
+  try {
+    realProbe = existsSync(probe) ? realpathSync(probe) : probe
+  } catch {
+    realProbe = probe
+  }
+
+  const rel = path.relative(probe, abs)
+  const candidate =
+    rel === "" || rel === "." ? realProbe : path.resolve(realProbe, rel)
+
+  let parentReal: string
+  try {
+    parentReal = existsSync(parentAbs) ? realpathSync(parentAbs) : parentAbs
+  } catch {
+    parentReal = parentAbs
+  }
+
+  if (!FSUtil.contains(parentReal, candidate)) return undefined
+  return candidate
 }
 
 export function resolveRoots(globalBase: string, projectDirectory: string | undefined): MemoryRoots {

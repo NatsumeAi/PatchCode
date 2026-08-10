@@ -147,14 +147,15 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   const messages = yield* store.context(session.id).pipe(Effect.catch(() => Effect.succeed([])))
   if (messages.length === 0) return
 
+  const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
+  const statsBase = roots.workspaceDir ?? roots.globalDir
   const model = yield* models.resolve(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (!model) {
     recordFlushFailed("no-model")
+    yield* persistFlushStats(fs, statsBase).pipe(Effect.catch(() => Effect.succeed(false)))
     yield* Effect.logWarning(`memory flush skipped: no model for session ${sessionKey}`)
     return
   }
-
-  const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
   const existing = yield* readTextSafe(fs, sessionLogPath(roots, sessionKey, new Date()))
   const prior = priorFlushExcerpt(existing)
   const systemText =
@@ -180,6 +181,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   )
   if (streamFailed) {
     recordFlushFailed("stream")
+    yield* persistFlushStats(fs, statsBase).pipe(Effect.catch(() => Effect.succeed(false)))
     yield* Effect.logWarning(`memory flush stream failed for session ${sessionKey}`)
     return
   }
@@ -187,6 +189,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   if (cleaned.length === 0 || isNoReply(cleaned)) {
     if (isNoReply(cleaned)) {
       recordFlushNoReply()
+      yield* persistFlushStats(fs, statsBase).pipe(Effect.catch(() => Effect.succeed(false)))
       yield* Effect.logInfo(`memory flush NO_REPLY for session ${sessionKey}`)
     }
     return
@@ -194,6 +197,7 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   const threatIds = scanForThreats(cleaned)
   if (threatIds.length > 0) {
     recordFlushFailed("threat")
+    yield* persistFlushStats(fs, statsBase).pipe(Effect.catch(() => Effect.succeed(false)))
     yield* Effect.logWarning("memory flush blocked: threat patterns " + threatIds.join(", "))
     return
   }
@@ -216,13 +220,15 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   const written = yield* appendSessionLog(fs, roots, sessionKey, new Date(), block)
   if (!written) {
     recordFlushFailed("atomic")
+    yield* persistFlushStats(fs, statsBase).pipe(Effect.catch(() => Effect.succeed(false)))
     yield* Effect.logWarning(`memory flush atomic write failed for session ${sessionKey}`)
     return
   }
   const hashStored = yield* storeLastFlushHash(fs, roots, sessionKey, hash)
+  // Content append already succeeded — count success. Hash marker is best-effort
+  // durability for dedup across restarts (warn only, no double-count as failed).
   if (!hashStored) {
-    // Append already landed; still count success but surface the durability gap.
-    recordFlushFailed("hash-marker")
+    yield* Effect.logWarning(`memory flush: content written but hash marker failed for ${sessionKey}`)
   }
   recordFlushSuccess()
   markFlushed(sessionKey)
