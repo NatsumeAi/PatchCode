@@ -70,7 +70,9 @@ When answering from memory without current verification:
 Updating memories:
 
 - Update memories ONLY when the user explicitly asks you to remember, forget, or update something.
-- Write each update as one small file under extensions/ad_hoc/notes/ via memory_add_note; never edit MEMORY.md or memory_summary.md directly — a background consolidation process folds notes and session logs into MEMORY.md and regenerates memory_summary.md, deleting sources only after a successful merge.`
+- Write each update as one small file under extensions/ad_hoc/notes/ via memory_add_note.
+- Background consolidation (dream) periodically merges notes and session logs into MEMORY.md and regenerates memory_summary.md. You never edit those two files directly.
+- Until consolidated, notes and session logs remain searchable via memory_search / auto-recall.`
 
 export const node = makeLocationNode({
   name: "memory-context",

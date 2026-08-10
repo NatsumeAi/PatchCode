@@ -68,4 +68,24 @@ describe("Memory SystemContext", () => {
       ),
     ),
   )
+
+  it.live("describes real consolidation pipeline: notes + session logs → dream → MEMORY.md", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const registry = yield* SystemContextRegistry.Service
+          const ctx = yield* registry.load()
+          const generation = yield* SystemContext.initialize(ctx)
+          expect(generation.baseline).toContain("session logs")
+          expect(generation.baseline).toContain("Background consolidation (dream)")
+          expect(generation.baseline).toContain("memory_search")
+          expect(generation.baseline).toMatch(/never edit those two files directly/i)
+          expect(generation.baseline).toContain("Until consolidated")
+        }).pipe(Effect.provide(layer(dir.path))),
+      ),
+    ),
+  )
 })
