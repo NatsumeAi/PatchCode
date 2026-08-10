@@ -21,6 +21,17 @@ describe("Memory ranking", () => {
     expect(ranked[0]!.path).toBe("MEMORY.md")
   })
 
+  test("equal undecayed scores put workspace before global before session", () => {
+    // Same score, same age (no decay to mask the tie-break): curated sources
+    // (workspace > global) must sort before session chunks.
+    const ranked = rankResults([
+      { path: "sessions/a.md", score: 0.8, source: "session", ageDays: 0 },
+      { path: "g/MEMORY.md", score: 0.8, source: "global", ageDays: 0 },
+      { path: "w/MEMORY.md", score: 0.8, source: "workspace", ageDays: 0 },
+    ])
+    expect(ranked.map((item) => item.path)).toEqual(["w/MEMORY.md", "g/MEMORY.md", "sessions/a.md"])
+  })
+
   test("higher decayed score wins over source tie-break", () => {
     const ranked = rankResults([
       { path: "MEMORY.md", score: 0.2, source: "workspace", ageDays: 0 },

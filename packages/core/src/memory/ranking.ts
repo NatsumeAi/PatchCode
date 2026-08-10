@@ -38,7 +38,7 @@ export function rankResults<T extends Rankable>(items: ReadonlyArray<T>): Array<
   const decayed = items.map((item) => ({ item, score: decayScore(item.score, item.ageDays, item.source as keyof typeof sourceRank) }))
   decayed.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    return sourceRank[b.item.source as keyof typeof sourceRank] - sourceRank[a.item.source as keyof typeof sourceRank]
+    return sourceRank[a.item.source as keyof typeof sourceRank] - sourceRank[b.item.source as keyof typeof sourceRank]
   })
   return decayed.map(({ item }) => item)
 }
