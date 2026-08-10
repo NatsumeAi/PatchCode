@@ -7,7 +7,8 @@ import { Effect, Option } from "effect"
 import path from "path"
 import { FSUtil } from "../fs-util"
 import type { MemoryRoots } from "./storage"
-import { cosineSimilarity, normalize01, hybridScore, DEFAULT_MIN_SCORE } from "./hybrid"
+import { cosineSimilarity, normalize01, hybridScore, applyMmr, DEFAULT_MIN_SCORE } from "./hybrid"
+import { resolveMemoryEmbeddingProvider } from "./config"
 
 type SyncDB = ReturnType<typeof drizzle>
 type Row = Record<string, unknown>
@@ -146,6 +147,21 @@ export class IndexError {
 
 const q = <A>(fn: () => A): Effect.Effect<A, IndexError> => Effect.try({ try: fn, catch: (cause) => new IndexError(String(cause)) })
 
+/**
+ * Opens the dual-root memory index with the embedding provider resolved from
+ * env (OPENCODE_MEMORY_EMBEDDING_MODEL, …). When unset, FTS-only.
+ */
+export const openConfiguredMemoryIndex = Effect.fn("Memory.openConfiguredMemoryIndex")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+) {
+  const provider = yield* resolveMemoryEmbeddingProvider().pipe(
+    Effect.map(Option.getOrUndefined),
+    Effect.catch(() => Effect.succeed(undefined as import("./embedding").EmbeddingProvider | undefined)),
+  )
+  return yield* openMemoryIndex(fs, roots, provider)
+})
+
 /** Opens per-root index databases (dual-root: global always, workspace when present). */
 export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
   fs: FSUtil.Interface,
@@ -207,8 +223,12 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       )
     }),
     search: Effect.fn("MemoryIndex.search")(function* (query: string, limit: number) {
-      const hits: ChunkHit[] = []
-      const searchOne = (db: SyncDB, root: "global" | "workspace"): Effect.Effect<void, IndexError> =>
+      type RootKey = "global" | "workspace"
+      type RootedHit = ChunkHit & { root: RootKey }
+      type RootedChunk = IndexChunk & { root: RootKey }
+      const hitKey = (root: RootKey, id: number) => `${root}:${id}` as const
+      const hits: RootedHit[] = []
+      const searchOne = (db: SyncDB, root: RootKey): Effect.Effect<void, IndexError> =>
         q(() =>
           db.all(
             sql`SELECT c.id, c.path, c.start_line, c.text, c.source, c.mtime_ms, -bm25(chunks_fts) AS score
@@ -227,6 +247,7 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
                   score: Number(row.score),
                   source: sourceOf(root, String(row.path)),
                   ageDays: (Date.now() - Number(row.mtime_ms)) / (24 * 60 * 60 * 1000),
+                  root,
                 })
               }
               return Effect.void
@@ -234,12 +255,16 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
           )
       yield* searchOne(global.db, "global")
       if (workspace !== undefined) yield* searchOne(workspace.db, "workspace")
-      if (provider === undefined) return hits
-      // Hybrid path: cosine over stored vectors + BM25, weighted, min_score.
+      if (provider === undefined) {
+        return hits.map(({ root: _root, ...hit }) => hit)
+      }
+      // Hybrid path: cosine over stored vectors + BM25, root-qualified ids, then MMR.
       const queryVector = yield* provider.embedBatch([query]).pipe(Effect.catch(() => Effect.succeed([])))
       const qv = queryVector[0]
-      if (qv === undefined || qv.length === 0) return hits
-      const collectChunks = (db: SyncDB): Effect.Effect<Array<IndexChunk>, IndexError> =>
+      if (qv === undefined || qv.length === 0) {
+        return hits.map(({ root: _root, ...hit }) => hit)
+      }
+      const collectChunks = (db: SyncDB, root: RootKey): Effect.Effect<Array<RootedChunk>, IndexError> =>
         q(() => db.all(sql`SELECT id, path, start_line, source, text, vectors FROM chunks`)).pipe(
           Effect.map((result) =>
             rowsOf(result).map((row) => {
@@ -253,39 +278,50 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
                 text: String(row.text),
                 startLine: Number(row.start_line),
                 vectors: typeof vectors === "string" ? (JSON.parse(vectors) as Array<number>) : undefined,
+                root,
               }
             }),
           ),
         )
       const [globalChunks, workspaceChunks] = yield* Effect.all([
-        collectChunks(global.db),
-        workspace === undefined ? Effect.succeed([]) : collectChunks(workspace.db),
+        collectChunks(global.db, "global"),
+        workspace === undefined ? Effect.succeed([]) : collectChunks(workspace.db, "workspace"),
       ])
       const chunks = [...globalChunks, ...workspaceChunks]
       const vectorScored = chunks
         .map((chunk) => ({ chunk, cosine: cosineSimilarity(qv, chunk.vectors ?? []) }))
         .sort((a, b) => b.cosine - a.cosine)
         .slice(0, limit * 4)
-      const ftsById = new Map(hits.map((hit) => [hit.id, hit]))
+      // Key FTS hits by root:id so global/workspace AUTOINCREMENT collisions never merge.
+      const ftsByKey = new Map(hits.map((hit) => [hitKey(hit.root, hit.id), hit]))
       const candidates: Array<{
-        hit: ChunkHit | undefined
-        chunk: IndexChunk
+        hit: RootedHit | undefined
+        chunk: RootedChunk
         cosine: number
         textScore: number
       }> = []
       for (const item of vectorScored) {
+        const key = hitKey(item.chunk.root, item.chunk.id)
         candidates.push({
-          hit: ftsById.get(item.chunk.id),
+          hit: ftsByKey.get(key),
           chunk: item.chunk,
           cosine: item.cosine,
-          textScore: ftsById.get(item.chunk.id)?.score ?? 0,
+          textScore: ftsByKey.get(key)?.score ?? 0,
         })
       }
       for (const hit of hits) {
-        if (!vectorScored.some((item) => item.chunk.id === hit.id)) {
+        if (!vectorScored.some((item) => item.chunk.root === hit.root && item.chunk.id === hit.id)) {
           candidates.push({
             hit,
-            chunk: { id: hit.id, path: hit.path, source: hit.source, accessCount: 0, mtimeMs: 0, text: hit.text },
+            chunk: {
+              id: hit.id,
+              path: hit.path,
+              source: hit.source,
+              accessCount: 0,
+              mtimeMs: 0,
+              text: hit.text,
+              root: hit.root,
+            },
             cosine: 0,
             textScore: hit.score,
           })
@@ -293,19 +329,31 @@ export const openMemoryIndex = Effect.fn("Memory.openMemoryIndex")(function* (
       }
       const textNorm = normalize01(candidates.map((candidate) => candidate.textScore))
       const vecNorm = normalize01(candidates.map((candidate) => candidate.cosine))
-      const scored: ChunkHit[] = candidates
+      const scored: Array<RootedHit> = candidates
         .map((candidate, index) => ({
           id: candidate.chunk.id,
           path: candidate.chunk.path,
           line: candidate.hit?.line ?? candidate.chunk.startLine ?? 1,
           text: candidate.chunk.text,
           score: hybridScore(vecNorm[index]!, textNorm[index]!),
-          source: candidate.hit?.source ?? (candidate.chunk.source as ChunkHit["source"]),
+          source: candidate.hit?.source ?? sourceOf(candidate.chunk.root, candidate.chunk.path),
           ageDays: candidate.hit?.ageDays ?? 0,
+          root: candidate.chunk.root,
         }))
         .filter((item) => item.score >= DEFAULT_MIN_SCORE)
         .sort((a, b) => b.score - a.score)
-      return scored.slice(0, limit)
+      const mmr = applyMmr(
+        scored.map((item) => ({ id: hitKey(item.root, item.id), score: item.score, text: item.text })),
+        0.7,
+        limit,
+      )
+      const byKey = new Map(scored.map((item) => [hitKey(item.root, item.id), item]))
+      return mmr.flatMap((item) => {
+        const hit = byKey.get(item.id as `${RootKey}:${number}`)
+        if (hit === undefined) return []
+        const { root: _root, ...rest } = hit
+        return [rest]
+      })
     }),
     incrementAccess: Effect.fn("MemoryIndex.incrementAccess")(function* (
       hits: ReadonlyArray<{ id: number; source: "global" | "workspace" | "session" }>,

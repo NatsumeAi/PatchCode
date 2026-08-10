@@ -61,11 +61,14 @@ export function openAIEmbeddingProvider(input: {
   }
 }
 
+/** Default OpenAI-compatible embeddings base when config omits apiBase. */
+export const DEFAULT_EMBEDDING_API_BASE = "https://api.openai.com/v1"
+
 /**
  * Builds a provider from config; None when the model is unset.
  * The vector tier is optional (architecture P7): callers pass the provider
- * into openMemoryIndex; nothing constructs one until a memory embedding
- * config surface exists. Until then the FTS path is the default.
+ * into openMemoryIndex when OPENCODE_MEMORY_EMBEDDING_MODEL (or equivalent
+ * config) is set. Until then the FTS path is the default.
  */
 export const embeddingProviderFromConfig = Effect.fn("Memory.embeddingProviderFromConfig")(function* (
   config: { model?: string; dimensions?: number; apiBase?: string; apiKey?: string },
@@ -75,7 +78,7 @@ export const embeddingProviderFromConfig = Effect.fn("Memory.embeddingProviderFr
   if (!model) return Option.none<EmbeddingProvider>()
   return Option.some(
     openAIEmbeddingProvider({
-      apiBase: config.apiBase ?? "",
+      apiBase: (config.apiBase?.trim() || DEFAULT_EMBEDDING_API_BASE).replace(/\/$/, ""),
       apiKey: config.apiKey,
       model,
       dimensions: config.dimensions ?? 1024,
