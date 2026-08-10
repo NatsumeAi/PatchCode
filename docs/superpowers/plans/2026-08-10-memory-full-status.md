@@ -1,13 +1,11 @@
 # Memory FULL Remediation — Status (2026-08-10)
 
 > Acceptance gate evidence for `2026-08-10-memory-full-remediation.md` Wave G.
-> Suite: `cd packages/core && bun test test/memory/` — **198 pass / 0 fail**.
+> Suite: `cd packages/core && bun test test/memory/` — **199 pass / 0 fail**.
 >
 > **Post-review remediation (2026-08-10):**
-> - Must-fix (`c2a1549895`): sandbox symlink, pack symlink, NO_REPLY, short-note keep, remember scan, health rank, ledger keep, summary status.
-> - Open P2 pass (`ee79c8af4a`): summary self-heal, hard-fail backoff, root-aware access/orphan, session-meta sanitize, FTS→grep fallback, dual-root export, drain TS fix.
-> - Polish pass: Hermes-inspired scan+NFKC (F4), flush cycle generation + exact/near dedup (F14/F15), ledger-fail unit test.
-> - **Prompt maturity pass:** FLUSH_DELTA=Grok-grade denoise, SUMMARY self-contained+NO_REPLY, PRUNE conservative, DECISION_FRAMEWORK Codex citation/verify matrix/ordering; delta gating only on `## Flush`.
+> - Must-fix + open P2 + scan/flush polish + **prompt maturity** (see prior notes).
+> - **Follow-up:** dual-root **import** symmetry (round-trip workspace+global), Jaccard near-dup threshold 0.65, drain test optional chaining, writeScope typing.
 > Optional later: embedding cosine dedup, Hermes full multi-scope threat catalog.
 ## Product journey (G1)
 

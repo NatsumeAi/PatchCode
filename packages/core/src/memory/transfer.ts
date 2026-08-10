@@ -150,10 +150,10 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
   if (yield* writeTextAtomic(fs, path.join(safeTarget, "manifest.json"), JSON.stringify(manifest, null, 2))) {
     exported++
   }
-  const writeScope = (base: string, prefix: string): Effect.Effect<void, never> =>
+  const writeScope = (base: string, prefix: string): Effect.Effect<void> =>
     Effect.gen(function* () {
       for (const name of CURATED_FILES) {
-        const text = yield* readTextSafe(fs, path.join(base, name))
+        const text = yield* readTextSafe(fs, path.join(base, name)).pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (text === undefined) continue
         const dest = prefix === "" ? path.join(safeTarget, name) : path.join(safeTarget, prefix, name)
         if (yield* writeTextAtomic(fs, dest, text)) exported++
@@ -165,7 +165,9 @@ export const exportMemory = Effect.fn("Memory.exportMemory")(function* (
             .pipe(Effect.catch(() => Effect.succeed([])))
           for (const entry of entries) {
             if (entry.type !== "file") continue
-            const text = yield* readTextSafe(fs, path.join(base, dir, entry.name))
+            const text = yield* readTextSafe(fs, path.join(base, dir, entry.name)).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
             if (text === undefined) continue
             const dest =
               prefix === ""
@@ -195,6 +197,10 @@ const mtimeOf = (fs: FSUtil.Interface, file: string) =>
  * or equal; imports only when the local file is missing or the imported mtime
  * is strictly newer. Every imported file is threat-scanned.
  * `source` must be under one of `opts.allowedRoots` (realpath-checked).
+ *
+ * Dual-root packs (export with workspace open): pack root = workspace curated,
+ * `global/` = global curated. Legacy flat packs put curated files at pack root
+ * for a single global scope.
  */
 export const importMemory = Effect.fn("Memory.importMemory")(function* (
   fs: FSUtil.Interface,
@@ -212,27 +218,39 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
   } catch {
     return { imported: 0, skipped: 0 }
   }
-  const base = roots.workspaceDir ?? roots.globalDir
   let imported = 0
   let skipped = 0
-  const copy = (relative: string): Effect.Effect<void, Error> =>
+
+  /** Detect dual-root pack layout (has global/ curated sibling of pack root). */
+  const dualLayout = yield* Effect.gen(function* () {
+    if (manifest.scopes.includes("workspace") && manifest.scopes.includes("global")) return true
+    const globalMem = yield* readTextSafe(fs, path.join(safeSource, "global", "MEMORY.md")).pipe(
+      Effect.catch(() => Effect.succeed(undefined)),
+    )
+    return globalMem !== undefined
+  })
+
+  const copyInto = (packRelative: string, destBase: string): Effect.Effect<void> =>
     Effect.gen(function* () {
-      const srcFile = path.join(safeSource, relative)
-      // Refuse pack-internal symlinks (follow-on read would escape pack root).
+      const srcFile = path.join(safeSource, packRelative)
       if (isSymlinkPath(srcFile)) {
         skipped++
         return
       }
-      const text = yield* readTextSafe(fs, srcFile)
+      const text = yield* readTextSafe(fs, srcFile).pipe(Effect.catch(() => Effect.succeed(undefined)))
       if (text === undefined) return
       if (scanForThreats(text).length > 0) {
         skipped++
         return
       }
-      const target = path.join(base, relative)
+      // Strip optional "global/" prefix so dest is under destBase, not nested global/global.
+      const destRel = packRelative.startsWith(`global${path.sep}`) || packRelative.startsWith("global/")
+        ? packRelative.replace(/^global[/\\]/, "")
+        : packRelative
+      const target = path.join(destBase, destRel)
       const localMtime = yield* mtimeOf(fs, target)
       const srcMtime = yield* mtimeOf(fs, srcFile)
-      const existing = yield* readTextSafe(fs, target)
+      const existing = yield* readTextSafe(fs, target).pipe(Effect.catch(() => Effect.succeed(undefined)))
       if (!force && existing !== undefined && localMtime >= srcMtime) {
         skipped++
         return
@@ -241,14 +259,41 @@ export const importMemory = Effect.fn("Memory.importMemory")(function* (
       if (ok) imported++
       else skipped++
     })
-  for (const name of CURATED_FILES) yield* copy(name)
-  if (manifest.includeRaw) {
-    for (const dir of RAW_DIRS) {
-      const entries = yield* fs
-        .readDirectoryEntries(path.join(safeSource, dir))
-        .pipe(Effect.catch(() => Effect.succeed([])))
-      for (const entry of entries) if (entry.type === "file") yield* copy(path.join(dir, entry.name))
+
+  const importScope = (packPrefix: string, destBase: string): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      for (const name of CURATED_FILES) {
+        const rel = packPrefix === "" ? name : path.join(packPrefix, name)
+        yield* copyInto(rel, destBase)
+      }
+      if (manifest.includeRaw) {
+        for (const dir of RAW_DIRS) {
+          const packDir = packPrefix === "" ? path.join(safeSource, dir) : path.join(safeSource, packPrefix, dir)
+          const entries = yield* fs.readDirectoryEntries(packDir).pipe(Effect.catch(() => Effect.succeed([])))
+          for (const entry of entries) {
+            if (entry.type !== "file") continue
+            const rel =
+              packPrefix === "" ? path.join(dir, entry.name) : path.join(packPrefix, dir, entry.name)
+            yield* copyInto(rel, destBase)
+          }
+        }
+      }
+    })
+
+  if (dualLayout) {
+    // Pack root → workspace (or global if no workspace dest); global/ → globalDir.
+    if (roots.workspaceDir !== undefined) {
+      yield* importScope("", roots.workspaceDir)
+      yield* importScope("global", roots.globalDir)
+    } else {
+      // No workspace: import global/ into globalDir; also flat root if present as legacy.
+      yield* importScope("global", roots.globalDir)
+      // Flat root files from dual pack are workspace-scoped — skip when dest is global-only.
     }
+  } else {
+    // Legacy single-scope flat pack → primary base.
+    const base = roots.workspaceDir ?? roots.globalDir
+    yield* importScope("", base)
   }
   return { imported, skipped }
 })

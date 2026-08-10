@@ -19,16 +19,14 @@ describe("Flush dedup", () => {
     )
   })
 
-  test("isFlushDuplicate matches exact and near-duplicate", () => {
+  test("isFlushDuplicate matches exact and near-duplicate at 0.65 threshold", () => {
     const prior = "## Flush\n\n## Decisions\nUse Effect layers for memory consolidation"
     expect(isFlushDuplicate("## Decisions\nUse Effect layers for memory consolidation", prior)).toBe(true)
-    // High overlap near-dup
-    const near =
-      "## Decisions\nUse Effect layers for memory consolidation in the core package"
-    expect(jaccardSimilarity(near, prior.replace(/^##\s*Flush\s*/i, ""))).toBeGreaterThan(0.5)
-    expect(isFlushDuplicate(near, prior)).toBe(
-      jaccardSimilarity(near, prior.replace(/^##\s*Flush\s*/i, "")) >= FLUSH_NEAR_DUP_THRESHOLD,
-    )
+    // Light paraphrase: same core tokens + one extra word (fires at 0.65, not at 0.92).
+    const near = "## Decisions\nUse Effect layers for memory consolidation today"
+    const body = prior.replace(/^##\s*Flush\s*/i, "")
+    expect(jaccardSimilarity(near, body)).toBeGreaterThanOrEqual(FLUSH_NEAR_DUP_THRESHOLD)
+    expect(isFlushDuplicate(near, prior)).toBe(true)
     expect(isFlushDuplicate("## Decisions\nTotally unrelated architecture choice about databases", prior)).toBe(
       false,
     )

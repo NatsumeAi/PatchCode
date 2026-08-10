@@ -1,10 +1,13 @@
 /**
  * Exact + near-duplicate gates for session flush content (Grok-style, no
  * embedding dependency). Exact uses sha256 of normalized body; near-duplicate
- * uses Jaccard over alphanumeric tokens (threshold 0.92).
+ * uses Jaccard over alphanumeric tokens.
+ *
+ * Threshold is 0.65 (not 0.92): token Jaccard is stricter than embedding cosine
+ * at the same numeric value — 0.92 almost never fires for real paraphrases.
  */
 
-export const FLUSH_NEAR_DUP_THRESHOLD = 0.92
+export const FLUSH_NEAR_DUP_THRESHOLD = 0.65
 
 export function normalizeFlushBody(text: string): string {
   return text
