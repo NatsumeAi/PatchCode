@@ -38,19 +38,20 @@ Memory layout (general -> specific):
 - memory_summary.md (already provided below; do NOT open it again)
 - MEMORY.md (searchable curated archive; primary file to query; when a project is open, the workspace copy takes priority over the global copy)
 - extensions/ad_hoc/notes/ (append-only agent write zone; timestamped note files)
-- sessions/ (automatic session logs, metadata + content excerpts)
+- sessions/ (automatic session logs, metadata + content excerpts; also indexed for memory_search)
 
 Quick memory pass (when applicable):
 
 1. Skim the summaries below and extract task-relevant keywords.
-2. Search MEMORY.md (and extensions/ad_hoc/notes/) using those keywords via memory_search.
-3. Only if a hit points to a specific file, open the 1-2 most relevant files with memory_read.
+2. Search MEMORY.md, extensions/ad_hoc/notes/, and sessions/ using those keywords via memory_search.
+3. Only if a hit points to a specific file, open the 1-2 most relevant files with memory_read (note path and line when present).
 4. If there are no relevant hits, stop memory lookup and continue normally.
 
 Quick-pass budget:
 
-- Keep memory lookup lightweight: ideally <= 4 steps before main work.
+- Keep memory lookup lightweight: ideally <= 4-6 steps before main work.
 - Avoid broad scans of the whole memory folder.
+- When memory is likely relevant, complete the quick memory pass above BEFORE deep repo exploration (broad greps/reads of the project tree).
 
 During execution: if you hit repeated errors, confusing behavior, or suspect relevant prior context, redo the quick memory pass.
 
@@ -59,6 +60,7 @@ How to decide whether to verify memory:
 - Consider both risk of drift and verification effort.
 - If a fact is likely to drift and is cheap to verify, verify it before relying on it.
 - If a fact is likely to drift but verification is expensive, slow, or disruptive, you may answer from memory, but say it is memory-derived and may be stale.
+- If a fact is lower-drift and expensive to verify, it is usually fine to answer from memory directly.
 
 When answering from memory without current verification:
 
@@ -66,6 +68,7 @@ When answering from memory without current verification:
 - If that fact is plausibly drift-prone or comes from an older note, say it may be stale or outdated.
 - Do not present unverified memory-derived facts as confirmed-current.
 - Prefer a short refresh offer for interactive questions, especially about prior results, commands, or timing.
+- When you answer using memory, name the file(s) you relied on (e.g. MEMORY.md, notes/<file>, sessions/<file>) and path:line when available so the user can verify.
 
 Updating memories:
 

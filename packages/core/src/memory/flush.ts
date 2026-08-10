@@ -105,7 +105,8 @@ const storeLastFlushHash = Effect.fn("Memory.storeLastFlushHash")(function* (
 
 /**
  * Pull the most recent `## Flush` section from a session log for delta prompts.
- * Falls back to the whole non-empty log when no section marker is present.
+ * Returns undefined when no `## Flush` marker exists so drain-only metadata logs
+ * do not trigger delta mode (full FLUSH_SYSTEM is used instead).
  * Caps at PRIOR_FLUSH_EXCERPT_CAP characters (tail-biased).
  */
 export function priorFlushExcerpt(existing: string | undefined): string | undefined {
@@ -115,7 +116,8 @@ export function priorFlushExcerpt(existing: string | undefined): string | undefi
 
   const marker = "## Flush"
   const idx = trimmed.lastIndexOf(marker)
-  const excerpt = idx >= 0 ? trimmed.slice(idx) : trimmed
+  if (idx < 0) return undefined
+  const excerpt = trimmed.slice(idx)
   if (excerpt.length <= PRIOR_FLUSH_EXCERPT_CAP) return excerpt
   return excerpt.slice(excerpt.length - PRIOR_FLUSH_EXCERPT_CAP)
 }

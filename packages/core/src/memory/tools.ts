@@ -127,7 +127,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
   yield* tools.register({
     memory_list: Tool.make({
       description:
-        "List files and directories in the memory folder (root by default). Optional scope: workspace | global | all (default all when both roots exist). Each entry includes scope. Use memory_read/memory_search to inspect content.",
+        "List files and directories in the memory folder (root by default). Optional scope: workspace | global | all (default all when both roots exist). Each entry includes scope. Use memory_read/memory_search to inspect content. When citing memory in answers, include path (and line when known).",
       input: MemoryListInput,
       output: MemoryListOutput,
       toModelOutput: ({ output }) => [{ type: "text", text: JSON.stringify(output) }],
@@ -163,7 +163,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
     }),
     memory_read: Tool.make({
       description:
-        "Read a memory file by relative path (tries workspace then global when both roots exist). max_tokens optional, default 1000 tokens; content truncated when larger.",
+        "Read a memory file by relative path (tries workspace then global when both roots exist). max_tokens optional, default 1000 tokens; content truncated when larger. When answering from this file, cite the relative path (and line if known). Threat-scanned content may be replaced with a BLOCKED placeholder.",
       input: MemoryReadInput,
       output: MemoryReadOutput,
       toModelOutput: ({ output }) => [{ type: "text", text: output.content }],
@@ -207,7 +207,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
     }),
     memory_search: Tool.make({
       description:
-        "Search memory files (workspace + global indexes) for a query. Returns ranked matching chunks with relative path and line numbers (max_results optional, default 20, max 50). Scaffold content is omitted.",
+        "Search memory files (workspace + global indexes, including notes and sessions) for a query. Returns ranked matching chunks with relative path and line numbers (max_results optional, default 20, max 50). Scaffold content is omitted; threat-laden hits may be BLOCKED. Cite path:line when using a hit in an answer.",
       input: MemorySearchInput,
       output: MemorySearchOutput,
       toModelOutput: ({ output }) => [{ type: "text", text: JSON.stringify(output.matches) }],
@@ -299,7 +299,7 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
     }),
     memory_add_note: Tool.make({
       description:
-        "Create one append-only memory note ONLY after the user explicitly asks to remember, forget, or update something. Do NOT write notes unprompted.",
+        "Create one append-only memory note ONLY after the user explicitly asks to remember, forget, or update something. Do NOT write notes unprompted. Notes are later consolidated into MEMORY.md by the background dream process.",
       input: MemoryAddNoteInput,
       output: MemoryAddNoteOutput,
       toModelOutput: ({ output }) => [{ type: "text", text: `Memory note saved: ${output.filename}` }],

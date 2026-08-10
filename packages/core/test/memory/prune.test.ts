@@ -49,8 +49,11 @@ describe("Memory prune", () => {
     expect(selected).toEqual([])
   })
 
-  test("PRUNE_SYSTEM mentions removal and scoping", () => {
-    expect(PRUNE_SYSTEM.toLowerCase()).toContain("remove")
-    expect(PRUNE_SYSTEM.toLowerCase()).toContain("unrelated")
+  test("PRUNE_SYSTEM is conservative with match-or-skip", () => {
+    const lower = PRUNE_SYSTEM.toLowerCase()
+    expect(lower).toContain("skip")
+    expect(lower).toContain("when in doubt")
+    expect(lower).toContain("keep")
+    expect(lower).toContain("unrelated")
   })
 })

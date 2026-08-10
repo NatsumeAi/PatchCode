@@ -6,6 +6,7 @@ import { FSUtil } from "../fs-util"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
 import { SUMMARY_SYSTEM } from "./prompts"
+import { isNoReply, stripModelWrapper } from "./text-utils"
 
 export const SUMMARY_BUDGETS = { global: 1500 * 4, workspace: 1000 * 4 }
 
@@ -73,8 +74,8 @@ export const regenerateSummary = Effect.fn("Memory.regenerateSummary")(function*
     Stream.mkString,
     Effect.catch(() => Effect.succeed("")),
   )
-  const cleaned = text.trim()
-  if (cleaned.length === 0) return false
+  const cleaned = stripModelWrapper(text)
+  if (cleaned.length === 0 || isNoReply(cleaned)) return false
   if (scanForThreats(cleaned).length > 0) return false
   // Apply the per-root injection budget: workspace summaries are smaller than global.
   const budget =

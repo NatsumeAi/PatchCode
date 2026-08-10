@@ -37,5 +37,8 @@ export function selectPruneCandidates(
     .map(({ chunkId, path, excerpt }) => ({ chunkId, path, excerpt }))
 }
 
-export const PRUNE_SYSTEM =
-  "Additionally, remove the listed chunk excerpts that are no longer relevant. Keep the archive coherent and up to date. Do not delete unrelated sections."
+export const PRUNE_SYSTEM = `Additionally, process the PRUNE LIST of chunk excerpts:
+- Match each excerpt against EXISTING MEMORY; if you cannot locate matching text, skip that entry.
+- Only remove content that is clearly superseded, obsolete, or contradicted by newer facts.
+- When in doubt, KEEP the content. Prefer retention over aggressive deletion.
+- Do not delete unrelated sections. Keep the archive coherent and up to date.`
