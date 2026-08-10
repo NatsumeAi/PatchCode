@@ -17,7 +17,7 @@ import { ProjectV2 } from "../project"
 import { AbsolutePath } from "../schema"
 import { resolveRoots } from "./storage"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
-import { listCandidates, readCandidate, deleteCandidate, mergeKeyOf, NOISE_FLOOR_CHARS } from "./candidates"
+import { listMergeSources, deleteMergeSource, mergeKeyOf, NOISE_FLOOR_CHARS, type MergeSource } from "./candidates"
 import type { IndexChunk } from "./reindex"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, shouldConsolidate } from "./merge-lock"
 import { PHASE2_SYSTEM } from "./merge-prompt"
@@ -47,34 +47,35 @@ const streamText = (llm: LLMClientShape, request: LLMRequest) =>
   )
 
 /**
- * Merges candidates into MEMORY.md via the LLM. Idempotent: candidates whose
- * merge key already appears in the archive are dropped (and their files
- * deleted); sources are deleted only after a successful write.
+ * Merges mergeable sources (notes, session logs, candidates) into MEMORY.md via
+ * the LLM. Idempotent: sources whose merge key already appears in the archive
+ * are dropped (and their files deleted); source files are deleted only after a
+ * successful write.
  */
 export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   fs: FSUtil.Interface,
   roots: MemoryRoots,
   llm: LLMClientShape,
   model: Model,
-  contents: ReadonlyArray<{ id: string; text: string }>,
+  contents: ReadonlyArray<MergeSource>,
   pruneList: ReadonlyArray<{ chunkId: string; path: string; excerpt: string }> = [],
 ) {
   const target = memoryPath(roots)
   const existing = (yield* readTextSafe(fs, target)) ?? ""
-  const pending: Array<{ id: string; text: string }> = []
+  const pending: Array<MergeSource> = []
   for (const candidate of contents) {
     if (existing.includes(mergeKeyOf(candidate.id, candidate.text))) {
-      yield* deleteCandidate(fs, roots, candidate.id)
+      yield* deleteMergeSource(fs, candidate.path)
       continue
     }
     pending.push(candidate)
   }
   if (pending.length === 0) return false
 
-  // Budget the input candidate-by-candidate: only candidates whose text made it
+  // Budget the input candidate-by-candidate: only sources whose text made it
   // into the prompt may be deleted after a successful merge; overflow stays on
   // disk for the next run (idempotency invariant).
-  const included: Array<{ id: string; text: string }> = []
+  const included: Array<MergeSource> = []
   let budget = 0
   for (const candidate of pending) {
     const block = `${mergeKeyOf(candidate.id, candidate.text)}\n${candidate.text}`
@@ -112,7 +113,7 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
 
   const written = yield* writeTextAtomic(fs, target, merged)
   if (!written) return false
-  for (const candidate of included) yield* deleteCandidate(fs, roots, candidate.id)
+  for (const candidate of included) yield* deleteMergeSource(fs, candidate.path)
   return true
 })
 
@@ -138,19 +139,18 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       }),
     )
     try {
-    const candidates = yield* listCandidates(fs, roots, 0)
-    const contents: Array<{ id: string; text: string }> = []
-    for (const candidate of candidates) {
-      const text = yield* readCandidate(fs, roots, candidate.id)
-      if (text === undefined || text.trim().length < NOISE_FLOOR_CHARS) {
-        yield* deleteCandidate(fs, roots, candidate.id)
+    const sources = yield* listMergeSources(fs, roots)
+    const contents: Array<MergeSource> = []
+    for (const source of sources) {
+      if (source.text.trim().length < NOISE_FLOOR_CHARS) {
+        yield* deleteMergeSource(fs, source.path)
         continue
       }
-      if (scanForThreats(text).length > 0) {
-        yield* deleteCandidate(fs, roots, candidate.id)
+      if (scanForThreats(source.text).length > 0) {
+        yield* deleteMergeSource(fs, source.path)
         continue
       }
-      contents.push({ id: candidate.id, text })
+      contents.push(source)
     }
     if (contents.length === 0) return
     const index = yield* openMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))

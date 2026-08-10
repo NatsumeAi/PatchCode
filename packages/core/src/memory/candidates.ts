@@ -56,3 +56,47 @@ export const readCandidate = Effect.fn("Memory.readCandidate")(function* (fs: FS
 export const deleteCandidate = Effect.fn("Memory.deleteCandidate")(function* (fs: FSUtil.Interface, roots: MemoryRoots, id: string) {
   yield* fs.remove(candidatePath(roots, id)).pipe(Effect.catch(() => Effect.void))
 })
+
+const notesDir = (roots: MemoryRoots): string => {
+  const base = roots.workspaceDir ?? roots.globalDir
+  return path.join(base, "extensions", "ad_hoc", "notes")
+}
+
+const sessionsDir = (roots: MemoryRoots): string => {
+  const base = roots.workspaceDir ?? roots.globalDir
+  return path.join(base, "sessions")
+}
+
+export interface MergeSource {
+  readonly id: string
+  readonly path: string
+  readonly text: string
+}
+
+/**
+ * Lists every mergeable memory source under the active root: user notes
+ * (extensions/ad_hoc/notes/), session logs (sessions/), and ad-hoc candidates
+ * (extensions/ad_hoc/candidates/). These are the raw inputs consolidation
+ * folds into MEMORY.md — the shipped path from the architecture doc
+ * (notes/sessions -> candidates -> MEMORY.md), which the candidates-only
+ * implementation previously left unconnected in production.
+ */
+export const listMergeSources = Effect.fn("Memory.listMergeSources")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
+  const dirs = [notesDir(roots), sessionsDir(roots), candidatesDir(roots)]
+  const sources: Array<MergeSource> = []
+  for (const dir of dirs) {
+    const entries = yield* fs.readDirectoryEntries(dir).pipe(Effect.catch(() => Effect.succeed([])))
+    for (const entry of entries) {
+      if (entry.type !== "file" || !entry.name.endsWith(".md")) continue
+      const full = path.join(dir, entry.name)
+      const text = yield* readTextSafe(fs, full)
+      if (text === undefined) continue
+      sources.push({ id: path.relative(roots.workspaceDir ?? roots.globalDir, full).replace(/\\/g, "/"), path: full, text })
+    }
+  }
+  return sources
+})
+
+export const deleteMergeSource = Effect.fn("Memory.deleteMergeSource")(function* (fs: FSUtil.Interface, path: string) {
+  yield* fs.remove(path).pipe(Effect.catch(() => Effect.void))
+})

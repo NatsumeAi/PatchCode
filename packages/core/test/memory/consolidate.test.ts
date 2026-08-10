@@ -52,6 +52,40 @@ describe("Memory consolidation", () => {
     ),
   )
 
+  it.effect("consumes notes and session logs into MEMORY.md and deletes consumed sources", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Production note path (memory_add_note) + session log path (drain/flush).
+          yield* fs.ensureDir(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+          yield* fs.writeFileString(
+            path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "2026-08-09T120000-remember-layers.md"),
+            "## Decision\nUse effect layers for memory consolidation",
+          )
+          yield* fs.ensureDir(path.join(roots.globalDir, "sessions"))
+          yield* fs.writeFileString(
+            path.join(roots.globalDir, "sessions", "2026-08-09-ses_runner1.md"),
+            "## Session summary\nSettled on owning-root access routing for dual-root memory.",
+          )
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- decision kept" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toContain("## Merged")
+          // Consumed sources are deleted (Grok dream cleans its stems on success).
+          const notes = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+          expect(notes.length).toBe(0)
+          const sessions = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "sessions"))
+          expect(sessions.length).toBe(0)
+        }),
+      ),
+    ),
+  )
+
   it.effect("keeps candidates when the MEMORY.md write fails", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
