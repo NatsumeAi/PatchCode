@@ -29,6 +29,34 @@ export function staleNote(ageDays: number, source: "global" | "workspace" | "ses
   return `(memory from ${Math.round(ageDays)} days ago, may be stale — verify before relying)`
 }
 
+export const DEFAULT_RECALL_MAX_AGE_DAYS = 30
+export const DEFAULT_RECALL_MIN_SCORE = 0.15
+
+export type RecallHitLike = {
+  path: string
+  score: number
+  source: string
+  ageDays: number
+  text: string
+}
+
+export function filterRecallHits<T extends RecallHitLike>(
+  items: ReadonlyArray<T>,
+  opts: { maxAgeDays: number; minScore: number },
+): T[] {
+  return items.filter((item) => {
+    // Only session hits are temporally gated; curated workspace/global are exempt
+    if (item.source === "session") {
+      // Age: unknown age kept
+      const age = item.ageDays
+      if (Number.isFinite(age) && age > opts.maxAgeDays) return false
+      // Score floor after caller applied decay; NaN/undefined-like kept
+      if (Number.isFinite(item.score) && item.score < opts.minScore) return false
+    }
+    return true
+  })
+}
+
 export type Rankable = { path: string; score: number; source: string; ageDays: number }
 
 const sourceRank = { workspace: 0, global: 1, session: 2 } as const

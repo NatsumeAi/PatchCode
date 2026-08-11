@@ -9,6 +9,7 @@ import {
 } from "./embedding"
 
 export { DEFAULT_EMBEDDING_API_BASE }
+import { DEFAULT_RECALL_MAX_AGE_DAYS, DEFAULT_RECALL_MIN_SCORE } from "./ranking"
 
 export interface MemoryEmbeddingConfig {
   readonly model: string
@@ -43,6 +44,17 @@ export function memoryEmbeddingEnvConfig(): MemoryEmbeddingConfig | undefined {
     apiBase: process.env.OPENCODE_MEMORY_EMBEDDING_API_BASE?.trim() || DEFAULT_EMBEDDING_API_BASE,
     apiKey: process.env.OPENCODE_MEMORY_EMBEDDING_API_KEY?.trim() || undefined,
     dimensions: Number.isFinite(parsed) && parsed > 0 ? parsed : 1024,
+  }
+}
+
+export function memoryRecallEnvConfig(): { maxAgeDays: number; minScore: number } {
+  const maxAgeRaw = process.env.OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS?.trim()
+  const minScoreRaw = process.env.OPENCODE_MEMORY_RECALL_MIN_SCORE?.trim()
+  const maxAge = maxAgeRaw ? Number(maxAgeRaw) : DEFAULT_RECALL_MAX_AGE_DAYS
+  const minScore = minScoreRaw ? Number(minScoreRaw) : DEFAULT_RECALL_MIN_SCORE
+  return {
+    maxAgeDays: Number.isFinite(maxAge) && maxAge > 0 ? maxAge : DEFAULT_RECALL_MAX_AGE_DAYS,
+    minScore: Number.isFinite(minScore) && minScore >= 0 ? minScore : DEFAULT_RECALL_MIN_SCORE,
   }
 }
 
