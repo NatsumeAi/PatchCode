@@ -1,6 +1,6 @@
 export * as MemoryFlush from "./flush"
 
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 import path from "path"
 import { LLM, LLMClient, LLMEvent, SystemPart, type LLMClientShape } from "@opencode-ai/llm"
 import { FSUtil } from "../fs-util"
@@ -19,6 +19,8 @@ import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "./prompts"
 import { persistFlushStats, recordFlushFailed, recordFlushNoReply, recordFlushSuccess } from "./observability"
 import { isNoReply, stripModelWrapper } from "./text-utils"
 import { flushContentHash, isFlushDuplicate } from "./flush-dedup"
+import { resolveMemoryEmbeddingProvider } from "./config"
+import type { EmbeddingProvider } from "./embedding"
 
 export { isNoReply, stripModelWrapper } from "./text-utils"
 export { isFlushDuplicate, flushContentHash } from "./flush-dedup"
@@ -128,6 +130,40 @@ export function priorFlushExcerpt(existing: string | undefined): string | undefi
   return excerpt.slice(excerpt.length - PRIOR_FLUSH_EXCERPT_CAP)
 }
 
+/**
+ * Best-effort embeddings for flush cosine near-dup.
+ * Returns undefined when no provider, no prior body, or embed fails —
+ * callers fall back to hash/Jaccard only.
+ */
+export const embedFlushDedupVectors = Effect.fn("Memory.embedFlushDedupVectors")(function* (
+  candidate: string,
+  prior: string | undefined,
+  provider?: EmbeddingProvider,
+) {
+  if (prior === undefined || prior.trim() === "") return undefined
+  const priorBody = prior.replace(/^##\s*Flush\s*/i, "").trim()
+  if (priorBody.length === 0) return undefined
+
+  const resolved =
+    provider ??
+    (yield* resolveMemoryEmbeddingProvider().pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.catch(() => Effect.succeed(undefined as EmbeddingProvider | undefined)),
+    ))
+  if (resolved === undefined) return undefined
+
+  const vectors = yield* resolved.embedBatch([candidate, priorBody]).pipe(
+    Effect.catch(() => Effect.succeed(undefined as ReadonlyArray<ReadonlyArray<number>> | undefined)),
+  )
+  if (vectors === undefined || vectors.length < 2) return undefined
+  const cand = vectors[0]
+  const prev = vectors[1]
+  if (cand === undefined || prev === undefined || cand.length === 0 || cand.length !== prev.length) {
+    return undefined
+  }
+  return { candidate: cand, prior: prev } as const
+})
+
 /** Summarizes one session with the LLM and appends the result to the dated session log. */
 export const flushSession = Effect.fn("Memory.flushSession")(function* (
   session: SessionSchema.Info,
@@ -203,7 +239,9 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   }
 
   // Exact + near-duplicate gate vs prior flush section and durable hash marker.
-  if (isFlushDuplicate(cleaned, prior)) {
+  // When hybrid embedding is configured, also embed candidate + prior for cosine near-dup.
+  const vectors = yield* embedFlushDedupVectors(cleaned, prior)
+  if (isFlushDuplicate(cleaned, prior, vectors)) {
     yield* Effect.logInfo(`memory flush skipped: near-duplicate of prior flush for ${sessionKey}`)
     markFlushed(sessionKey)
     return

@@ -17,12 +17,15 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { SessionV2 } from "@opencode-ai/core/session"
 import {
+  embedFlushDedupVectors,
   flushSession,
   isNoReply,
   markFlushed,
   resetFlushGuardForTests,
   shouldFlushSession,
 } from "../../src/memory/flush"
+import type { EmbeddingProvider } from "../../src/memory/embedding"
+import { isFlushDuplicate } from "../../src/memory/flush-dedup"
 import { readTextSafe, resolveRoots } from "../../src/memory/storage"
 import { appendSessionLog, sessionLogPath } from "../../src/memory/session-logs"
 import { FLUSH_DELTA_SYSTEM, FLUSH_SYSTEM } from "../../src/memory/prompts"
@@ -328,6 +331,95 @@ describe("Memory flush", () => {
           expect(text).toContain("Single content flush")
           expect(text).not.toContain("Duplicate content flush")
           expect(shouldFlushSession(String(sessionID))).toBe(false)
+        }).pipe(Effect.provide(layer(dir.path))),
+      ),
+    ),
+  )
+
+  it.live("skips paraphrase flush when cosine embedding vectors match", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          resetFlushGuardForTests()
+          const fs = yield* FSUtil.Service
+          const global = yield* Global.Service
+          const loc = yield* Location.Service
+          const roots = resolveRoots(path.join(global.data, "memory"), loc.directory)
+          // Prior body with different tokens than the paraphrase candidate.
+          yield* appendSessionLog(
+            fs,
+            roots,
+            String(sessionID),
+            new Date(),
+            "## Flush\n\nPrefer layered architecture",
+          )
+          // Mock provider: identical vectors → cosine near-dup at 0.92.
+          const mockProvider: EmbeddingProvider = {
+            embedBatch: () => Effect.succeed([[1, 0, 0, 0], [0.99, 0.1, 0, 0]]),
+            dimensions: () => 4,
+            model: () => "test-embed",
+          }
+          const vectors = yield* embedFlushDedupVectors(
+            "Use a layered design approach",
+            "## Flush\n\nPrefer layered architecture",
+            mockProvider,
+          )
+          expect(vectors).toBeDefined()
+          expect(
+            isFlushDuplicate("Use a layered design approach", "## Flush\n\nPrefer layered architecture", vectors),
+          ).toBe(true)
+
+          // Wire env + fetch so flushSession's resolveMemoryEmbeddingProvider path also embeds.
+          const prev = {
+            model: process.env.OPENCODE_MEMORY_EMBEDDING_MODEL,
+            base: process.env.OPENCODE_MEMORY_EMBEDDING_API_BASE,
+            key: process.env.OPENCODE_MEMORY_EMBEDDING_API_KEY,
+            dims: process.env.OPENCODE_MEMORY_EMBEDDING_DIMENSIONS,
+          }
+          process.env.OPENCODE_MEMORY_EMBEDDING_MODEL = "test-embed"
+          process.env.OPENCODE_MEMORY_EMBEDDING_API_BASE = "https://embed.test/v1"
+          process.env.OPENCODE_MEMORY_EMBEDDING_API_KEY = "sk-test"
+          process.env.OPENCODE_MEMORY_EMBEDDING_DIMENSIONS = "4"
+          const originalFetch = globalThis.fetch
+          globalThis.fetch = (async () =>
+            new Response(
+              JSON.stringify({
+                data: [{ embedding: [1, 0, 0, 0] }, { embedding: [0.99, 0.1, 0, 0] }],
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            )) as unknown as typeof fetch
+          try {
+            streamOutput = [
+              LLMEvent.textDelta({ id: "t1", text: "Use a layered design approach for the subsystem" }),
+            ]
+            yield* flushSession(
+              session,
+              yield* SessionStore.Service,
+              yield* LLMClient.Service,
+              yield* SessionRunnerModel.Service,
+              fs,
+              global,
+              loc,
+            )
+            const text = yield* readTextSafe(fs, sessionLogPath(roots, String(sessionID), new Date()))
+            // Only the seeded prior section — cosine near-dup skipped the write.
+            expect((text ?? "").split("## Flush").length - 1).toBe(1)
+            expect(text).toContain("Prefer layered architecture")
+            expect(text).not.toContain("layered design approach")
+          } finally {
+            globalThis.fetch = originalFetch
+            if (prev.model === undefined) delete process.env.OPENCODE_MEMORY_EMBEDDING_MODEL
+            else process.env.OPENCODE_MEMORY_EMBEDDING_MODEL = prev.model
+            if (prev.base === undefined) delete process.env.OPENCODE_MEMORY_EMBEDDING_API_BASE
+            else process.env.OPENCODE_MEMORY_EMBEDDING_API_BASE = prev.base
+            if (prev.key === undefined) delete process.env.OPENCODE_MEMORY_EMBEDDING_API_KEY
+            else process.env.OPENCODE_MEMORY_EMBEDDING_API_KEY = prev.key
+            if (prev.dims === undefined) delete process.env.OPENCODE_MEMORY_EMBEDDING_DIMENSIONS
+            else process.env.OPENCODE_MEMORY_EMBEDDING_DIMENSIONS = prev.dims
+          }
         }).pipe(Effect.provide(layer(dir.path))),
       ),
     ),

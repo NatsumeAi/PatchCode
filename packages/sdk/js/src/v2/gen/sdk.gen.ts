@@ -1451,11 +1451,14 @@ export class Memory extends HeyApiClient {
   /**
    * Import memory
    *
-   * Import a memory pack (never overwrites newer-or-equal local curated files).
+   * Import a memory pack. By default never overwrites newer-or-equal local
+   * curated files; pass force: true to overwrite.
    */
   public importPack<ThrowOnError extends boolean = false>(
     parameters: {
       source: string
+      /** When true, overwrite local curated files even if newer than pack. */
+      force?: boolean
       directory?: string
       workspace?: string
     },
@@ -1469,6 +1472,7 @@ export class Memory extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "source" },
+            { in: "body", key: "force" },
           ],
         },
       ],

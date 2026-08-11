@@ -3,6 +3,7 @@ import { createMemo, createSignal } from "solid-js"
 import { useDialog } from "./ui/dialog"
 import { DialogConfirm } from "./ui/dialog-confirm"
 import { DialogPrompt } from "./ui/dialog-prompt"
+import { DialogSelect } from "./ui/dialog-select"
 import { useTheme } from "./context/theme"
 import { useSDK } from "./context/sdk"
 import { useToast } from "./ui/toast"
@@ -89,6 +90,35 @@ export function MemoryModal(props: { onClose?: () => void }) {
     ))
   }
 
+  const runImport = (source: string, force: boolean) => {
+    void sdk.client.experimental.memory
+      .importPack({ source, force })
+      .then((response) => {
+        const result = response.data
+        if (result?.error) {
+          toast.show({
+            message: force
+              ? `Import failed: ${result.error}`
+              : `Import failed: ${result.error}. Re-run import and choose force overwrite if local files are newer.`,
+            variant: "error",
+          })
+        } else if (result) {
+          const detail =
+            result.skipped > 0
+              ? `Imported ${result.imported}, skipped ${result.skipped} (newer local or threats).${force ? "" : " Use force overwrite to replace newer locals."}`
+              : `Imported ${result.imported} file(s)${force ? " (force)" : ""}.`
+          toast.show({ message: detail, variant: "success" })
+          void load()
+        }
+      })
+      .catch((cause) =>
+        toast.show({
+          message: `Import failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          variant: "error",
+        }),
+      )
+  }
+
   const importPack = async () => {
     dialog.replace(() => (
       <DialogPrompt
@@ -100,31 +130,28 @@ export function MemoryModal(props: { onClose?: () => void }) {
             toast.show({ message: "Import path required", variant: "error" })
             return
           }
-          void sdk.client.experimental.memory
-            .importPack({ source: trimmed })
-            .then((response) => {
-              const result = response.data
-              if (result?.error) {
-                toast.show({
-                  message: `Import failed: ${result.error}. Try force overwrite if local files are newer.`,
-                  variant: "error",
-                })
-              } else if (result) {
-                const detail =
-                  result.skipped > 0
-                    ? `Imported ${result.imported}, skipped ${result.skipped} (newer local or threats).`
-                    : `Imported ${result.imported} file(s).`
-                toast.show({ message: detail, variant: "success" })
-                void load()
-              }
-            })
-            .catch((cause) =>
-              toast.show({
-                message: `Import failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-                variant: "error",
-              }),
-            )
-          dialog.clear()
+          // Mode select: skip-newer (default) vs force overwrite.
+          dialog.replace(() => (
+            <DialogSelect
+              title="Import mode"
+              options={[
+                {
+                  value: "skip",
+                  title: "Skip newer local files",
+                  description: "Safe default — never overwrite newer-or-equal curated files",
+                },
+                {
+                  value: "force",
+                  title: "Force overwrite",
+                  description: "Overwrite local curated files even if newer than pack",
+                },
+              ]}
+              onSelect={(option) => {
+                runImport(trimmed, option.value === "force")
+                dialog.clear()
+              }}
+            />
+          ))
         }}
         onCancel={() => dialog.clear()}
       />
@@ -238,7 +265,7 @@ export function MemoryModal(props: { onClose?: () => void }) {
       </box>
       <box width="100%" height={1} bottom={1}>
         <text style={{ fg: theme.textMuted }}>
-          ↑/↓ select · d delete session log · e export · i import · esc close
+          ↑/↓ select · d delete session log · e export · i import (mode: skip/force) · esc close
         </text>
       </box>
       <box width="100%" height={1} bottom={0}>

@@ -9,10 +9,13 @@ import {
 } from "../../src/memory/flush-dedup"
 import {
   beginFlushCycle,
+  embedFlushDedupVectors,
   markFlushed,
   resetFlushGuardForTests,
   shouldFlushSession,
 } from "../../src/memory/flush"
+import type { EmbeddingProvider } from "../../src/memory/embedding"
+import { Effect } from "effect"
 
 describe("Flush dedup", () => {
   test("exact hash is stable under whitespace", () => {
@@ -43,6 +46,35 @@ describe("Flush dedup", () => {
     expect(cosineSimilarity(v1, v2)).toBeGreaterThanOrEqual(FLUSH_COSINE_DUP_THRESHOLD)
     expect(isFlushDuplicate(paraphrase, prior, { candidate: v2, prior: v1 })).toBe(true)
     expect(isFlushDuplicate(paraphrase, prior, { candidate: [0, 1, 0, 0], prior: v1 })).toBe(false)
+  })
+
+  test("embedFlushDedupVectors feeds isFlushDuplicate cosine path", async () => {
+    const provider: EmbeddingProvider = {
+      embedBatch: (texts) => {
+        expect(texts.length).toBe(2)
+        return Effect.succeed([
+          [1, 0, 0, 0],
+          [0.99, 0.1, 0, 0],
+        ])
+      },
+      dimensions: () => 4,
+      model: () => "mock",
+    }
+    const vectors = await Effect.runPromise(
+      embedFlushDedupVectors("Use a layered design approach", "## Flush\n\nPrefer layered architecture", provider),
+    )
+    expect(vectors).toBeDefined()
+    expect(isFlushDuplicate("Use a layered design approach", "## Flush\n\nPrefer layered architecture", vectors)).toBe(
+      true,
+    )
+    // Without provider / env: no vectors, paraphrase not Jaccard-dup.
+    const none = await Effect.runPromise(
+      embedFlushDedupVectors("Use a layered design approach", "## Flush\n\nPrefer layered architecture", undefined),
+    )
+    // May still resolve env provider — when unset stays undefined.
+    if (process.env.OPENCODE_MEMORY_EMBEDDING_MODEL === undefined) {
+      expect(none).toBeUndefined()
+    }
   })
 })
 
