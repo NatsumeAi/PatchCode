@@ -9,6 +9,7 @@ import {
   type DreamPhase,
 } from "../../src/memory/dream-phases"
 import type { MergeSource } from "../../src/memory/sources"
+import { memoryDreamPolicyEnvConfig } from "../../src/memory/config"
 
 const HOUR_MS = 3600_000
 const DAY_MS = 24 * HOUR_MS
@@ -51,6 +52,60 @@ describe("dream phase defaults", () => {
 
   test("recovery threshold is 0.35", () => {
     expect(DEFAULT_RECOVERY_THRESHOLD).toBe(0.35)
+  })
+})
+
+describe("memoryDreamPolicyEnvConfig", () => {
+  const withEnv = (name: string, value: string | undefined, body: () => void) => {
+    const prior = process.env[name]
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+    try {
+      body()
+    } finally {
+      if (prior === undefined) delete process.env[name]
+      else process.env[name] = prior
+    }
+  }
+
+  test("reads OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS and OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH", () => {
+    withEnv("OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS", "10", () =>
+      withEnv("OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH", "0.9", () => {
+        const cfg = memoryDreamPolicyEnvConfig()
+        expect(cfg.minAccess).toBe(10)
+        expect(cfg.recoveryThreshold).toBe(0.9)
+      }),
+    )
+  })
+
+  test("invalid values fall back to defaults (non-numeric, negative, out-of-range)", () => {
+    withEnv("OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS", "abc", () =>
+      withEnv("OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH", "7", () => {
+        expect(memoryDreamPolicyEnvConfig()).toEqual({
+          minAccess: DEFAULT_DREAM_POLICY.minAccess,
+          recoveryThreshold: DEFAULT_RECOVERY_THRESHOLD,
+        })
+      }),
+    )
+    withEnv("OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS", "-1", () =>
+      withEnv("OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH", "1.5", () => {
+        expect(memoryDreamPolicyEnvConfig()).toEqual({
+          minAccess: DEFAULT_DREAM_POLICY.minAccess,
+          recoveryThreshold: DEFAULT_RECOVERY_THRESHOLD,
+        })
+      }),
+    )
+  })
+
+  test("unset env falls back to defaults", () => {
+    withEnv("OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS", undefined, () =>
+      withEnv("OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH", undefined, () => {
+        expect(memoryDreamPolicyEnvConfig()).toEqual({
+          minAccess: DEFAULT_DREAM_POLICY.minAccess,
+          recoveryThreshold: DEFAULT_RECOVERY_THRESHOLD,
+        })
+      }),
+    )
   })
 })
 

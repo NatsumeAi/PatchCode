@@ -15,7 +15,7 @@ export {
   DEFAULT_RECOVERY_THRESHOLD,
 } from "./dream-phases"
 export type { DreamPhase, PhasePolicy } from "./dream-phases"
-import { DEFAULT_DREAM_HOURS } from "./dream-phases"
+import { DEFAULT_DREAM_HOURS, DEFAULT_DREAM_POLICY, DEFAULT_RECOVERY_THRESHOLD } from "./dream-phases"
 import { DEFAULT_RECALL_MAX_AGE_DAYS, DEFAULT_RECALL_MIN_SCORE } from "./ranking"
 
 export interface MemoryEmbeddingConfig {
@@ -91,6 +91,32 @@ export function memoryDreamHoursEnvConfig(): { light: number; deep: number; rem:
     light: Number.isFinite(light) && light > 0 ? light : DEFAULT_DREAM_HOURS.light,
     deep: Number.isFinite(deep) && deep > 0 ? deep : DEFAULT_DREAM_HOURS.deep,
     rem: Number.isFinite(rem) && rem > 0 ? rem : DEFAULT_DREAM_HOURS.rem,
+  }
+}
+
+/**
+ * Dream-policy env overrides (matching memoryRecallEnvConfig's defensive
+ * parsing: invalid or non-numeric values fall back to defaults).
+ *
+ * | Env | Default |
+ * |-----|---------|
+ * | OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS | 3 (deep/rem min access count) |
+ * | OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH | 0.35 (recovery health threshold) |
+ */
+export function memoryDreamPolicyEnvConfig(): { minAccess: number; recoveryThreshold: number } {
+  const minAccessRaw = process.env.OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS?.trim()
+  const recoveryRaw = process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH?.trim()
+  const minAccess = minAccessRaw ? Number(minAccessRaw) : DEFAULT_DREAM_POLICY.minAccess
+  const recoveryThreshold = recoveryRaw ? Number(recoveryRaw) : DEFAULT_RECOVERY_THRESHOLD
+  return {
+    // A negative minAccess would admit every source regardless of access — not
+    // a sane operator intent, so fall back.
+    minAccess: Number.isFinite(minAccess) && minAccess >= 0 ? minAccess : DEFAULT_DREAM_POLICY.minAccess,
+    // Health is [0,1]; a threshold outside that range is a misconfiguration.
+    recoveryThreshold:
+      Number.isFinite(recoveryThreshold) && recoveryThreshold >= 0 && recoveryThreshold <= 1
+        ? recoveryThreshold
+        : DEFAULT_RECOVERY_THRESHOLD,
   }
 }
 

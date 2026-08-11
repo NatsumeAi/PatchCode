@@ -261,7 +261,12 @@ const taskHostLayer = Layer.effect(
         Effect.asVoid,
       )
 
-    const notifyParent = (childSessionID: SessionSchema.ID, state: "completed" | "error", text: string) =>
+    const notifyParent = (
+      childSessionID: SessionSchema.ID,
+      state: "completed" | "error",
+      text: string,
+      ok: boolean = state === "completed",
+    ) =>
       Effect.gen(function* () {
         yield* Effect.logInfo("TaskHost.notifyParent", { childSessionID: String(childSessionID), state })
         const child = yield* store.get(childSessionID)
@@ -323,6 +328,9 @@ const taskHostLayer = Layer.effect(
           yield* WorktreePool.release(parent.location.directory, String(childSessionID)).pipe(Effect.ignore)
         }
         // Additive memory observation: no-op when memory services aren't loaded.
+        // `ok` is threaded explicitly: a budget-exhausted child settles this
+        // path as "completed" but must record ok=false (mirrors the foreground
+        // settle, where exit === "budget_exhausted" maps to ok=false).
         const delegationOpt = yield* Effect.serviceOption(MemoryDelegation.Service)
         if (delegationOpt._tag === "Some") {
           yield* delegationOpt.value
@@ -331,13 +339,13 @@ const taskHostLayer = Layer.effect(
               childSessionID: String(childSessionID),
               task: yield* childTaskPrompt(store, childSessionID),
               result: text,
-              ok: state === "completed",
+              ok,
             })
             .pipe(Effect.ignore)
         }
       })
 
-    const observeBackground = (childSessionID: SessionSchema.ID) =>
+    const observeBackground = (childSessionID: SessionSchema.ID, agentSteps?: number) =>
       Effect.logInfo("TaskHost.observeBackground enter", { childSessionID: String(childSessionID) }).pipe(
         Effect.andThen(
           background
@@ -351,7 +359,18 @@ const taskHostLayer = Layer.effect(
               ),
               Effect.flatMap((result) => {
             if (result.info?.status === "completed") {
-              return notifyParent(childSessionID, "completed", result.info.output ?? "Subagent completed.")
+              const output = result.info.output ?? "Subagent completed."
+              return Effect.gen(function* () {
+                // A budget-exhausted child settles the background job as
+                // completed (waitOnly returns its text), but it is a failed
+                // outcome for delegation — mirror the foreground exit
+                // classification so the observation's ok flag is path-independent.
+                const budgetExhausted = yield* store
+                  .context(childSessionID)
+                  .pipe(Effect.map((messages) => detectBudgetExhausted({ agentSteps, messages })))
+                  .pipe(Effect.catch(() => Effect.succeed(false)))
+                return notifyParent(childSessionID, "completed", output, !budgetExhausted)
+              })
             }
             if (result.info?.status === "error") {
               return notifyParent(childSessionID, "error", result.info.error ?? "Subagent failed.")
@@ -851,7 +870,7 @@ const taskHostLayer = Layer.effect(
           if (input.background) {
             const admitStamp = yield* admitPrompt(childID).pipe(Effect.orDie)
             yield* launchBackground(admitStamp)
-            const observer = observeBackground(childID)
+            const observer = observeBackground(childID, agentInfo.steps)
             yield* instanceCtx === undefined
               ? observer
               : observer
@@ -879,7 +898,7 @@ const taskHostLayer = Layer.effect(
           const msgs = yield* waitForCompletion(childID, FOREGROUND_WAIT_BUDGET_MS, admitStamp).pipe(Effect.orDie)
           if (!msgs) {
             yield* launchBackground(admitStamp)
-            const observer = observeBackground(childID)
+            const observer = observeBackground(childID, agentInfo.steps)
             yield* instanceCtx === undefined
               ? observer
               : observer

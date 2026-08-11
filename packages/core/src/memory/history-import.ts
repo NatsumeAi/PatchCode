@@ -145,12 +145,27 @@ export const importExternalHistory = Effect.fn("Memory.importExternalHistory")(f
       if (!isRecord(manifest) || !Array.isArray(manifest.scopes)) {
         return fail("invalid manifest.json in memory directory")
       }
+      // Pre-scan: a pack holding files should import at least one, so a 0/0
+      // result means every copy degraded (unreadable source, threat, failed
+      // atomic write) — surface that instead of a success-shaped empty result.
+      // A pack with only manifest.json is a genuine nothing-to-import and stays 0/0.
+      const packHasEntries = yield* fs
+        .readDirectoryEntries(safeSource)
+        .pipe(
+          Effect.map((entries) =>
+            entries.some((entry) => entry.type === "file" && entry.name !== "manifest.json"),
+          ),
+          Effect.catch(() => Effect.succeed(false)),
+        )
       // importMemory's only typed error is SandboxError, which cannot fire here
       // because safeSource was already validated against the same allowedRoots;
       // the catch below keeps this function's error channel closed to `never`.
       const result = yield* importMemory(fs, roots, safeSource, { allowedRoots: opts.allowedRoots }).pipe(
         Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0 })),
       )
+      if (result.imported === 0 && result.skipped === 0 && packHasEntries) {
+        return fail("memory directory import produced no result")
+      }
       return { imported: result.imported, skipped: result.skipped }
     }
   }

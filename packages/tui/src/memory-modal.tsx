@@ -127,10 +127,13 @@ export function MemoryModal(props: { onClose?: () => void }) {
         if (result?.error) {
           toast.show({ message: `Import failed: ${result.error}`, variant: "error" })
         } else if (result) {
+          // This route imports either chat messages (jsonl/messages-json) or an
+          // already memory-shaped directory pack (files), so the wording is
+          // deliberately generic.
           const detail =
             result.skipped > 0
-              ? `Imported ${result.imported} message(s), skipped ${result.skipped} (non-conversation roles or threats).`
-              : `Imported ${result.imported} message(s).`
+              ? `Imported ${result.imported} item(s), skipped ${result.skipped} (threats, roles, or newer locals).`
+              : `Imported ${result.imported} item(s).`
           toast.show({ message: detail, variant: "success" })
           void load()
         }

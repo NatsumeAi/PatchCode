@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
+import { systemError } from "effect/PlatformError"
 import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -239,6 +240,50 @@ describe("Memory external history import", () => {
         expect(text).toContain("use layers")
         const names = yield* importedLogs(fs, roots)
         expect(names).toHaveLength(0)
+      }),
+    ),
+  )
+
+  it.effect("directory pack whose content is unreadable fails with an error instead of silent 0/0", () =>
+    inTmp((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FSUtil.Service
+        const roots = resolveRoots(path.join(dir, "mem"), undefined)
+        const pack = path.join(dir, "pack")
+        yield* writeTextAtomic(
+          fs,
+          path.join(pack, "manifest.json"),
+          '{"version":1,"exportedAt":"2024-01-02T00:00:00.000Z","scopes":["global"],"includeRaw":false}',
+        )
+        yield* writeTextAtomic(fs, path.join(pack, "MEMORY.md"), "## Decisions\nuse layers")
+        // importMemory degrades unreadable files to silent 0/0 — the wrapper
+        // makes the pack's only content file unreadable so every copy fails.
+        const realRead = fs.readFileStringSafe.bind(fs)
+        const unreadableFs: FSUtil.Interface = {
+          ...fs,
+          readFileStringSafe: (file) => {
+            if (String(file).endsWith(path.join("pack", "MEMORY.md"))) {
+              return Effect.fail(
+                systemError({
+                  _tag: "BadResource",
+                  module: "Test",
+                  method: "readFileString",
+                  syscall: "read",
+                  pathOrDescriptor: String(file),
+                }),
+              )
+            }
+            return realRead(file)
+          },
+        }
+
+        const result = yield* importExternalHistory(unreadableFs, roots, pack, { format: "auto", allowedRoots: [dir] })
+        expect(result.imported).toBe(0)
+        expect(result.skipped).toBe(0)
+        expect(result.error).toBeDefined()
+
+        const text = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+        expect(text).toBeUndefined()
       }),
     ),
   )

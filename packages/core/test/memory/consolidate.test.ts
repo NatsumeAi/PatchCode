@@ -11,6 +11,7 @@ import { openMemoryIndex } from "../../src/memory/reindex"
 import { writeCandidate } from "../../src/memory/candidates"
 import { contentHash, loadMergedHashes } from "../../src/memory/merged-hashes"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, markDreamPhase, loadDreamStamps } from "../../src/memory/merge-lock"
+import { writeDelegationObservation } from "../../src/memory/delegation-memory"
 import { systemError } from "effect/PlatformError"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -603,6 +604,103 @@ describe("Memory consolidation", () => {
           expect(note).toBeDefined()
           const stamps = yield* loadDreamStamps(fs, roots)
           expect(stamps.light).toBeDefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("delegation observation candidate is consumed by the light phase (deleg → consolidate junction)", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the light phase.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
+          // No stamps → light is the first never-run phase due.
+          yield* writeDelegationObservation(fs, roots, {
+            parentSessionID: "ses_parent1",
+            childSessionID: "ses_child1",
+            task: "Refactor the access-count gate to root-scoped chunks.",
+            result: "Gate now filters chunks by owning root before the deep phase access check.",
+            ok: true,
+          })
+          let capturedUser = ""
+          const capturing = Layer.succeed(
+            LLMClient.Service,
+            LLMClient.Service.of({
+              stream: (request: unknown) => {
+                const req = request as {
+                  messages?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+                }
+                const first = req.messages?.[0]
+                if (capturedUser === "") {
+                  capturedUser =
+                    first?.content?.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("") ?? ""
+                }
+                return Stream.fromIterable([
+                  LLMEvent.textDelta({ id: "t1", text: "## Merged\n- delegation insight folded" }),
+                ])
+              },
+              prepare: () => Effect.die("unused"),
+              generate: () => Effect.die("unused"),
+            }),
+          )
+          yield* Effect.gen(function* () {
+            const llm = yield* LLMClient.Service
+            yield* runConsolidation({ fs, roots, llm, model })
+          }).pipe(Effect.provide(capturing))
+          // The observation body reached the merge prompt: the deleg writer's
+          // output feeds the consolidate merge input end to end.
+          expect(capturedUser).toContain("## Subagent observation")
+          expect(capturedUser).toContain("Refactor the access-count gate")
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toContain("## Merged")
+          const candidates = yield* fs.readDirectoryEntries(
+            path.join(roots.globalDir, "extensions", "ad_hoc", "candidates"),
+          )
+          expect(candidates.length).toBe(0)
+          const stamps = yield* loadDreamStamps(fs, roots)
+          expect(stamps.light).toBeDefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH=0 disables recovery so fresh stamps skip the pass", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Missing MEMORY.md + summary → health 0. With the default 0.35
+          // threshold that triggers recovery despite fresh stamps; a configured
+          // threshold of 0 must NOT recover, so the fresh stamps gate as
+          // too-soon and nothing is merged.
+          const prior = process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH
+          process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH = "0"
+          try {
+            yield* markDreamPhase(fs, roots, "light")
+            yield* markDreamPhase(fs, roots, "deep")
+            yield* markDreamPhase(fs, roots, "rem")
+            yield* plantNote(fs, roots, "rebuild.md", "## Decision\nRecovery must not fire with threshold 0")
+            streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- should not be written" })]
+            yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+            const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+            expect(mem).toBeUndefined()
+            const notes = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+            expect(notes.length).toBe(1)
+          } finally {
+            if (prior === undefined) delete process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH
+            else process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH = prior
+          }
         }),
       ),
     ),

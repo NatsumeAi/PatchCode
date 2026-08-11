@@ -22,7 +22,7 @@ import { listMergeSources, budgetSources, deleteSources, type MergeSource } from
 import { appendMergedHashes, contentHash, isAlreadyMerged, loadMergedHashes } from "./merged-hashes"
 import type { IndexChunk } from "./reindex"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, loadDreamStamps, markDreamPhase } from "./merge-lock"
-import { DEFAULT_DREAM_POLICY, DEFAULT_RECOVERY_THRESHOLD, filterSourcesForPhase, selectDuePhase, shouldRecover } from "./dream-phases"
+import { DEFAULT_DREAM_POLICY, filterSourcesForPhase, selectDuePhase, shouldRecover } from "./dream-phases"
 import { DREAM_SYSTEM, DREAM_LIGHT_SYSTEM, DREAM_REM_SYSTEM } from "./prompts"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
@@ -30,7 +30,7 @@ import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
 import { invalidateRecallCache } from "./recall"
 import { hasMarkdownStructure, isNoReply, stripModelWrapper } from "./text-utils"
-import { memoryDreamHoursEnvConfig } from "./config"
+import { memoryDreamHoursEnvConfig, memoryDreamPolicyEnvConfig } from "./config"
 import { curatedHealth } from "./health"
 import {
   clearConsolidateBackoff,
@@ -241,9 +241,10 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
     const stamps = yield* loadDreamStamps(fs, roots)
     const health = yield* curatedHealth(fs, base)
     const allSources = yield* listMergeSources(fs, roots)
+    const dreamPolicy = memoryDreamPolicyEnvConfig()
     // Recovery overrides phase intervals whenever curated memory dropped below
-    // the health threshold while short-term sources exist to rebuild from.
-    const recovering = shouldRecover(health, DEFAULT_RECOVERY_THRESHOLD, allSources.length)
+    // the configured health threshold while short-term sources exist to rebuild from.
+    const recovering = shouldRecover(health, dreamPolicy.recoveryThreshold, allSources.length)
     const phase = recovering ? ("recovery" as const) : selectDuePhase(Date.now(), stamps, memoryDreamHoursEnvConfig())
     if (phase === undefined) {
       yield* noteOutcome(fs, roots, "skipped", "too-soon")
@@ -292,6 +293,12 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
           }
           return
         }
+        // No sources at all: the phase gate already evaluated, so the phase is
+        // done for this cycle — advance the stamp so the next tick does not
+        // re-select the same due phase (the no-source state cannot change
+        // within the interval). The summary-heal branch above stays un-advanced
+        // so a failed heal retries next tick instead of waiting out the phase.
+        yield* markDreamPhase(fs, roots, phase)
         clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", "no-sources")
         return
@@ -314,8 +321,15 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
             })),
             Date.now(),
           )
+          // Access counts come from chunks of the current consolidation's root
+          // only: chunk.path is relative to the chunk's owning root, and the
+          // sources gated below are current-root files. A cross-root path
+          // collision would otherwise let a workspace session pass the deep/rem
+          // access gate on a global chunk's count (and vice versa).
+          const currentRoot: "global" | "workspace" = roots.workspaceDir !== undefined ? "workspace" : "global"
           accessByPath = new Map(
             chunks
+              .filter((chunk) => chunk.root === currentRoot)
               .filter((chunk) => Number.isFinite(chunk.accessCount))
               .map((chunk) => [chunk.path, chunk.accessCount] as const),
           )
@@ -324,13 +338,18 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         }
       }
       // Deep/rem gate sessions and candidates on index access counts; sources
-      // without index metadata fail open and stay eligible.
+      // without index metadata fail open and stay eligible. The minAccess gate
+      // comes from OPENCODE_MEMORY_DREAM_DEEP_MIN_ACCESS (default 3).
       const eligible = filterSourcesForPhase(
         contents.map((source) => ({ ...source, accessCount: accessByPath?.get(source.relativePath) })),
         phase,
-        DEFAULT_DREAM_POLICY,
+        { ...DEFAULT_DREAM_POLICY, minAccess: dreamPolicy.minAccess },
       )
       if (eligible.length === 0) {
+        // The phase gate already evaluated for this cycle: advance the stamp so
+        // the next tick does not re-select the same due phase and re-filter
+        // identical sources (mirrors the no-reply fix).
+        yield* markDreamPhase(fs, roots, phase)
         clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", "no-sources-for-phase")
         return

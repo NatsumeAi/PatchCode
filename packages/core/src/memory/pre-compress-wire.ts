@@ -38,9 +38,12 @@ export const extractInsightsIfWired = Effect.fn("Memory.extractPreCompressInsigh
   if (!preCompressEnabled()) return ""
   const insights = extractPreCompressInsights(entries)
   if (insights.trim() === "") return ""
-  // Per-session-per-day id so distinct sessions never overwrite each other
-  // and consolidation can dedupe candidates by date.
-  const id = `precompress-${sanitizeSessionId(sessionID)}-${new Date().toISOString().slice(0, 10)}`
+  // Per-session-per-day id plus a content hash so a second compaction of the
+  // same session the same day with different insights writes a distinct
+  // candidate instead of overwriting the first; identical extractions stay
+  // idempotent (mirrors delegation-memory.ts hash8).
+  const hash = new Bun.CryptoHasher("sha256").update(insights).digest("hex").slice(0, 8)
+  const id = `precompress-${sanitizeSessionId(sessionID)}-${new Date().toISOString().slice(0, 10)}-${hash}`
   yield* writeCandidate(fs, roots, id, insights).pipe(Effect.catch(() => Effect.void))
   return insights
 })
