@@ -142,6 +142,10 @@ export const MemoryImportPayload = Schema.Struct({
   source: Schema.String,
   force: Schema.optional(Schema.Boolean),
 }).annotate({ identifier: "MemoryImportPayload" })
+export const MemoryImportHistoryPayload = Schema.Struct({
+  source: Schema.String,
+  format: Schema.optional(Schema.Literals(["auto", "jsonl", "messages-json"])),
+}).annotate({ identifier: "MemoryImportHistoryPayload" })
 export const MemoryImportResponse = Schema.Struct({
   imported: Schema.Number,
   skipped: Schema.Number,
@@ -172,6 +176,7 @@ export const ExperimentalPaths = {
   memoryHealth: "/experimental/memory/health",
   memoryExport: "/experimental/memory/export",
   memoryImport: "/experimental/memory/import",
+  memoryImportHistory: "/experimental/memory/import-history",
   memoryRemember: "/experimental/memory/remember",
 } as const
 
@@ -379,6 +384,18 @@ export const ExperimentalApi = HttpApi.make("experimental")
             identifier: "memory.import",
             summary: "Import memory",
             description: "Import a memory pack (never overwrites newer-or-equal local curated files).",
+          }),
+        ),
+        HttpApiEndpoint.post("memoryImportHistory", ExperimentalPaths.memoryImportHistory, {
+          query: WorkspaceRoutingQuery,
+          payload: MemoryImportHistoryPayload,
+          success: described(MemoryImportResponse, "History imported"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "memory.import-history",
+            summary: "Import external history",
+            description:
+              "Import an external session history export (jsonl or messages-json) as a memory session log; format is sniffed when omitted.",
           }),
         ),
         HttpApiEndpoint.post("memoryRemember", ExperimentalPaths.memoryRemember, {

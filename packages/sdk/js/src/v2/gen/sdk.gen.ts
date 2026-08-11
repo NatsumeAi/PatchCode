@@ -418,6 +418,8 @@ import type {
   MemoryExportErrors,
   MemoryImportResponses,
   MemoryImportErrors,
+  MemoryImportHistoryResponses,
+  MemoryImportHistoryErrors,
   MemoryRememberResponses,
   MemoryRememberErrors,
 } from "./types.gen.js"
@@ -1479,6 +1481,46 @@ export class Memory extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<MemoryImportResponses, MemoryImportErrors, ThrowOnError>({
       url: "/experimental/memory/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Import external history
+   *
+   * Import an external session history export (jsonl or messages-json) into
+   * memory as a session log. Format is sniffed when omitted.
+   */
+  public importHistory<ThrowOnError extends boolean = false>(
+    parameters: {
+      source: string
+      format?: "auto" | "jsonl" | "messages-json"
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+            { in: "body", key: "format" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MemoryImportHistoryResponses, MemoryImportHistoryErrors, ThrowOnError>({
+      url: "/experimental/memory/import-history",
       ...options,
       ...params,
       headers: {

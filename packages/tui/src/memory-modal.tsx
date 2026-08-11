@@ -119,6 +119,30 @@ export function MemoryModal(props: { onClose?: () => void }) {
       )
   }
 
+  const runHistoryImport = (source: string) => {
+    void sdk.client.experimental.memory
+      .importHistory({ source, format: "auto" })
+      .then((response) => {
+        const result = response.data
+        if (result?.error) {
+          toast.show({ message: `Import failed: ${result.error}`, variant: "error" })
+        } else if (result) {
+          const detail =
+            result.skipped > 0
+              ? `Imported ${result.imported} message(s), skipped ${result.skipped} (non-conversation roles or threats).`
+              : `Imported ${result.imported} message(s).`
+          toast.show({ message: detail, variant: "success" })
+          void load()
+        }
+      })
+      .catch((cause) =>
+        toast.show({
+          message: `Import failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          variant: "error",
+        }),
+      )
+  }
+
   const importPack = async () => {
     dialog.replace(() => (
       <DialogPrompt
@@ -130,7 +154,7 @@ export function MemoryModal(props: { onClose?: () => void }) {
             toast.show({ message: "Import path required", variant: "error" })
             return
           }
-          // Mode select: skip-newer (default) vs force overwrite.
+          // Mode select: skip-newer (default) vs force overwrite vs external history import.
           dialog.replace(() => (
             <DialogSelect
               title="Import mode"
@@ -145,9 +169,15 @@ export function MemoryModal(props: { onClose?: () => void }) {
                   title: "Force overwrite",
                   description: "Overwrite local curated files even if newer than pack",
                 },
+                {
+                  value: "history",
+                  title: "Import external history",
+                  description: "Chat export (jsonl / messages-json), format auto-detected",
+                },
               ]}
               onSelect={(option) => {
-                runImport(trimmed, option.value === "force")
+                if (option.value === "history") runHistoryImport(trimmed)
+                else runImport(trimmed, option.value === "force")
                 dialog.clear()
               }}
             />
@@ -265,7 +295,7 @@ export function MemoryModal(props: { onClose?: () => void }) {
       </box>
       <box width="100%" height={1} bottom={1}>
         <text style={{ fg: theme.textMuted }}>
-          ↑/↓ select · d delete session log · e export · i import (mode: skip/force) · esc close
+          ↑/↓ select · d delete session log · e export · i import (skip/force/history) · esc close
         </text>
       </box>
       <box width="100%" height={1} bottom={0}>

@@ -295,4 +295,18 @@ describe("experimental HttpApi", () => {
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )
+
+  it.instance("rejects an invalid history import format", () =>
+    Effect.gen(function* () {
+      const tmp = yield* TestInstance
+      const response = yield* request(ExperimentalPaths.memoryImportHistory, tmp.directory, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source: "/tmp/history.jsonl", format: "bogus" }),
+      })
+
+      expect(response.status).toBe(400)
+    }),
+    { config: { formatter: false, lsp: false } },
+  )
 })

@@ -21,6 +21,7 @@ import { collectHealth } from "@opencode-ai/core/memory/health"
 import { openConfiguredMemoryIndex } from "@opencode-ai/core/memory/reindex"
 import { BLOCK_PLACEHOLDER, MAX_SCAN_CHARS, scanForThreats } from "@opencode-ai/core/memory/scan"
 import { defaultTransferAllowedRoots, exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
+import { importExternalHistory } from "@opencode-ai/core/memory/history-import"
 import { MAX_NOTE_CHARS, writeMemoryNote } from "@opencode-ai/core/memory/tools"
 import { allowUnauthedMemoryMutation } from "@opencode-ai/core/memory/memory-http-guard"
 import { invalidateRecallCache } from "@opencode-ai/core/memory/recall"
@@ -35,6 +36,7 @@ import {
   MemoryFileList,
   MemoryExportPayload,
   MemoryHealthResponse,
+  MemoryImportHistoryPayload,
   MemoryImportPayload,
   MemoryImportResponse,
   MemoryReadQuery,
@@ -338,6 +340,26 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       )
     })
 
+    const importExternalHistoryLog = Effect.fn("ExperimentalHttpApi.memoryImportHistory")(function* (ctx: {
+      payload: typeof MemoryImportHistoryPayload.Type
+    }) {
+      yield* assertMemoryMutationAllowed()
+      const route = yield* WorkspaceRouteContext
+      const fs = yield* FSUtil.Service
+      const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
+      const allowedRoots = defaultTransferAllowedRoots(Global.Path.data, route.directory)
+      // Failures surface as `error` in the 200 body (core never fails the effect channel).
+      return yield* importExternalHistory(fs, roots, ctx.payload.source, {
+        format: ctx.payload.format ?? "auto",
+        allowedRoots,
+      }).pipe(
+        Effect.map((result) => {
+          if (result.imported > 0) invalidateRecallCache()
+          return result
+        }),
+      )
+    })
+
     const assertMemoryMutationAllowed = Effect.fn("ExperimentalHttpApi.assertMemoryMutationAllowed")(function* () {
       // Align with ServerAuth: password set → Authorization middleware already enforced.
       const passwordConfigured = Boolean(Flag.OPENCODE_SERVER_PASSWORD?.trim())
@@ -407,6 +429,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("memoryHealth", memoryHealth)
       .handle("memoryExport", exportMemoryPack)
       .handle("memoryImport", importMemoryPack)
+      .handle("memoryImportHistory", importExternalHistoryLog)
       .handle("memoryRemember", rememberNote)
   }),
 )

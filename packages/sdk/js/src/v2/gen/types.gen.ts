@@ -8319,6 +8319,22 @@ export type MemoryImportErrors = {
   400: unknown
 }
 
+export type MemoryImportHistoryResponses = {
+  /**
+   * History imported
+   */
+  200: MemoryImportResult
+}
+
+export type MemoryImportHistoryResponse = MemoryImportHistoryResponses[keyof MemoryImportHistoryResponses]
+
+export type MemoryImportHistoryErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
 export type MemoryRememberResult = {
   filename: string
 }

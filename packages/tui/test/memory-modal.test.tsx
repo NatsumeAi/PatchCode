@@ -215,3 +215,23 @@ test("sdk importPack serializes force into request body", async () => {
   expect(parsed.source).toBe("/tmp/pack")
   expect(parsed.force).toBe(true)
 })
+
+test("sdk importHistory serializes format into request body", async () => {
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2")
+  let body = ""
+  const client = createOpencodeClient({
+    baseUrl: "http://localhost:1",
+    fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(input as RequestInfo, init)
+      body = await req.clone().text()
+      return new Response(JSON.stringify({ imported: 1, skipped: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    }) as typeof fetch,
+  })
+  await client.experimental.memory.importHistory({ source: "/tmp/history.jsonl", format: "auto" })
+  const parsed = JSON.parse(body) as { source?: string; format?: string }
+  expect(parsed.source).toBe("/tmp/history.jsonl")
+  expect(parsed.format).toBe("auto")
+})
