@@ -221,6 +221,59 @@ describe("Memory recall", () => {
     ),
   )
 
+  it.effect("buildRecallBlock drops session hits older than OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          resetRecallCacheForTests()
+          const previous = process.env.OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS
+          process.env.OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS = "30"
+          try {
+            const fs = yield* FSUtil.Service
+            const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+            const oldDay = Date.now() - 60 * 24 * 60 * 60 * 1000
+            // Session chunks must exist on disk so ensureIndexed does not prune them as orphans.
+            const sessionsDir = path.join(roots.globalDir, "sessions")
+            yield* fs.ensureDir(sessionsDir)
+            const oldPath = path.join(sessionsDir, "old-auth.md")
+            const freshPath = path.join(sessionsDir, "fresh-auth.md")
+            yield* writeTextAtomic(fs, oldPath, "auth uses session tokens for every request")
+            yield* writeTextAtomic(fs, freshPath, "token store lives in the auth service")
+            // Fillers make "auth" rare in the corpus so both hits score well above the min-score floor.
+            for (let i = 0; i < 10; i++) {
+              yield* writeTextAtomic(fs, path.join(roots.globalDir, `filler-${i}.md`), `filler ${i} about gardening cooking and hiking`)
+            }
+            // Pin the file mtime so its indexed age is ~60 days (ensureIndexed keeps mtime_ms in sync with disk).
+            yield* fs.utimes(oldPath, new Date(oldDay), new Date(oldDay))
+            const store = Layer.succeed(
+              SessionStore.Service,
+              SessionStore.Service.of({
+                context: () => Effect.succeed([userMessage("how do we handle auth", "msg_r_ttl")]),
+                get: () => Effect.die("unused"),
+                sessionPermission: () => Effect.die("unused"),
+                runnerContext: () => Effect.die("unused"),
+                message: () => Effect.die("unused"),
+                wait: () => Effect.die("unused"),
+              }),
+            )
+            const block = yield* Effect.gen(function* () {
+              const storeSvc = yield* SessionStore.Service
+              return yield* buildRecallBlock(storeSvc, fs, roots, SessionSchema.ID.make("ses_recall_ttl"))
+            }).pipe(Effect.provide(store))
+            expect(block).toContain("token store lives in the auth service")
+            expect(block).not.toContain("auth uses session tokens")
+          } finally {
+            if (previous === undefined) delete process.env.OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS
+            else process.env.OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS = previous
+          }
+        }),
+      ),
+    ),
+  )
+
   it.effect("buildRecallBlock returns empty when the index is unavailable", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -14,7 +14,8 @@ import { resolveScoped, resolveScopedFile, NotFileError, MissingError, type Scop
 import { scanForThreats, BLOCK_PLACEHOLDER, MAX_SCAN_CHARS } from "./scan"
 import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
 import { ftsQuery } from "./recall"
-import { rankResults, isContentFree, staleNote } from "./ranking"
+import { rankResults, filterRecallHits, decayScore, isContentFree, staleNote } from "./ranking"
+import { memoryRecallEnvConfig } from "./config"
 
 const MemoryListInput = Schema.Struct({
   path: Schema.optional(Schema.String),
@@ -282,13 +283,19 @@ export const registerMemoryTools = Effect.fn("Memory.registerMemoryTools")(funct
                 }),
               )
               if (!ftsFailed) {
-                const ranked = rankResults(
-                  hits
-                    .filter((hit) => !isContentFree(hit.text))
-                    .filter((hit) => scanForThreats(hit.text).length === 0)
-                    .filter((hit) => scanForThreats(hit.path).length === 0)
-                    .map((hit) => ({ ...hit, source: hit.source })),
-                ).slice(0, max)
+                const cfg = memoryRecallEnvConfig()
+                const ranked = filterRecallHits(
+                  rankResults(hits).map((hit) => ({
+                    ...hit,
+                    // rankResults sorts by decayed score but returns original scores; recompute so minScore is consistent with ranking
+                    score: decayScore(hit.score, hit.ageDays, hit.source as "global" | "workspace" | "session"),
+                  })),
+                  cfg,
+                )
+                  .filter((hit) => !isContentFree(hit.text))
+                  .filter((hit) => scanForThreats(hit.text).length === 0)
+                  .filter((hit) => scanForThreats(hit.path).length === 0)
+                  .slice(0, max)
                 yield* index
                   .incrementAccess(ranked.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
                   .pipe(Effect.catch(() => Effect.void))

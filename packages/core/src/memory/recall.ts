@@ -10,7 +10,8 @@ import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { resolveRoots, type MemoryRoots } from "./storage"
 import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
-import { rankResults, isContentFree, staleNote } from "./ranking"
+import { rankResults, filterRecallHits, decayScore, isContentFree, staleNote } from "./ranking"
+import { memoryRecallEnvConfig } from "./config"
 import { scanForThreats } from "./scan"
 
 export const RECALL_TOP_N = 5
@@ -113,12 +114,19 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
   try {
     yield* ensureIndexed(index, fs, roots).pipe(Effect.catch(() => Effect.void))
     const hits = yield* index.search(ftsQuery(query), RECALL_TOP_N * 4).pipe(Effect.catch(() => Effect.succeed([])))
-    const kept = rankResults(hits)
+    const cfg = memoryRecallEnvConfig()
+    const kept = filterRecallHits(
+      rankResults(hits).map((hit) => ({
+        ...hit,
+        // rankResults sorts by decayed score but returns original scores; recompute so minScore is consistent with ranking
+        score: decayScore(hit.score, hit.ageDays, hit.source as "global" | "workspace" | "session"),
+      })),
+      cfg,
+    )
       .filter((hit) => !isContentFree(hit.text))
       .filter((hit) => scanForThreats(hit.text).length === 0)
       .filter((hit) => scanForThreats(hit.path).length === 0)
       .slice(0, RECALL_TOP_N)
-      .map((hit) => ({ ...hit, source: hit.source, ageDays: hit.ageDays }))
     yield* index
       .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
       .pipe(Effect.catch(() => Effect.void))
