@@ -24,6 +24,7 @@ import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
 import { MemoryRecall } from "../../memory/recall"
 import { MemoryFlush } from "../../memory/flush"
+import { MemoryPreCompress } from "../../memory/pre-compress-wire"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
@@ -234,7 +235,15 @@ const layer = Layer.effect(
     const db = (yield* Database.Service).db
     // Location-lived scope so title generation outlives the drain Effect.scoped.
     const titleScope = yield* Scope.make()
-    const compaction = SessionCompaction.make({ events, llm, config: yield* config.entries() })
+    const compaction = SessionCompaction.make({
+      events,
+      llm,
+      config: yield* config.entries(),
+      onPreCompress: (yield* Effect.serviceOption(MemoryPreCompress.Service)).pipe(
+        Option.map((service) => service.extract),
+        Option.getOrUndefined,
+      ),
+    })
     const materializeMedia = mediaMaterializer(fs)
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)

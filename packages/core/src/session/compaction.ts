@@ -117,6 +117,16 @@ type Dependencies = {
     readonly stream: (request: LLMRequest) => Stream.Stream<LLMEvent, LLMError>
   }
   readonly config: readonly Config.Entry[]
+  /**
+   * Best-effort pre-compress insight extraction (memory wiring, optional).
+   * Returns markdown appended to the summarize prompt as a
+   * "## Memory insights to preserve" section, or "" for none. Absent wiring
+   * and failures both degrade to "" — compaction never depends on memory.
+   */
+  readonly onPreCompress?: (
+    entries: readonly Entry[],
+    sessionID: SessionSchema.ID,
+  ) => Effect.Effect<string>
 }
 
 type Input = {
@@ -497,6 +507,10 @@ export const buildPrompt = (input: {
   return parts.join("\n\n")
 }
 
+/** Append insights as a "## Memory insights to preserve" section (no-op when empty). */
+const withInsights = (prompt: string, insights: string) =>
+  insights.trim() === "" ? prompt : `${prompt}\n\n## Memory insights to preserve\n${insights}`
+
 const renderTurns = (turns: readonly Turn[]) =>
   turns
     .flatMap((turn) => turn.entries.map((entry) => serialize(entry.message)))
@@ -562,9 +576,22 @@ Choose items that are hard to compress (large code blocks, exact formats) or who
 Items marked ×N have survived N previous compactions — keep them if they are still important, or let them go when the summary already covers them.
 If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     const fullHistory = [head].filter(Boolean)
+    // Best-effort pre-compress insights (memory wiring): absent wiring and
+    // failures both degrade to "" so compaction never depends on memory.
+    const insights = yield* (dependencies.onPreCompress?.(input.entries, input.sessionID) ?? Effect.succeed("")).pipe(
+      Effect.catch(() => Effect.succeed("")),
+    )
     const basePrompt = buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: fullHistory })
+    const withMemory = withInsights(basePrompt, insights)
     // Summarize-request must itself fit the window (system slot + prompt + max out).
-    if (Token.estimate(SUMMARIZATION_SYSTEM_PROMPT) + Token.estimate(basePrompt) + summaryOutput > context)
+    // Insights are best-effort: when they push the request over the window,
+    // drop them instead of failing compaction (the summary still fits).
+    const summaryPrompt =
+      withMemory !== basePrompt &&
+      Token.estimate(SUMMARIZATION_SYSTEM_PROMPT) + Token.estimate(withMemory) + summaryOutput > context
+        ? basePrompt
+        : withMemory
+    if (Token.estimate(SUMMARIZATION_SYSTEM_PROMPT) + Token.estimate(summaryPrompt) + summaryOutput > context)
       return false
 
     let calls = 0
@@ -623,7 +650,7 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       const hasSummary = cachedSummary !== undefined && cachedSummary.trim() !== ""
       // Selection-only only after we already have a real summary to keep (D15).
       const selectionOnly = round > 0 && hasSummary
-      const promptText = selectionOnly ? correctionPromptFor(errors, numbered) : basePrompt
+      const promptText = selectionOnly ? correctionPromptFor(errors, numbered) : summaryPrompt
       const output = yield* summarize(promptText, selectionOnly)
       if (output === undefined) {
         // No model text: retry with full prompt while we lack a summary; once
@@ -688,10 +715,15 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       // Triggered by consecutive format/unknown-number failures (D10) or summary
       // failures. Over-budget selections are NOT degraded (they go through
       // greedy packing), and a valid zero-selection is not degraded either.
-      const degradePrompt = buildPrompt({
-        previousSummary,
-        context: [head].filter(Boolean),
-      })
+      // Insights enter the degrade prompt only when they survived the fit
+      // check (summaryPrompt === basePrompt means they were dropped).
+      const degradePrompt = withInsights(
+        buildPrompt({
+          previousSummary,
+          context: [head].filter(Boolean),
+        }),
+        summaryPrompt === basePrompt ? "" : insights,
+      )
       const output = yield* summarize(degradePrompt)
       if (output === undefined) return false
       // The system prompt still asks for a <selection> tag; strip it so the

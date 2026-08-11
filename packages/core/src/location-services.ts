@@ -16,6 +16,7 @@ import { Location } from "./location"
 import { LocationMutation } from "./location-mutation"
 import { MemoryContext } from "./memory/context"
 import { MemoryFlush } from "./memory/flush"
+import { MemoryPreCompress } from "./memory/pre-compress-wire"
 import { MemoryConsolidation } from "./memory/consolidate"
 import { MemoryDelegation } from "./memory/delegation-wire"
 import { MemoryRecall } from "./memory/recall"
@@ -69,6 +70,7 @@ export const locationServices = LayerNode.group([
   SystemContextBuiltIns.node,
   MemoryContext.node,
   MemoryFlush.node,
+  MemoryPreCompress.node,
   MemoryConsolidation.node,
   MemoryDelegation.node,
   MemoryRecall.node,
