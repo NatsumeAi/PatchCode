@@ -12,7 +12,7 @@ import {
   type MemoryStats,
   type PersistedConsolidateStatus,
 } from "./observability"
-import { memoryEmbeddingEnvConfig, memoryDreamHoursEnvConfig, memoryRecallEnvConfig } from "./config"
+import { memoryCitationsMode, memoryEmbeddingEnvConfig, memoryDreamHoursEnvConfig, memoryRecallEnvConfig, type CitationsMode } from "./config"
 import { loadDreamStamps, type DreamPhaseStamps } from "./merge-lock"
 import { selectDuePhase } from "./dream-phases"
 
@@ -48,8 +48,8 @@ export interface MemoryHealth {
   readonly recallMaxAgeDays?: number
   /** Recall filter: min relevance score for recalled chunks (OPENCODE_MEMORY_RECALL_MIN_SCORE). */
   readonly recallMinScore?: number
-  /** Citation rendering mode; "auto" unless OPENCODE_MEMORY_CITATIONS is set. */
-  readonly citationsMode?: string
+  /** Citation/injection mode; "auto" unless OPENCODE_MEMORY_CITATIONS is set. */
+  readonly citationsMode?: CitationsMode
 }
 
 const walkMarkdown = (fs: FSUtil.Interface, dir: string): Effect.Effect<{ files: number; totalBytes: number }> =>
@@ -248,7 +248,7 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
     dreamNextHint: dreamNextHint(Date.now(), stamps, memoryDreamHoursEnvConfig()),
     recallMaxAgeDays: recallCfg.maxAgeDays,
     recallMinScore: recallCfg.minScore,
-    citationsMode: process.env.OPENCODE_MEMORY_CITATIONS?.trim() || "auto",
+    citationsMode: memoryCitationsMode(),
   } satisfies MemoryHealth
 })
 

@@ -7,6 +7,7 @@ import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 import { scanForThreats, BLOCK_PLACEHOLDER } from "./scan"
 import { SUMMARY_SYSTEM } from "./prompts"
 import { isNoReply, stripModelWrapper } from "./text-utils"
+import { type CitationsMode } from "./config"
 
 export const SUMMARY_BUDGETS = { global: 1500 * 4, workspace: 1000 * 4 }
 
@@ -45,8 +46,11 @@ export const loadSummaries = Effect.fn("Memory.loadSummaries")(function* (fs: FS
  * Renders the loaded summaries workspace-first with scope headers; empty when
  * nothing loaded. Content is framed as untrusted *data* (not instructions) so
  * a planted project memory_summary cannot silently become system policy.
+ * In "off" mode the summary body is suppressed entirely (the trust-boundary
+ * framework is rendered by the caller) and a short notice is returned instead.
  */
-export function renderSummaryBlock(loaded: LoadedSummary): string {
+export function renderSummaryBlock(loaded: LoadedSummary, mode: CitationsMode = "auto"): string {
+  if (mode === "off") return "(memory injection disabled)"
   const parts: string[] = []
   const frame = (scope: string, body: string) =>
     `<${scope}-memory>\n` +

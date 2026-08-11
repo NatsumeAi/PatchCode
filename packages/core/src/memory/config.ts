@@ -65,6 +65,20 @@ export function memoryRecallEnvConfig(): { maxAgeDays: number; minScore: number 
   }
 }
 
+/** How memory injection/citations are surfaced to the model. */
+export type CitationsMode = "auto" | "on" | "off"
+
+/**
+ * Resolves the memory injection mode from OPENCODE_MEMORY_CITATIONS
+ * (trimmed, case-insensitive). Anything other than "on"/"off" falls back to
+ * "auto" (current default behavior: summaries always injected, recall when
+ * hits, citations in recall bullets).
+ */
+export function memoryCitationsMode(): CitationsMode {
+  const raw = process.env.OPENCODE_MEMORY_CITATIONS?.trim().toLowerCase()
+  return raw === "on" || raw === "off" ? raw : "auto"
+}
+
 /** Dream-phase intervals in hours; env overrides (OPENCODE_MEMORY_DREAM_*_HOURS) fall back to defaults. */
 export function memoryDreamHoursEnvConfig(): { light: number; deep: number; rem: number } {
   const lightRaw = process.env.OPENCODE_MEMORY_DREAM_LIGHT_HOURS?.trim()

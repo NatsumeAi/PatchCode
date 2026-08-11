@@ -10,6 +10,7 @@ import { SystemContext } from "../system-context"
 import { SystemContextRegistry } from "../system-context/registry"
 import { resolveRoots } from "./storage"
 import { loadSummaries, renderSummaryBlock } from "./summary"
+import { memoryCitationsMode } from "./config"
 
 export const MemoryContextKey = SystemContext.Key.make("core/memory")
 
@@ -94,8 +95,9 @@ export const node = makeLocationNode({
 
       const render = (text: string) => (text === "" ? DECISION_FRAMEWORK : `${DECISION_FRAMEWORK}\n\n${text}`)
 
+      const mode = memoryCitationsMode()
       const summaryBlock = loadSummaries(fs, resolveRoots(path.join(global.data, "memory"), location.directory)).pipe(
-        Effect.map(renderSummaryBlock),
+        Effect.map((loaded) => renderSummaryBlock(loaded, mode)),
       )
 
       const context = SystemContext.make({

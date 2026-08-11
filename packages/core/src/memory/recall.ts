@@ -11,7 +11,7 @@ import { SessionSchema } from "../session/schema"
 import { resolveRoots, type MemoryRoots } from "./storage"
 import { openConfiguredMemoryIndex, ensureIndexed } from "./reindex"
 import { rankResults, filterRecallHits, decayScore, isContentFree, staleNote } from "./ranking"
-import { memoryRecallEnvConfig } from "./config"
+import { memoryRecallEnvConfig, memoryCitationsMode, type CitationsMode } from "./config"
 import { scanForThreats } from "./scan"
 
 export const RECALL_TOP_N = 5
@@ -52,8 +52,9 @@ export function safeRecallPath(pathLabel: string): string {
 /** Renders the top hits as a bounded, citation-carrying markdown block. */
 export function formatRecallBlock(
   hits: ReadonlyArray<{ path: string; text: string; source?: string; ageDays?: number }>,
+  mode: CitationsMode,
 ): string {
-  if (hits.length === 0) return ""
+  if (mode === "off" || hits.length === 0) return ""
   const lines = hits.map((hit) => {
     const note = staleNote(hit.ageDays ?? 0, (hit.source ?? "workspace") as "global" | "workspace" | "session")
     const text = `${hit.text.slice(0, RECALL_CHUNK_MAX_CHARS)} ${note}`.trim()
@@ -96,12 +97,14 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
   roots: MemoryRoots,
   sessionID: SessionSchema.ID,
 ) {
+  const mode = memoryCitationsMode()
+  if (mode === "off") return ""
   const query = yield* store.context(sessionID).pipe(
     Effect.map(recallQuery),
     Effect.catch(() => Effect.succeed("")),
   )
   if (query === "") return ""
-  const cacheKey = `${recallEpoch}:${String(sessionID)}`
+  const cacheKey = `${recallEpoch}:${mode}:${String(sessionID)}`
   const cached = recallBlockCache.get(cacheKey)
   // Cap cache lifetime so consolidations from other processes still surface.
   const CACHE_TTL_MS = 60_000
@@ -130,7 +133,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     yield* index
       .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
       .pipe(Effect.catch(() => Effect.void))
-    const block = formatRecallBlock(kept)
+    const block = formatRecallBlock(kept, mode)
     recallBlockCache.set(cacheKey, { query, block, at: Date.now() })
     return block
   } finally {

@@ -19,6 +19,11 @@ describe("Memory summaries", () => {
     expect(SUMMARY_BUDGETS.workspace).toBe(1000 * 4)
   })
 
+  test("renderSummaryBlock off mode suppresses the body with a short notice", () => {
+    const loaded = { global: "g note", workspace: "w note" }
+    expect(renderSummaryBlock(loaded, "off")).toBe("(memory injection disabled)")
+  })
+
   it.effect("loads and truncates each scope, workspace rendered first", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
