@@ -15,6 +15,7 @@ export {
   DEFAULT_RECOVERY_THRESHOLD,
 } from "./dream-phases"
 export type { DreamPhase, PhasePolicy } from "./dream-phases"
+import { DEFAULT_DREAM_HOURS } from "./dream-phases"
 import { DEFAULT_RECALL_MAX_AGE_DAYS, DEFAULT_RECALL_MIN_SCORE } from "./ranking"
 
 export interface MemoryEmbeddingConfig {
@@ -61,6 +62,21 @@ export function memoryRecallEnvConfig(): { maxAgeDays: number; minScore: number 
   return {
     maxAgeDays: Number.isFinite(maxAge) && maxAge > 0 ? maxAge : DEFAULT_RECALL_MAX_AGE_DAYS,
     minScore: Number.isFinite(minScore) && minScore >= 0 ? minScore : DEFAULT_RECALL_MIN_SCORE,
+  }
+}
+
+/** Dream-phase intervals in hours; env overrides (OPENCODE_MEMORY_DREAM_*_HOURS) fall back to defaults. */
+export function memoryDreamHoursEnvConfig(): { light: number; deep: number; rem: number } {
+  const lightRaw = process.env.OPENCODE_MEMORY_DREAM_LIGHT_HOURS?.trim()
+  const deepRaw = process.env.OPENCODE_MEMORY_DREAM_DEEP_HOURS?.trim()
+  const remRaw = process.env.OPENCODE_MEMORY_DREAM_REM_HOURS?.trim()
+  const light = lightRaw ? Number(lightRaw) : DEFAULT_DREAM_HOURS.light
+  const deep = deepRaw ? Number(deepRaw) : DEFAULT_DREAM_HOURS.deep
+  const rem = remRaw ? Number(remRaw) : DEFAULT_DREAM_HOURS.rem
+  return {
+    light: Number.isFinite(light) && light > 0 ? light : DEFAULT_DREAM_HOURS.light,
+    deep: Number.isFinite(deep) && deep > 0 ? deep : DEFAULT_DREAM_HOURS.deep,
+    rem: Number.isFinite(rem) && rem > 0 ? rem : DEFAULT_DREAM_HOURS.rem,
   }
 }
 

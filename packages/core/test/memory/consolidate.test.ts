@@ -10,7 +10,7 @@ import { runConsolidation, runDualRootConsolidation } from "../../src/memory/con
 import { openMemoryIndex } from "../../src/memory/reindex"
 import { writeCandidate } from "../../src/memory/candidates"
 import { contentHash, loadMergedHashes } from "../../src/memory/merged-hashes"
-import { acquireMergeLock, releaseMergeLock, markConsolidated } from "../../src/memory/merge-lock"
+import { acquireMergeLock, releaseMergeLock, markConsolidated, markDreamPhase, loadDreamStamps } from "../../src/memory/merge-lock"
 import { systemError } from "effect/PlatformError"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -141,8 +141,8 @@ describe("Memory consolidation", () => {
           yield* plantNote(fs, roots, "once.md", body)
           streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- first pass" })]
           yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
-          // Clear min_hours gate and re-plant identical content.
-          yield* fs.remove(path.join(roots.globalDir, "consolidation.last")).pipe(Effect.catch(() => Effect.void))
+          // Clear phase stamps and re-plant identical content.
+          yield* fs.remove(path.join(roots.globalDir, "dream-phase.last.json")).pipe(Effect.catch(() => Effect.void))
           yield* plantNote(fs, roots, "once.md", body)
           streamOutput = [LLMEvent.textDelta({ id: "t2", text: "## Merged\n- SHOULD NOT WRITE" })]
           yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
@@ -439,7 +439,7 @@ describe("Memory consolidation", () => {
     ),
   )
 
-  it.effect("skips within the min_hours window after a recent consolidation", () =>
+  it.effect("skips when all dream phase stamps are fresh (too-soon)", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
@@ -448,12 +448,169 @@ describe("Memory consolidation", () => {
         Effect.gen(function* () {
           const fs = yield* FSUtil.Service
           const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the too-soon skip.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
           yield* writeCandidate(fs, roots, "c1", "## Decision\nUse effect layers for memory consolidation")
-          yield* markConsolidated(fs, roots)
+          yield* markDreamPhase(fs, roots, "light")
+          yield* markDreamPhase(fs, roots, "deep")
+          yield* markDreamPhase(fs, roots, "rem")
           streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Merged\n- x" })]
           yield* runConsolidation({ fs: yield* FSUtil.Service, roots, llm: yield* LLMClient.Service, model })
           const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
-          expect(mem).toBeUndefined()
+          expect(mem).toBe("## Existing\nprior memory")
+          const candidates = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "candidates"))
+          expect(candidates.length).toBe(1)
+        }),
+      ),
+    ),
+  )
+
+  it.effect("light phase runs when only the light stamp is old (deep/rem fresh)", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the light phase.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
+          yield* plantNote(fs, roots, "recent.md", "## Decision\nLight dream should fold this in quickly")
+          const HOUR_MS = 3600_000
+          yield* writeTextAtomic(
+            fs,
+            path.join(roots.globalDir, "dream-phase.last.json"),
+            JSON.stringify({ light: Date.now() - 7 * HOUR_MS, deep: Date.now(), rem: Date.now() }),
+          )
+          let captured = ""
+          const capturing = Layer.succeed(
+            LLMClient.Service,
+            LLMClient.Service.of({
+              stream: (request: unknown) => {
+                const req = request as { system?: Array<{ text?: string }> }
+                if (captured === "") captured = req.system?.[0]?.text ?? ""
+                return Stream.fromIterable([LLMEvent.textDelta({ id: "t1", text: "## Merged\n- light pass" })])
+              },
+              prepare: () => Effect.die("unused"),
+              generate: () => Effect.die("unused"),
+            }),
+          )
+          yield* Effect.gen(function* () {
+            const llm = yield* LLMClient.Service
+            yield* runConsolidation({ fs, roots, llm, model })
+          }).pipe(Effect.provide(capturing))
+          expect(captured).toContain("light dream")
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toContain("light pass")
+          const notes = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+          expect(notes.length).toBe(0)
+        }),
+      ),
+    ),
+  )
+
+  it.effect("deep phase filters out low-access sessions via index access counts", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the deep phase.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
+          // Fresh light stamp makes deep the first never-run phase due.
+          yield* markDreamPhase(fs, roots, "light")
+          yield* plantNote(fs, roots, "hot.md", "## Decision\nDeep dream promotes the note regardless of access")
+          yield* plantSession(fs, roots, "low-access.md", "## Session summary\nNobody consulted this session; deep must skip it.")
+          const index = yield* openMemoryIndex(fs, roots)
+          yield* index.insert("global", {
+            path: "sessions/low-access.md",
+            source: "session",
+            text: "Nobody consulted this session; deep must skip it.",
+            startLine: 1,
+            endLine: 1,
+            mtimeMs: Date.now(),
+          })
+          yield* index.close()
+          streamOutput = [
+            LLMEvent.textDelta({ id: "t1", text: "## Merged\n- note promoted" }),
+            LLMEvent.textDelta({ id: "s1", text: "note promoted" }),
+          ]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toContain("note promoted")
+          const session = yield* readTextSafe(fs, path.join(roots.globalDir, "sessions", "low-access.md"))
+          expect(session).toBeDefined()
+          const notes = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+          expect(notes.length).toBe(0)
+        }),
+      ),
+    ),
+  )
+
+  it.effect("recovery fires when MEMORY.md is missing and notes exist even with fresh stamps", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // All stamps fresh would normally skip as too-soon.
+          yield* markDreamPhase(fs, roots, "light")
+          yield* markDreamPhase(fs, roots, "deep")
+          yield* markDreamPhase(fs, roots, "rem")
+          yield* plantNote(fs, roots, "rebuild.md", "## Decision\nRebuild curated memory from this note")
+          streamOutput = [
+            LLMEvent.textDelta({ id: "t1", text: "## Merged\n- rebuilt from note" }),
+            LLMEvent.textDelta({ id: "s1", text: "rebuilt from note" }),
+          ]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toContain("rebuilt from note")
+          const notes = yield* fs.readDirectoryEntries(path.join(roots.globalDir, "extensions", "ad_hoc", "notes"))
+          expect(notes.length).toBe(0)
+          const stamps = yield* loadDreamStamps(fs, roots)
+          expect(stamps.light).toBeDefined()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("rem phase writes a candidate without rewriting MEMORY.md or deleting sources", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the rem phase.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
+          // Fresh light+deep stamps make rem the first never-run phase due.
+          yield* markDreamPhase(fs, roots, "light")
+          yield* markDreamPhase(fs, roots, "deep")
+          yield* plantNote(fs, roots, "pattern-note.md", "## Pattern\nRecurring decision pattern across many sessions")
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Pattern Notes\n- recurring decision pattern" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toBe("## Existing\nprior memory")
+          const note = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "pattern-note.md"))
+          expect(note).toBeDefined()
+          const date = new Date().toISOString().slice(0, 10)
+          const patterns = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "candidates", `rem-patterns-${date}.md`))
+          expect(patterns).toContain("recurring decision pattern")
+          const stamps = yield* loadDreamStamps(fs, roots)
+          expect(stamps.rem).toBeDefined()
         }),
       ),
     ),

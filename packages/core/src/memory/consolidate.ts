@@ -17,18 +17,21 @@ import { ProjectV2 } from "../project"
 import { AbsolutePath } from "../schema"
 import { resolveRoots } from "./storage"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
-import { NOISE_FLOOR_CHARS } from "./candidates"
+import { NOISE_FLOOR_CHARS, writeCandidate } from "./candidates"
 import { listMergeSources, budgetSources, deleteSources, type MergeSource } from "./sources"
 import { appendMergedHashes, contentHash, isAlreadyMerged, loadMergedHashes } from "./merged-hashes"
 import type { IndexChunk } from "./reindex"
-import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, shouldConsolidate } from "./merge-lock"
-import { DREAM_SYSTEM } from "./prompts"
+import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, loadDreamStamps, markDreamPhase } from "./merge-lock"
+import { DEFAULT_DREAM_POLICY, DEFAULT_RECOVERY_THRESHOLD, filterSourcesForPhase, selectDuePhase, shouldRecover } from "./dream-phases"
+import { DREAM_SYSTEM, DREAM_LIGHT_SYSTEM, DREAM_REM_SYSTEM } from "./prompts"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
 import { invalidateRecallCache } from "./recall"
 import { hasMarkdownStructure, isNoReply, stripModelWrapper } from "./text-utils"
+import { memoryDreamHoursEnvConfig } from "./config"
+import { curatedHealth } from "./health"
 import {
   clearConsolidateBackoff,
   persistConsolidateStatus,
@@ -78,6 +81,7 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
   model: Model,
   contents: ReadonlyArray<MergeSource>,
   pruneList: ReadonlyArray<{ chunkId: string; path: string; excerpt: string }> = [],
+  system: string = DREAM_SYSTEM,
 ) {
   const base = memoryBase(roots)
   const target = memoryPath(roots)
@@ -108,10 +112,10 @@ export const mergeCandidates = Effect.fn("Memory.mergeCandidates")(function* (
           .map((item) => `- ${item.chunkId} (${item.path}): ${item.excerpt}`)
           .join("\n")}\n`
       : ""
-  const system = boundedPruneList.length > 0 ? `${DREAM_SYSTEM}\n\n${PRUNE_SYSTEM}` : DREAM_SYSTEM
+  const systemPrompt = boundedPruneList.length > 0 ? `${system}\n\n${PRUNE_SYSTEM}` : system
   const request = LLM.request({
     model,
-    system: [SystemPart.make(system)],
+    system: [SystemPart.make(systemPrompt)],
     messages: [
       Message.user(
         `EXISTING MEMORY:\n${existing.slice(0, MEMORY_CAP_CHARS)}\n\nSOURCES:\n${input.slice(0, MERGE_INPUT_CAP_CHARS)}${pruneSection}`,
@@ -182,7 +186,45 @@ const needsSummaryHeal = Effect.fn("Memory.needsSummaryHeal")(function* (fs: FSU
   return summary === undefined || summary.trim() === ""
 })
 
-/** Gated consolidation: lock + min interval + noise/threat filtering + merge + summary regen. */
+/**
+ * REM pass: mines cross-session patterns from MEMORY.md plus high-access
+ * sources and writes them as a new candidate file. Never rewrites MEMORY.md,
+ * never deletes sources, never regenerates the summary.
+ */
+const remPatternPass = Effect.fn("Memory.remPatternPass")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  llm: LLMClientShape,
+  model: Model,
+  sources: ReadonlyArray<MergeSource>,
+) {
+  const archive = (yield* readTextSafe(fs, memoryPath(roots))) ?? ""
+  const excerpts = sources
+    .slice(0, 200)
+    .map((source) => `### ${source.relativePath}\n${source.text.slice(0, 2000)}`)
+    .join("\n\n---\n\n")
+  const request = LLM.request({
+    model,
+    system: [SystemPart.make(DREAM_REM_SYSTEM)],
+    messages: [
+      Message.user(
+        `EXISTING MEMORY:\n${archive.slice(0, MEMORY_CAP_CHARS)}\n\nHIGH-ACCESS SOURCES:\n${excerpts.slice(0, MERGE_INPUT_CAP_CHARS)}`,
+      ),
+    ],
+    tools: [],
+  })
+  const raw = (yield* streamText(llm, request)).trim()
+  const patterns = stripModelWrapper(raw)
+  if (patterns.length === 0 || isNoReply(patterns) || !hasMarkdownStructure(patterns)) return false
+  if (scanForThreats(patterns).length > 0) {
+    yield* Effect.logWarning("memory consolidate: REM output contains threat patterns; candidate dropped")
+    return false
+  }
+  const date = new Date().toISOString().slice(0, 10)
+  return yield* writeCandidate(fs, roots, `rem-patterns-${date}`, patterns)
+})
+
+/** Gated consolidation: lock + phase selection (light/deep/rem/recovery) + noise/threat filtering + merge + summary regen. */
 export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (input: MergeInput) {
   const { fs, roots, llm, model } = input
   const base = memoryBase(roots)
@@ -196,7 +238,14 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
     return
   }
   try {
-    if (!(yield* shouldConsolidate(fs, roots))) {
+    const stamps = yield* loadDreamStamps(fs, roots)
+    const health = yield* curatedHealth(fs, base)
+    const allSources = yield* listMergeSources(fs, roots)
+    // Recovery overrides phase intervals whenever curated memory dropped below
+    // the health threshold while short-term sources exist to rebuild from.
+    const recovering = shouldRecover(health, DEFAULT_RECOVERY_THRESHOLD, allSources.length)
+    const phase = recovering ? ("recovery" as const) : selectDuePhase(Date.now(), stamps, memoryDreamHoursEnvConfig())
+    if (phase === undefined) {
       yield* noteOutcome(fs, roots, "skipped", "too-soon")
       return
     }
@@ -215,9 +264,8 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       }),
     )
     try {
-      const sources = yield* listMergeSources(fs, roots)
       const contents: Array<MergeSource> = []
-      for (const source of sources) {
+      for (const source of allSources) {
         // Noise floor: only auto-delete candidate stubs. User notes and session
         // logs below the floor are kept for a human/future pass (never silent loss).
         if (source.text.trim().length < NOISE_FLOOR_CHARS) {
@@ -250,6 +298,7 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
       }
       const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
       let pruneList: Array<{ chunkId: string; path: string; excerpt: string }> = []
+      let accessByPath: Map<string, number> | undefined
       if (index !== undefined) {
         try {
           const chunks = yield* index
@@ -265,15 +314,48 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
             })),
             Date.now(),
           )
+          accessByPath = new Map(
+            chunks
+              .filter((chunk) => Number.isFinite(chunk.accessCount))
+              .map((chunk) => [chunk.path, chunk.accessCount] as const),
+          )
         } finally {
           yield* index.close().pipe(Effect.catch(() => Effect.void))
         }
       }
-      const outcome = yield* mergeCandidates(fs, roots, llm, model, contents, pruneList)
+      // Deep/rem gate sessions and candidates on index access counts; sources
+      // without index metadata fail open and stay eligible.
+      const eligible = filterSourcesForPhase(
+        contents.map((source) => ({ ...source, accessCount: accessByPath?.get(source.relativePath) })),
+        phase,
+        DEFAULT_DREAM_POLICY,
+      )
+      if (eligible.length === 0) {
+        clearConsolidateBackoff(base)
+        yield* noteOutcome(fs, roots, "nothing", "no-sources-for-phase")
+        return
+      }
+      if (phase === "rem") {
+        const wrote = yield* remPatternPass(fs, roots, llm, model, eligible)
+        yield* markDreamPhase(fs, roots, phase)
+        clearConsolidateBackoff(base)
+        yield* noteOutcome(fs, roots, wrote ? "completed" : "nothing", wrote ? undefined : "no-patterns")
+        return
+      }
+      const outcome = yield* mergeCandidates(
+        fs,
+        roots,
+        llm,
+        model,
+        eligible,
+        pruneList,
+        phase === "light" ? DREAM_LIGHT_SYSTEM : DREAM_SYSTEM,
+      )
       if (outcome.ok) {
-        // Write summary before markConsolidated so a crash leaves sources gone
-        // only after we at least attempted summary — heal path covers empty summary.
+        // Write summary before marking the phase stamp so a crash leaves sources
+        // gone only after we at least attempted summary — heal path covers empty summary.
         const summaryOk = yield* regenerateSummary(fs, roots, llm, model)
+        yield* markDreamPhase(fs, roots, phase)
         yield* markConsolidated(fs, roots)
         clearConsolidateBackoff(base)
         invalidateRecallCache()

@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect"
 import path from "path"
 import { FSUtil } from "../fs-util"
-import type { MemoryRoots } from "./storage"
+import { readTextSafe, type MemoryRoots } from "./storage"
 import type { MemoryIndex } from "./reindex"
 import { selectPruneCandidates } from "./prune"
 import {
@@ -65,6 +65,19 @@ export function healthBases(roots: MemoryRoots): string[] {
   if (roots.workspaceDir !== undefined) return [roots.globalDir, roots.workspaceDir]
   return [roots.globalDir]
 }
+
+/**
+ * Curated-memory health in [0,1] for the recovery gate: 1.0 only when both
+ * MEMORY.md and memory_summary.md exist with content; 0 when either is missing
+ * or empty so a wiped archive triggers recovery immediately.
+ */
+export const curatedHealth = Effect.fn("Memory.curatedHealth")(function* (fs: FSUtil.Interface, base: string) {
+  const archive = yield* readTextSafe(fs, path.join(base, "MEMORY.md"))
+  if (archive === undefined || archive.trim() === "") return 0
+  const summary = yield* readTextSafe(fs, path.join(base, "memory_summary.md"))
+  if (summary === undefined || summary.trim() === "") return 0
+  return 1
+})
 
 /**
  * Prefer process-local stats when they have been recorded this process;

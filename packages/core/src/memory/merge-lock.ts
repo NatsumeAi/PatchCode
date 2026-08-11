@@ -1,7 +1,8 @@
 import path from "path"
-import { Effect, Option } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { FSUtil } from "../fs-util"
-import type { MemoryRoots } from "./storage"
+import type { DreamPhase } from "./dream-phases"
+import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 
 export const STALE_LOCK_SECS = 3600
 const MIN_CONSOLIDATION_HOURS = 4
@@ -9,6 +10,15 @@ const MIN_CONSOLIDATION_HOURS = 4
 const baseDir = (roots: MemoryRoots) => roots.workspaceDir ?? roots.globalDir
 const lockPath = (roots: MemoryRoots) => path.join(baseDir(roots), "consolidation.lock")
 const lastPath = (roots: MemoryRoots) => path.join(baseDir(roots), "consolidation.last")
+const stampsPath = (roots: MemoryRoots) => path.join(baseDir(roots), "dream-phase.last.json")
+
+export type DreamPhaseStamps = { light?: number; deep?: number; rem?: number }
+
+const DreamStampsSchema = Schema.Struct({
+  light: Schema.optional(Schema.Number),
+  deep: Schema.optional(Schema.Number),
+  rem: Schema.optional(Schema.Number),
+})
 
 const fileMtime = (fs: FSUtil.Interface, file: string): Effect.Effect<number | undefined> =>
   fs.stat(file).pipe(
@@ -78,4 +88,28 @@ export const shouldConsolidate = Effect.fn("Memory.shouldConsolidate")(function*
   const last = yield* lastConsolidatedAt(fs, roots)
   if (last === undefined) return true
   return Date.now() - last >= MIN_CONSOLIDATION_HOURS * 60 * 60 * 1000
+})
+
+/**
+ * Last-run timestamps per dream phase, read from `dream-phase.last.json`.
+ * Missing/corrupt stamps fall back to an empty record, making every phase due.
+ */
+export const loadDreamStamps = Effect.fn("Memory.loadDreamStamps")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
+  const raw = yield* readTextSafe(fs, stampsPath(roots))
+  if (raw === undefined) return {}
+  const parsedJson = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)(raw)
+  if (Option.isNone(parsedJson)) return {}
+  return Option.getOrElse(Schema.decodeUnknownOption(DreamStampsSchema)(parsedJson.value), (): DreamPhaseStamps => ({}))
+})
+
+/** Records `phase` as complete at the current time (recovery counts as light). */
+export const markDreamPhase = Effect.fn("Memory.markDreamPhase")(function* (
+  fs: FSUtil.Interface,
+  roots: MemoryRoots,
+  phase: DreamPhase,
+) {
+  const stamps = yield* loadDreamStamps(fs, roots)
+  const key = phase === "recovery" ? "light" : phase
+  const next = { ...stamps, [key]: Date.now() }
+  yield* writeTextAtomic(fs, stampsPath(roots), JSON.stringify(next)).pipe(Effect.catch(() => Effect.succeed(false)))
 })
