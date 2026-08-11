@@ -9,6 +9,12 @@ import {
 } from "./embedding"
 
 export { DEFAULT_EMBEDDING_API_BASE }
+export {
+  DEFAULT_DREAM_HOURS,
+  DEFAULT_DREAM_POLICY,
+  DEFAULT_RECOVERY_THRESHOLD,
+} from "./dream-phases"
+export type { DreamPhase, PhasePolicy } from "./dream-phases"
 import { DEFAULT_RECALL_MAX_AGE_DAYS, DEFAULT_RECALL_MIN_SCORE } from "./ranking"
 
 export interface MemoryEmbeddingConfig {
