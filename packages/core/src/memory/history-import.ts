@@ -134,6 +134,20 @@ export const importExternalHistory = Effect.fn("Memory.importExternalHistory")(f
         Effect.catch(() => Effect.succeed(undefined)),
       )
       if (manifestText === undefined) return fail("directory is not a memory pack (missing manifest.json)")
+      // `importMemory` treats an unparseable manifest as a silent 0/0, so validate
+      // it here to keep the fail-closed contract (parse failure → error result).
+      let manifest: unknown
+      try {
+        manifest = JSON.parse(manifestText)
+      } catch {
+        return fail("invalid manifest.json in memory directory")
+      }
+      if (!isRecord(manifest) || !Array.isArray(manifest.scopes)) {
+        return fail("invalid manifest.json in memory directory")
+      }
+      // importMemory's only typed error is SandboxError, which cannot fire here
+      // because safeSource was already validated against the same allowedRoots;
+      // the catch below keeps this function's error channel closed to `never`.
       const result = yield* importMemory(fs, roots, safeSource, { allowedRoots: opts.allowedRoots }).pipe(
         Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0 })),
       )

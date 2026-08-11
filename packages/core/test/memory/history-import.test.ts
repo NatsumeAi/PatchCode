@@ -196,6 +196,28 @@ describe("Memory external history import", () => {
     ),
   )
 
+  it.effect("directory with malformed manifest.json fails closed instead of silent 0/0", () =>
+    inTmp((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FSUtil.Service
+        const roots = resolveRoots(path.join(dir, "mem"), undefined)
+        const pack = path.join(dir, "pack")
+        yield* writeTextAtomic(fs, path.join(pack, "manifest.json"), "not json {")
+        yield* writeTextAtomic(fs, path.join(pack, "MEMORY.md"), "## Decisions\nuse layers")
+
+        const result = yield* importExternalHistory(fs, roots, pack, { format: "auto", allowedRoots: [dir] })
+        expect(result.imported).toBe(0)
+        expect(result.skipped).toBe(0)
+        expect(result.error).toBeDefined()
+
+        const text = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+        expect(text).toBeUndefined()
+        const names = yield* importedLogs(fs, roots)
+        expect(names).toHaveLength(0)
+      }),
+    ),
+  )
+
   it.effect("auto import of an already memory-shaped directory reuses importMemory", () =>
     inTmp((dir) =>
       Effect.gen(function* () {
