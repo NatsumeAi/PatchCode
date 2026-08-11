@@ -18,11 +18,20 @@ export interface MemoryEmbeddingConfig {
 }
 
 /**
- * Reads optional embedding config from env.
- * - OPENCODE_MEMORY_EMBEDDING_MODEL (required to enable hybrid)
- * - OPENCODE_MEMORY_EMBEDDING_API_BASE (optional)
- * - OPENCODE_MEMORY_EMBEDDING_API_KEY (optional)
- * - OPENCODE_MEMORY_EMBEDDING_DIMENSIONS (optional, default 1024)
+ * Reads optional embedding config from env (product surface for hybrid search).
+ *
+ * | Env | Required | Meaning |
+ * |-----|----------|---------|
+ * | OPENCODE_MEMORY_EMBEDDING_MODEL | yes to enable | e.g. text-embedding-3-small |
+ * | OPENCODE_MEMORY_EMBEDDING_API_BASE | no | OpenAI-compatible base (default api.openai.com/v1) |
+ * | OPENCODE_MEMORY_EMBEDDING_API_KEY | no | Bearer token for the embed API |
+ * | OPENCODE_MEMORY_EMBEDDING_DIMENSIONS | no | default 1024 |
+ *
+ * Privacy: enabling hybrid POSTs memory chunk text to apiBase. Prefer a
+ * local/self-hosted endpoint when storing secrets in notes.
+ *
+ * After enabling on an existing install, the next search/reindex backfills
+ * vectors for hash/path conflicts that previously had NULL vectors.
  */
 export function memoryEmbeddingEnvConfig(): MemoryEmbeddingConfig | undefined {
   const model = process.env.OPENCODE_MEMORY_EMBEDDING_MODEL?.trim()

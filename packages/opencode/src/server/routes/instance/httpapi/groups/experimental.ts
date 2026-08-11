@@ -122,6 +122,10 @@ export const MemoryHealthResponse = Schema.Struct({
   flushNoReply: Schema.optional(Schema.Number),
   flushFailed: Schema.optional(Schema.Number),
   sourcesMerged: Schema.optional(Schema.Number),
+  hybridEnabled: Schema.optional(Schema.Boolean),
+  hybridModel: Schema.optional(Schema.String),
+  vectorCoverage: Schema.optional(Schema.Number),
+  actionHint: Schema.optional(Schema.String),
 }).annotate({ identifier: "MemoryHealthResponse" })
 export const MemoryExportPayload = Schema.Struct({
   target: Schema.String,

@@ -184,6 +184,17 @@ export const THREAT_PATTERNS = [
     re: /curl\s+[^\n]{0,512}\$?\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)/i,
     reason: "curl secret exfiltration",
   },
+  // Soft policy smuggling (instruction-shaped, not classic jailbreak).
+  {
+    id: "inject_soft_policy",
+    re: /(?:always|never)\s+(?:prioritize|prefer|obey|follow)\s+(?:the\s+)?(?:repository|repo|project|owner|user)\b/i,
+    reason: "soft policy override",
+  },
+  {
+    id: "inject_soft_must",
+    re: /\b(?:you\s+must|you\s+should\s+always|from\s+now\s+on\s+you)\b/i,
+    reason: "imperative instruction smuggle",
+  },
 ] as const
 
 /** Invisible / format-control chars used to smash word boundaries. */

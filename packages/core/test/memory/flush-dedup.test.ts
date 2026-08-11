@@ -3,7 +3,9 @@ import {
   flushContentHash,
   isFlushDuplicate,
   jaccardSimilarity,
+  cosineSimilarity,
   FLUSH_NEAR_DUP_THRESHOLD,
+  FLUSH_COSINE_DUP_THRESHOLD,
 } from "../../src/memory/flush-dedup"
 import {
   beginFlushCycle,
@@ -30,6 +32,17 @@ describe("Flush dedup", () => {
     expect(isFlushDuplicate("## Decisions\nTotally unrelated architecture choice about databases", prior)).toBe(
       false,
     )
+  })
+
+  test("cosine near-dup fires when vectors are similar even if tokens differ", () => {
+    const prior = "## Flush\n\nPrefer layered architecture"
+    const paraphrase = "Use a layered design approach"
+    // Token jaccard may be low; force cosine path.
+    const v1 = [1, 0, 0, 0]
+    const v2 = [0.99, 0.1, 0, 0]
+    expect(cosineSimilarity(v1, v2)).toBeGreaterThanOrEqual(FLUSH_COSINE_DUP_THRESHOLD)
+    expect(isFlushDuplicate(paraphrase, prior, { candidate: v2, prior: v1 })).toBe(true)
+    expect(isFlushDuplicate(paraphrase, prior, { candidate: [0, 1, 0, 0], prior: v1 })).toBe(false)
   })
 })
 

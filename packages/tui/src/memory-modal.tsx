@@ -34,14 +34,33 @@ export function MemoryModal(props: { onClose?: () => void }) {
       setSelected(0)
       if (list.length > 0) await previewFile(list[0]!.path)
       const health = await sdk.client.experimental.memory.health()
-      const h = health.data
+      const h = health.data as
+        | {
+            files: number
+            chunks: number
+            bySource: { global: number; workspace: number; session: number }
+            zeroAccessChunks: number
+            pruneCandidates: number
+            lastConsolidateStatus?: string
+            lastConsolidateReason?: string
+            hybridEnabled?: boolean
+            hybridModel?: string
+            vectorCoverage?: number
+            actionHint?: string
+          }
+        | undefined
       if (h) {
         const consolidate =
           h.lastConsolidateStatus !== undefined
             ? ` · last consolidate: ${h.lastConsolidateStatus}${h.lastConsolidateReason ? ` (${h.lastConsolidateReason})` : ""}`
             : ""
+        const hybrid =
+          h.hybridEnabled === true
+            ? ` · hybrid ${h.hybridModel ?? "on"} vectors ${Math.round((h.vectorCoverage ?? 0) * 100)}%`
+            : " · hybrid off"
+        const hint = h.actionHint ? ` · ⚠ ${h.actionHint}` : ""
         setStats(
-          `files ${h.files} · chunks ${h.chunks} (g${h.bySource.global}/w${h.bySource.workspace}/s${h.bySource.session}) · zero-access ${h.zeroAccessChunks} · prune candidates ${h.pruneCandidates}${consolidate}`,
+          `files ${h.files} · chunks ${h.chunks} (g${h.bySource.global}/w${h.bySource.workspace}/s${h.bySource.session}) · zero-access ${h.zeroAccessChunks} · prune candidates ${h.pruneCandidates}${consolidate}${hybrid}${hint}`,
         )
       }
     } catch (cause) {
@@ -73,21 +92,38 @@ export function MemoryModal(props: { onClose?: () => void }) {
   const importPack = async () => {
     dialog.replace(() => (
       <DialogPrompt
-        title="Import memory"
-        placeholder="path to a memory pack directory"
+        title="Import memory pack"
+        placeholder="absolute path to pack dir (export created this)"
         onConfirm={(path) => {
+          const trimmed = path.trim()
+          if (!trimmed) {
+            toast.show({ message: "Import path required", variant: "error" })
+            return
+          }
           void sdk.client.experimental.memory
-            .importPack({ source: path })
+            .importPack({ source: trimmed })
             .then((response) => {
               const result = response.data
               if (result?.error) {
-                toast.show({ message: `Import failed: ${result.error}`, variant: "error" })
+                toast.show({
+                  message: `Import failed: ${result.error}. Try force overwrite if local files are newer.`,
+                  variant: "error",
+                })
               } else if (result) {
-                toast.show({ message: `Imported ${result.imported}, skipped ${result.skipped}`, variant: "success" })
+                const detail =
+                  result.skipped > 0
+                    ? `Imported ${result.imported}, skipped ${result.skipped} (newer local or threats).`
+                    : `Imported ${result.imported} file(s).`
+                toast.show({ message: detail, variant: "success" })
                 void load()
               }
             })
-            .catch(() => toast.show({ message: "Import failed", variant: "error" }))
+            .catch((cause) =>
+              toast.show({
+                message: `Import failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                variant: "error",
+              }),
+            )
           dialog.clear()
         }}
         onCancel={() => dialog.clear()}

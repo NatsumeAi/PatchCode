@@ -12,6 +12,7 @@ import {
   type MemoryStats,
   type PersistedConsolidateStatus,
 } from "./observability"
+import { memoryEmbeddingEnvConfig } from "./config"
 
 export interface MemoryHealth {
   readonly files: number
@@ -28,6 +29,13 @@ export interface MemoryHealth {
   readonly flushNoReply?: number
   readonly flushFailed?: number
   readonly sourcesMerged?: number
+  /** Hybrid embedding status for operators. */
+  readonly hybridEnabled?: boolean
+  readonly hybridModel?: string
+  /** Chunks with non-null vectors / total chunks (0–1). */
+  readonly vectorCoverage?: number
+  /** Human-readable next action when status is failed/skipped. */
+  readonly actionHint?: string
 }
 
 const walkMarkdown = (fs: FSUtil.Interface, dir: string): Effect.Effect<{ files: number; totalBytes: number }> =>
@@ -126,10 +134,15 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
   const chunkRows = yield* index.listChunks().pipe(Effect.catch(() => Effect.succeed([])))
   const bySource = { global: 0, workspace: 0, session: 0 }
   let zeroAccessChunks = 0
+  let withVectors = 0
   for (const row of chunkRows) {
     bySource[row.source as "global" | "workspace" | "session"]++
     if (row.accessCount === 0) zeroAccessChunks++
+    if (row.vectors !== undefined && row.vectors.length > 0) withVectors++
   }
+  const embedCfg = memoryEmbeddingEnvConfig()
+  const hybridEnabled = embedCfg !== undefined
+  const vectorCoverage = chunkRows.length === 0 ? 0 : withVectors / chunkRows.length
   const pruneCandidates = selectPruneCandidates(
     chunkRows.map((row) => ({
       chunkId: String(row.id),
@@ -160,6 +173,27 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
     lastConsolidatedAt = obsAt
   }
 
+  const actionHint = (() => {
+    const status = obs.lastConsolidateStatus
+    const reason = obs.lastConsolidateReason
+    if (status === "failed" && reason === "no-model") {
+      return "Configure a default model provider — consolidation cannot run without a model."
+    }
+    if (status === "failed") {
+      return `Consolidation failed${reason ? ` (${reason})` : ""}. Check logs; sources may be retained for retry.`
+    }
+    if (status === "skipped" && reason === "backoff") {
+      return "Consolidation in backoff after hard failures; wait or clear consolidation.status.json."
+    }
+    if (hybridEnabled && vectorCoverage < 0.5 && chunkRows.length > 0) {
+      return `Hybrid embedding on but only ${Math.round(vectorCoverage * 100)}% chunks have vectors — reindex/search will backfill on next query.`
+    }
+    if (!hybridEnabled) {
+      return "Hybrid search off. Set OPENCODE_MEMORY_EMBEDDING_MODEL to enable vector ranking."
+    }
+    return undefined
+  })()
+
   return {
     files,
     totalBytes,
@@ -174,5 +208,9 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
     flushNoReply: obs.flushNoReply,
     flushFailed: obs.flushFailed,
     sourcesMerged: obs.sourcesMerged,
+    hybridEnabled,
+    ...(embedCfg !== undefined ? { hybridModel: embedCfg.model } : {}),
+    vectorCoverage,
+    ...(actionHint !== undefined ? { actionHint } : {}),
   } satisfies MemoryHealth
 })

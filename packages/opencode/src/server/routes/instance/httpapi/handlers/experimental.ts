@@ -22,8 +22,12 @@ import { openConfiguredMemoryIndex } from "@opencode-ai/core/memory/reindex"
 import { BLOCK_PLACEHOLDER, MAX_SCAN_CHARS, scanForThreats } from "@opencode-ai/core/memory/scan"
 import { defaultTransferAllowedRoots, exportMemory, importMemory } from "@opencode-ai/core/memory/transfer"
 import { MAX_NOTE_CHARS, writeMemoryNote } from "@opencode-ai/core/memory/tools"
+import { allowUnauthedMemoryMutation } from "@opencode-ai/core/memory/memory-http-guard"
+import { invalidateRecallCache } from "@opencode-ai/core/memory/recall"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+import { HttpServerRequest } from "effect/unstable/http"
 import { InstanceHttpApi } from "../api"
 import { WorkspaceRouteContext } from "../middleware/workspace-routing"
 import {
@@ -300,6 +304,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const exportMemoryPack = Effect.fn("ExperimentalHttpApi.memoryExport")(function* (ctx: {
       payload: typeof MemoryExportPayload.Type
     }) {
+      yield* assertMemoryMutationAllowed()
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
@@ -316,6 +321,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const importMemoryPack = Effect.fn("ExperimentalHttpApi.memoryImport")(function* (ctx: {
       payload: typeof MemoryImportPayload.Type
     }) {
+      yield* assertMemoryMutationAllowed()
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
@@ -324,12 +330,31 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
         force: ctx.payload.force,
         allowedRoots,
       }).pipe(
-        Effect.map((result) => ({ ...result, error: undefined })),
+        Effect.map((result) => {
+          if (result.imported > 0) invalidateRecallCache()
+          return { ...result, error: undefined }
+        }),
         Effect.catch(() => Effect.succeed({ imported: 0, skipped: 0, error: "import failed" })),
       )
     })
 
+    const assertMemoryMutationAllowed = Effect.fn("ExperimentalHttpApi.assertMemoryMutationAllowed")(function* () {
+      // Align with ServerAuth: password set → Authorization middleware already enforced.
+      const passwordConfigured = Boolean(Flag.OPENCODE_SERVER_PASSWORD?.trim())
+      if (passwordConfigured) return
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const remote =
+        (request as { remoteAddress?: string }).remoteAddress ??
+        request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+        request.headers["x-real-ip"]
+      if (!allowUnauthedMemoryMutation({ passwordConfigured: false, remoteAddress: remote })) {
+        // 400 (not 401): Unauthorized is not on all mutation endpoint schemas.
+        return yield* new HttpApiError.BadRequest({})
+      }
+    })
+
     const deleteSessionLog = Effect.fn("ExperimentalHttpApi.memorySessionLog")(function* (ctx: { query: typeof MemorySessionLogDeleteQuery.Type }) {
+      yield* assertMemoryMutationAllowed()
       const route = yield* WorkspaceRouteContext
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
@@ -337,12 +362,14 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const file = yield* resolveInRoots(fs, roots, ctx.query.path)
       if (file === undefined) return false
       yield* fs.remove(file).pipe(Effect.catch(() => Effect.succeed(false)))
+      invalidateRecallCache()
       return true
     })
 
     const rememberNote = Effect.fn("ExperimentalHttpApi.memoryRemember")(function* (ctx: {
       payload: typeof MemoryRememberPayload.Type
     }) {
+      yield* assertMemoryMutationAllowed()
       const note = ctx.payload.note.trim()
       if (note.length === 0) return yield* new HttpApiError.BadRequest({})
       // Same size + threat gates as memory_add_note tool.
@@ -353,7 +380,10 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       const fs = yield* FSUtil.Service
       const roots = resolveRoots(join(Global.Path.data, "memory"), route.directory)
       return yield* writeMemoryNote(fs, roots, note).pipe(
-        Effect.map((result) => ({ filename: result.filename }) satisfies typeof MemoryRememberResponse.Type),
+        Effect.map((result) => {
+          invalidateRecallCache()
+          return { filename: result.filename } satisfies typeof MemoryRememberResponse.Type
+        }),
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       )
     })

@@ -23,22 +23,22 @@ export const loadCatalog = (input: {
         : []),
     ]
     for (const dir of dirs) {
-      const files = yield* Effect.tryPromise({
-        try: async () => {
-          try {
-            return await fs.readdir(dir)
-          } catch {
-            return [] as string[]
-          }
-        },
-        catch: () => [] as string[],
+      const files = yield* Effect.promise(async () => {
+        try {
+          return await fs.readdir(dir)
+        } catch {
+          return [] as string[]
+        }
       })
       for (const file of files) {
         if (!file.endsWith(".md") && !file.endsWith(".mdx")) continue
         const full = path.join(dir, file)
-        const raw = yield* Effect.tryPromise({
-          try: () => fs.readFile(full, "utf8"),
-          catch: () => "",
+        const raw = yield* Effect.promise(async () => {
+          try {
+            return await fs.readFile(full, "utf8")
+          } catch {
+            return ""
+          }
         })
         if (!raw) continue
         const parsed = parsePersonaMarkdown(file.replace(/\.(md|mdx)$/i, ""), raw)
@@ -90,8 +90,8 @@ export const safeReadInstructionsFile = (
   projectDirectory: string,
   relativeOrAbsolute: string,
 ): Effect.Effect<string | undefined> =>
-  Effect.tryPromise({
-    try: async () => {
+  Effect.promise(async () => {
+    try {
       const resolved = path.resolve(projectDirectory, relativeOrAbsolute)
       const root = path.resolve(projectDirectory) + path.sep
       if (resolved !== path.resolve(projectDirectory) && !resolved.startsWith(root)) {
@@ -100,6 +100,7 @@ export const safeReadInstructionsFile = (
       const real = await fs.realpath(resolved).catch(() => resolved)
       if (real !== path.resolve(projectDirectory) && !real.startsWith(root)) return undefined
       return await fs.readFile(real, "utf8")
-    },
-    catch: () => undefined as string | undefined,
+    } catch {
+      return undefined
+    }
   })

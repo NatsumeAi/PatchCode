@@ -16,6 +16,7 @@ import { PermissionV2 } from "../../permission"
 import type { LocationMutation } from "../../location-mutation"
 import type { ReadTool } from "../../tool/read"
 import type { EditTool } from "../../tool/edit"
+import type { DeepMutable } from "../../schema"
 
 const legacySources = [
   { pattern: "{agent,agents}/**/*.md", primary: false },
@@ -135,10 +136,12 @@ export const Plugin = define({
                 agent.workspace = inheritedItem.workspace
               }
               if (item.workspace !== undefined) agent.workspace = item.workspace
-              if (inheritedItem?.persona !== undefined && agent.persona === undefined) {
-                agent.persona = inheritedItem.persona
+              // persona is on Agent.Info (schema); cast for DeepMutable assign.
+              const mutable = agent as DeepMutable<AgentV2.Info> & { persona?: string }
+              if (inheritedItem?.persona !== undefined && mutable.persona === undefined) {
+                mutable.persona = inheritedItem.persona
               }
-              if (item.persona !== undefined) agent.persona = item.persona
+              if (item.persona !== undefined) mutable.persona = item.persona
               if (inheritedItem?.permissions !== undefined && inheritedItem.permissions.length > 0) {
                 agent.permissions.push(...expandPermissions(inheritedItem.permissions, global.home))
               }

@@ -16,7 +16,7 @@ const run = (cmd: string, args: string[], cwd: string) =>
         child.on("error", reject)
         child.on("close", (code) => resolve({ code: code ?? 1, stderr }))
       }),
-    catch: (e) => e,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
 /**

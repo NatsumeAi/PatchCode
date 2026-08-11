@@ -9,15 +9,16 @@ import { TerminalController } from "@opencode-ai/core/session/loop-control/termi
 import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
 
 it("dispatches loop status from the core loop-control package", async () => {
-  const output = await loopCommand("status").pipe(
+  // Successive provide (Effect 4 Layer.mergeAll can drop services depending on order).
+  const program = loopCommand("status").pipe(
     Effect.provide(IterationBudget.layerForTest(90)),
     Effect.provide(TimerDaemon.layerForTest),
     Effect.provide(TerminalController.layerForTest),
     Effect.provide(WorkerState.layerForTest),
     Effect.provide(EventBus.layerForTest),
     Effect.provide(GoalStore.layerForTest),
-    Effect.runPromise,
-  )
+  ) as Effect.Effect<string>
+  const output = await Effect.runPromise(program)
 
   expect(output).toContain("Worker")
   expect(output).toContain("Budget")

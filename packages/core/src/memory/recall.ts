@@ -62,11 +62,21 @@ export function formatRecallBlock(
 }
 
 /** Per-session cache: same query within a process skips re-open/index/search. */
-const recallBlockCache = new Map<string, { query: string; block: string }>()
+const recallBlockCache = new Map<string, { query: string; block: string; at: number }>()
+
+/** Invalidate recall cache after consolidate/reindex so new memory is visible. */
+let recallEpoch = 0
+
+/** Bump when memory content may have changed (consolidate, reindex, import). */
+export function invalidateRecallCache(): void {
+  recallEpoch++
+  recallBlockCache.clear()
+}
 
 /** Test-only: clear the recall cache. */
 export function resetRecallCacheForTests(): void {
   recallBlockCache.clear()
+  recallEpoch = 0
 }
 
 /**
@@ -90,9 +100,13 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
     Effect.catch(() => Effect.succeed("")),
   )
   if (query === "") return ""
-  const cacheKey = String(sessionID)
+  const cacheKey = `${recallEpoch}:${String(sessionID)}`
   const cached = recallBlockCache.get(cacheKey)
-  if (cached !== undefined && cached.query === query) return cached.block
+  // Cap cache lifetime so consolidations from other processes still surface.
+  const CACHE_TTL_MS = 60_000
+  if (cached !== undefined && cached.query === query && Date.now() - cached.at < CACHE_TTL_MS) {
+    return cached.block
+  }
 
   const index = yield* openConfiguredMemoryIndex(fs, roots).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (index === undefined) return ""
@@ -109,7 +123,7 @@ export const buildRecallBlock = Effect.fn("Memory.buildRecallBlock")(function* (
       .incrementAccess(kept.map((hit) => ({ id: hit.id, source: hit.source, root: hit.root })))
       .pipe(Effect.catch(() => Effect.void))
     const block = formatRecallBlock(kept)
-    recallBlockCache.set(cacheKey, { query, block })
+    recallBlockCache.set(cacheKey, { query, block, at: Date.now() })
     return block
   } finally {
     yield* index.close().pipe(Effect.catch(() => Effect.void))

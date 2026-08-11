@@ -24,14 +24,17 @@ export const make: Effect.Effect<Interface> = Effect.gen(function* () {
   const ref = yield* SynchronizedRef.make<State>({ text: "", source: "empty" })
   const get: Interface["get"] = SynchronizedRef.get(ref).pipe(Effect.map((s) => s.text))
   const isExplicit: Interface["isExplicit"] = SynchronizedRef.get(ref).pipe(Effect.map((s) => s.source === "explicit"))
-  const set: Interface["set"] = (goal) =>
-    SynchronizedRef.set(ref, { text: goal.trim().slice(0, MAX_GOAL_CHARS), source: "explicit" })
+  const set: Interface["set"] = (goal) => {
+    const next: State = { text: goal.trim().slice(0, MAX_GOAL_CHARS), source: "explicit" }
+    return SynchronizedRef.set(ref, next)
+  }
   const setIfEmpty: Interface["setIfEmpty"] = (goal) =>
-    SynchronizedRef.modify(ref, (cur) => {
-      if (cur.text.trim().length > 0) return [false, cur] as const
-      const next = goal.trim().slice(0, MAX_GOAL_CHARS)
-      if (next.length === 0) return [false, cur] as const
-      return [true, { text: next, source: "auto" as const }] as const
+    SynchronizedRef.modify(ref, (cur): readonly [boolean, State] => {
+      if (cur.text.trim().length > 0) return [false, cur]
+      const text = goal.trim().slice(0, MAX_GOAL_CHARS)
+      if (text.length === 0) return [false, cur]
+      const next: State = { text, source: "auto" }
+      return [true, next]
     })
   return { get, isExplicit, set, setIfEmpty }
 })

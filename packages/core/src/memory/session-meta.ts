@@ -19,12 +19,18 @@ export interface SessionMeta {
 /**
  * Sanitize a topic snippet for session metadata logs: clamp length, collapse
  * whitespace, drop threat-laden text (metadata-only privacy discipline).
+ * Also drop obvious secret-shaped spans even when they miss assignment syntax
+ * (e.g. "my password hunter2secretxx" without "=").
  */
 export function sanitizeTopic(text: string, maxChars = MAX_TOPIC_CHARS): string | undefined {
   const collapsed = text.replace(/\s+/g, " ").trim()
   if (collapsed.length === 0) return undefined
   const clipped = collapsed.slice(0, maxChars)
   if (scanForThreats(clipped).length > 0) return undefined
+  // Natural-language secret disclosure without key=value punctuation.
+  if (/\b(password|passwd|secret|api[_-]?key|token)\b.{0,40}\b[A-Za-z0-9._/+-]{10,}\b/i.test(clipped)) {
+    return undefined
+  }
   return clipped
 }
 

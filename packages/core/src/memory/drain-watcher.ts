@@ -110,22 +110,25 @@ export const startDrainWatcher = (options: { pollInterval?: Duration.Duration; i
       yield* drainTick(state, now, active, store, rootsOf, fs, idleDebounce)
     })
 
-    // Best-effort final drain on scope close. Snapshot active, clear active so
-    // drainTick does not drop still-running sessions, force every seen/pending
-    // past debounce, then flush. One-shot CLI / fast process exit must not
-    // permanently drop the last session metadata log.
+    // Best-effort final drain on scope close. Merge currently-active sessions
+    // into seen (covers "became active after last poll"), force every
+    // seen/pending past debounce, then flush with an empty active set so
+    // still-live sessions are written once instead of re-queued as live.
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis
         const forceAt = now - Duration.toMillis(idleDebounce) - 1
+        const live = yield* execution.active.pipe(
+          Effect.map((ids) => [...ids].map((id) => String(id))),
+          Effect.catch(() => Effect.succeed([] as string[])),
+        )
+        for (const id of live) state.seen.add(id)
         for (const id of state.seen) {
           if (!state.pending.has(id)) state.pending.set(id, forceAt)
         }
         for (const id of [...state.pending.keys()]) {
           state.pending.set(id, forceAt)
         }
-        // Empty active set so still-active sessions are not re-queued as "live"
-        // and skipped; on teardown we want them written once.
         yield* drainTick(state, now, new Set(), store, rootsOf, fs, idleDebounce)
       }).pipe(
         Effect.catch((error) =>

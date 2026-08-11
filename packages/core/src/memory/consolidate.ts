@@ -27,6 +27,7 @@ import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
 import { regenerateSummary } from "./summary"
 import { scanForThreats } from "./scan"
+import { invalidateRecallCache } from "./recall"
 import { hasMarkdownStructure, isNoReply, stripModelWrapper } from "./text-utils"
 import {
   clearConsolidateBackoff,
@@ -275,6 +276,7 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         const summaryOk = yield* regenerateSummary(fs, roots, llm, model)
         yield* markConsolidated(fs, roots)
         clearConsolidateBackoff(base)
+        invalidateRecallCache()
         if (!summaryOk) {
           yield* noteOutcome(fs, roots, "failed", "summary", outcome.sourcesMerged)
         } else {
