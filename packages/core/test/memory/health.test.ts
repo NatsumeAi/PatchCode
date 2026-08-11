@@ -93,4 +93,54 @@ describe("Memory health", () => {
       ),
     ),
   )
+
+  it.effect("reports dream phases due now when no stamps exist", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          const index = yield* openMemoryIndex(fs, roots)
+          const health = yield* collectHealth(fs, roots, index)
+          expect(health.dreamNextHint).toBe("light due now")
+          expect(health.dreamLastLight).toBeUndefined()
+          expect(health.dreamLastDeep).toBeUndefined()
+          expect(health.dreamLastRem).toBeUndefined()
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
+
+  it.effect("exposes dream stamps, next-due hint, recall filters, and citations mode", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          yield* writeTextAtomic(
+            fs,
+            path.join(roots.globalDir, "dream-phase.last.json"),
+            JSON.stringify({ light: Date.now(), deep: Date.now(), rem: Date.now() }),
+          )
+          const index = yield* openMemoryIndex(fs, roots)
+          const health = yield* collectHealth(fs, roots, index)
+          expect(health.dreamLastLight).toBeTypeOf("number")
+          expect(health.dreamLastDeep).toBeTypeOf("number")
+          expect(health.dreamLastRem).toBeTypeOf("number")
+          expect(health.dreamNextHint).toMatch(/^light due in ~\d+h$/)
+          expect(health.recallMaxAgeDays).toBe(30)
+          expect(health.recallMinScore).toBe(0.15)
+          expect(health.citationsMode).toBe("auto")
+          yield* index.close()
+        }),
+      ),
+    ),
+  )
 })

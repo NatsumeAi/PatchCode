@@ -126,6 +126,13 @@ export const MemoryHealthResponse = Schema.Struct({
   hybridModel: Schema.optional(Schema.String),
   vectorCoverage: Schema.optional(Schema.Number),
   actionHint: Schema.optional(Schema.String),
+  dreamLastLight: Schema.optional(Schema.Number),
+  dreamLastDeep: Schema.optional(Schema.Number),
+  dreamLastRem: Schema.optional(Schema.Number),
+  dreamNextHint: Schema.optional(Schema.String),
+  recallMaxAgeDays: Schema.optional(Schema.Number),
+  recallMinScore: Schema.optional(Schema.Number),
+  citationsMode: Schema.optional(Schema.String),
 }).annotate({ identifier: "MemoryHealthResponse" })
 export const MemoryExportPayload = Schema.Struct({
   target: Schema.String,

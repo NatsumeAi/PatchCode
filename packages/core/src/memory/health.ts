@@ -12,7 +12,9 @@ import {
   type MemoryStats,
   type PersistedConsolidateStatus,
 } from "./observability"
-import { memoryEmbeddingEnvConfig } from "./config"
+import { memoryEmbeddingEnvConfig, memoryDreamHoursEnvConfig, memoryRecallEnvConfig } from "./config"
+import { loadDreamStamps, type DreamPhaseStamps } from "./merge-lock"
+import { selectDuePhase } from "./dream-phases"
 
 export interface MemoryHealth {
   readonly files: number
@@ -36,6 +38,18 @@ export interface MemoryHealth {
   readonly vectorCoverage?: number
   /** Human-readable next action when status is failed/skipped. */
   readonly actionHint?: string
+  /** Last dream-phase run timestamps (ms epoch) from dream-phase.last.json. */
+  readonly dreamLastLight?: number
+  readonly dreamLastDeep?: number
+  readonly dreamLastRem?: number
+  /** Human-readable next dream phase, e.g. "light due now" or "deep due in ~2h". */
+  readonly dreamNextHint?: string
+  /** Recall filter: max age in days for recalled chunks (OPENCODE_MEMORY_RECALL_MAX_AGE_DAYS). */
+  readonly recallMaxAgeDays?: number
+  /** Recall filter: min relevance score for recalled chunks (OPENCODE_MEMORY_RECALL_MIN_SCORE). */
+  readonly recallMinScore?: number
+  /** Citation rendering mode; "auto" unless OPENCODE_MEMORY_CITATIONS is set. */
+  readonly citationsMode?: string
 }
 
 const walkMarkdown = (fs: FSUtil.Interface, dir: string): Effect.Effect<{ files: number; totalBytes: number }> =>
@@ -207,6 +221,9 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
     return undefined
   })()
 
+  const stamps = yield* loadDreamStamps(fs, roots)
+  const recallCfg = memoryRecallEnvConfig()
+
   return {
     files,
     totalBytes,
@@ -225,5 +242,28 @@ export const collectHealth = Effect.fn("Memory.collectHealth")(function* (
     ...(embedCfg !== undefined ? { hybridModel: embedCfg.model } : {}),
     vectorCoverage,
     ...(actionHint !== undefined ? { actionHint } : {}),
+    ...(stamps.light !== undefined ? { dreamLastLight: stamps.light } : {}),
+    ...(stamps.deep !== undefined ? { dreamLastDeep: stamps.deep } : {}),
+    ...(stamps.rem !== undefined ? { dreamLastRem: stamps.rem } : {}),
+    dreamNextHint: dreamNextHint(Date.now(), stamps, memoryDreamHoursEnvConfig()),
+    recallMaxAgeDays: recallCfg.maxAgeDays,
+    recallMinScore: recallCfg.minScore,
+    citationsMode: process.env.OPENCODE_MEMORY_CITATIONS?.trim() || "auto",
   } satisfies MemoryHealth
 })
+
+const HOUR_MS = 3600_000
+
+/** Rough hours until the earliest next-due dream phase, e.g. "light due in ~2h". */
+function dreamNextHint(
+  now: number,
+  stamps: DreamPhaseStamps,
+  hours: { light: number; deep: number; rem: number },
+): string {
+  const due = selectDuePhase(now, stamps, hours)
+  if (due !== undefined) return `${due} due now`
+  const upcoming = (["light", "deep", "rem"] as const)
+    .map((phase) => ({ phase, at: (stamps[phase] ?? now) + hours[phase] * HOUR_MS }))
+    .reduce((earliest, entry) => (entry.at < earliest.at ? entry : earliest))
+  return `${upcoming.phase} due in ~${Math.max(1, Math.round((upcoming.at - now) / HOUR_MS))}h`
+}
