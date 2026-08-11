@@ -25,6 +25,7 @@ import {
 } from "@opencode-ai/core/session/subagent-permissions"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { SubagentLifecycle } from "@opencode-ai/core/session/subagent-lifecycle"
+import { MemoryDelegation } from "@opencode-ai/core/memory/delegation-wire"
 import os from "os"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { validateResumeIdentity } from "@opencode-ai/core/session/subagent-identity"
@@ -115,6 +116,21 @@ function lastAssistantText(messages: readonly SessionMessage.Message[]): string 
   }
   return ""
 }
+
+const TASK_NOT_CAPTURED = "[task not captured]"
+
+// Registry records carry no prompt field, so the background path falls back
+// to the child's first user message (the admitted task), else a marker.
+const childTaskPrompt = (store: SessionStore.Interface, childSessionID: SessionSchema.ID): Effect.Effect<string> =>
+  store.context(childSessionID).pipe(
+    Effect.map((messages) => {
+      const firstUser = messages.find((m) => m.type === "user")
+      if (firstUser?.type !== "user") return TASK_NOT_CAPTURED
+      const text = firstUser.text.trim()
+      return text === "" ? TASK_NOT_CAPTURED : text
+    }),
+    Effect.catch(() => Effect.succeed(TASK_NOT_CAPTURED)),
+  )
 
 export function lastAssistantError(messages: readonly SessionMessage.Message[]): string | undefined {
   const latest = messages.findLast((m) => m.type === "assistant")
@@ -305,6 +321,19 @@ const taskHostLayer = Layer.effect(
         // Best-effort worktree cleanup
         if (parent) {
           yield* WorktreePool.release(parent.location.directory, String(childSessionID)).pipe(Effect.ignore)
+        }
+        // Additive memory observation: no-op when memory services aren't loaded.
+        const delegationOpt = yield* Effect.serviceOption(MemoryDelegation.Service)
+        if (delegationOpt._tag === "Some") {
+          yield* delegationOpt.value
+            .record({
+              parentSessionID: String(parentID),
+              childSessionID: String(childSessionID),
+              task: yield* childTaskPrompt(store, childSessionID),
+              result: text,
+              ok: state === "completed",
+            })
+            .pipe(Effect.ignore)
         }
       })
 
@@ -905,6 +934,19 @@ const taskHostLayer = Layer.effect(
             )
             .pipe(Effect.ignore)
           yield* bridgeParentLoop(parentID, childID, exit !== "failed", failed)
+          // Additive memory observation: no-op when memory services aren't loaded.
+          const delegationOpt = yield* Effect.serviceOption(MemoryDelegation.Service)
+          if (delegationOpt._tag === "Some") {
+            yield* delegationOpt.value
+              .record({
+                parentSessionID: String(parentID),
+                childSessionID: String(childID),
+                task: input.prompt,
+                result: failed ?? text,
+                ok: exit === "completed",
+              })
+              .pipe(Effect.ignore)
+          }
           if (input.isolation === "worktree") {
             yield* WorktreePool.release(parent.location.directory, String(childID)).pipe(Effect.ignore)
           }
