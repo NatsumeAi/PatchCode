@@ -365,6 +365,11 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
           yield* noteOutcome(fs, roots, "completed", undefined, outcome.sourcesMerged)
         }
       } else if (outcome.reason === "already-merged" || outcome.reason === "no-reply" || outcome.reason === "budget-empty") {
+        // A no-reply pass ran the LLM and found nothing worth persisting: mark
+        // the phase done so the next 30-min tick does not burn tokens re-asking
+        // with identical input. already-merged/budget-empty never reached the
+        // LLM (sources gone or over budget), so they stay free to retry.
+        if (outcome.reason === "no-reply") yield* markDreamPhase(fs, roots, phase)
         clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", outcome.reason)
       } else {

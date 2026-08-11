@@ -584,6 +584,30 @@ describe("Memory consolidation", () => {
     ),
   )
 
+  it.effect("no-reply pass marks the phase stamp so the next tick does not re-ask", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Healthy curated memory so recovery does not override the light phase.
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "MEMORY.md"), "## Existing\nprior memory")
+          yield* writeTextAtomic(fs, path.join(roots.globalDir, "memory_summary.md"), "prior memory summary")
+          yield* plantNote(fs, roots, "nothing-worth-keeping.md", "## Decision\nNothing durable in this note at all")
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "no_reply" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const note = yield* readTextSafe(fs, path.join(roots.globalDir, "extensions", "ad_hoc", "notes", "nothing-worth-keeping.md"))
+          expect(note).toBeDefined()
+          const stamps = yield* loadDreamStamps(fs, roots)
+          expect(stamps.light).toBeDefined()
+        }),
+      ),
+    ),
+  )
+
   it.effect("rem phase writes a candidate without rewriting MEMORY.md or deleting sources", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
