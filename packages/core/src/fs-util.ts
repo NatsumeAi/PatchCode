@@ -271,4 +271,50 @@ export namespace FSUtil {
     const result = relative(parent, child)
     return result === "" || (!isAbsolute(result) && result !== ".." && !result.startsWith(`..${sep}`))
   }
+
+  /**
+   * Write-path containment (W6): after realpath, require the target stay under
+   * `root`. Rejects symlink escapes that resolve outside the workspace.
+   * Fail closed when root cannot be realpath'd. Does not apply to reads.
+   */
+  export function assertWriteContained(root: string, target: string): string {
+    const rootAbs = pathResolve(windowsPath(root))
+    let rootReal: string
+    try {
+      rootReal = normalizePath(realpathSync(rootAbs))
+    } catch {
+      throw new Error(`write containment: root is not accessible: ${root}`)
+    }
+    const targetAbs = pathResolve(windowsPath(target))
+    let targetReal: string
+    try {
+      // Realpath the deepest existing ancestor (ENOENT leaf stays under it).
+      let probe = targetAbs
+      while (true) {
+        try {
+          targetReal = normalizePath(realpathSync(probe))
+          // Reconstruct missing suffix under the realpath'd ancestor.
+          if (probe !== targetAbs) {
+            const suffix = targetAbs.slice(probe.length)
+            targetReal = normalizePath(pathResolve(targetReal + suffix))
+          }
+          break
+        } catch (e: any) {
+          if (e?.code !== "ENOENT") throw e
+          const parent = dirname(probe)
+          if (parent === probe) {
+            targetReal = normalizePath(targetAbs)
+            break
+          }
+          probe = parent
+        }
+      }
+    } catch (e: any) {
+      throw new Error(`write containment: cannot resolve target: ${target}: ${e?.message ?? e}`)
+    }
+    if (!contains(rootReal, targetReal)) {
+      throw new Error(`write containment: path escapes root (${rootReal}): ${targetReal}`)
+    }
+    return targetReal
+  }
 }

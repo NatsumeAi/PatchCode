@@ -9,6 +9,7 @@ import {
 } from "@opencode-ai/llm"
 import { SessionMessage } from "../message"
 import type { FileAttachment } from "../prompt"
+import { frameToolResult } from "./tool-result-framing"
 
 const media = (file: FileAttachment): ContentPart => ({
   type: "media",
@@ -40,26 +41,27 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
   if (tool.state.status === "completed") {
     // TODO: Materialize remote and managed URIs before provider-history lowering.
     // ToolOutput.toResultValue rejects unresolved URIs rather than treating them as media bytes.
-    const result =
+    const raw =
       tool.provider?.executed === true && tool.state.result !== undefined
         ? tool.state.result
         : ToolOutput.toResultValue({ structured: tool.state.structured, content: tool.state.content })
     return ToolResultPart.make({
       id: tool.id,
       name: tool.name,
-      result,
+      result: frameToolResult(tool.name, raw),
       providerExecuted: tool.provider?.executed,
       providerMetadata,
     })
   }
   if (tool.state.status === "error") {
+    const raw =
+      tool.provider?.executed === true && tool.state.result !== undefined
+        ? tool.state.result
+        : { error: tool.state.error, content: tool.state.content, structured: tool.state.structured }
     return ToolResultPart.make({
       id: tool.id,
       name: tool.name,
-      result:
-        tool.provider?.executed === true && tool.state.result !== undefined
-          ? tool.state.result
-          : { error: tool.state.error, content: tool.state.content, structured: tool.state.structured },
+      result: frameToolResult(tool.name, raw),
       resultType: "error",
       providerExecuted: tool.provider?.executed,
       providerMetadata,

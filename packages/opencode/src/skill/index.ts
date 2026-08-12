@@ -17,6 +17,7 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import { Discovery } from "./discovery"
 import { isRecord } from "@/util/record"
 import { escapeHtml } from "@/util/html"
+import { scanForThreatsInScope } from "@opencode-ai/core/memory/scan"
 
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
@@ -121,6 +122,21 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
   if (!md) return
 
   if (!isSkillFrontmatter(md.data)) return
+
+  // W5: context-scope threat scan at skill load/install — reject injection
+  // patterns so skills cannot plant system-prompt overrides into the agent.
+  const body = `${md.data.name}\n${md.data.description ?? ""}\n${md.content}`
+  const threats = scanForThreatsInScope(body, "context")
+  if (threats.length > 0) {
+    yield* Effect.logError("skill rejected by threat scan", { skill: match, threats })
+    const { Session } = yield* Effect.promise(() => import("@/session/session"))
+    yield* events.publish(Session.Event.Error, {
+      error: new NamedError.Unknown({
+        message: `Skill at ${match} rejected: disallowed instruction patterns`,
+      }).toObject(),
+    })
+    return
+  }
 
   if (state.skills[md.data.name]) {
     yield* Effect.logWarning("duplicate skill name", {

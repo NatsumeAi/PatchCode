@@ -190,8 +190,9 @@ const buildRealHooks = (
         Effect.gen(function* () {
           if (owner.kind === "mutable") yield* owner.set(ctx.sessionID)
           if (yield* SynchronizedRef.get(abortRequested)) return
-          const breaker = yield* instance.circuitBreaker.state
-          if (breaker === "Open") return
+          // allowRequest: Closed always; HalfOpen claims a single probe slot; Open blocks.
+          const allowed = yield* instance.circuitBreaker.allowRequest()
+          if (!allowed) return
           yield* instance.retry.reset
           yield* instance.workerState.transition({ _tag: "Active" }).pipe(Effect.ignore)
           // Budget consume moved to the runner after agents.select/models.resolve succeed
@@ -202,6 +203,7 @@ const buildRealHooks = (
         Effect.gen(function* () {
           const aborted = yield* SynchronizedRef.get(abortRequested)
           if (aborted) return false
+          // Do not claim a probe here — only block when fully Open.
           const breaker = yield* instance.circuitBreaker.state
           if (breaker === "Open") return false
           return yield* instance.terminal.shouldContinue

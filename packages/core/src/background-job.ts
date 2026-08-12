@@ -1,6 +1,8 @@
 export * as BackgroundJob from "./background-job"
 
 import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Scope, SynchronizedRef } from "effect"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
 import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
 
@@ -120,18 +122,97 @@ function errorText(error: unknown) {
   return String(error)
 }
 
+/** Stale running jobs older than this are reaped as failed after crash (W3). */
+export const STALE_JOB_MS = Duration.toMillis(PROMOTE_WAIT_TIMEOUT)
+
+type DurableRow = {
+  id: string
+  type: string
+  status: Status
+  started_at: number
+  heartbeat_at: number
+  completed_at?: number
+  error?: string
+  output?: string
+  metadata?: Record<string, unknown>
+}
+
 /**
- * Makes one scoped, process-local registry. Entries are intentionally not
- * durable: process restart or owner-scope closure loses status and interrupts
- * live work. Persisted observation, restart recovery, and remote workers need a
- * separate durable ownership slice rather than pretending this registry has
- * those semantics.
+ * Process-local fast path + optional durable JSON ledger for crash recovery.
+ * Live work still runs in-memory; on start we reap stale `running` rows whose
+ * heartbeat is older than STALE_JOB_MS (30m, matching promotion timeout).
  */
 export const make = Effect.gen(function* () {
   const state: State = {
     jobs: yield* SynchronizedRef.make(new Map()),
     scope: yield* Scope.Scope,
   }
+  // Durable ledger path is process-local under tmp — survives restarts of the
+  // same machine profile without requiring a SQL migration for v1.
+  const durablePath = `${process.env.OPENCODE_BACKGROUND_JOB_LEDGER ?? ""}`.trim() || undefined
+  const durable = durablePath
+    ? {
+        read: (): Map<string, DurableRow> => {
+          try {
+            const raw = readFileSync(durablePath, "utf8")
+            const parsed = JSON.parse(raw) as DurableRow[]
+            return new Map(parsed.map((r) => [r.id, r]))
+          } catch {
+            return new Map()
+          }
+        },
+        write: (map: Map<string, DurableRow>) => {
+          try {
+            mkdirSync(dirname(durablePath), { recursive: true })
+            writeFileSync(durablePath, JSON.stringify([...map.values()]), "utf8")
+          } catch {
+            /* best-effort */
+          }
+        },
+      }
+    : undefined
+
+  const touchDurable = (info: Info, heartbeat = true) => {
+    if (!durable) return
+    const map = durable.read()
+    const prev = map.get(info.id)
+    map.set(info.id, {
+      id: info.id,
+      type: info.type,
+      status: info.status,
+      started_at: info.started_at,
+      heartbeat_at: heartbeat ? Date.now() : (prev?.heartbeat_at ?? info.started_at),
+      completed_at: info.completed_at,
+      error: info.error,
+      output: info.output,
+      metadata: info.metadata,
+    })
+    durable.write(map)
+  }
+
+  /** Reap stale running rows left by a prior crash. */
+  const reapStale = () => {
+    if (!durable) return [] as DurableRow[]
+    const map = durable.read()
+    const now = Date.now()
+    const reaped: DurableRow[] = []
+    for (const [id, row] of map) {
+      if (row.status !== "running") continue
+      if (now - row.heartbeat_at < STALE_JOB_MS) continue
+      const next: DurableRow = {
+        ...row,
+        status: "error",
+        completed_at: now,
+        error: "stale-after-crash",
+      }
+      map.set(id, next)
+      reaped.push(next)
+    }
+    if (reaped.length > 0) durable.write(map)
+    return reaped
+  }
+  // Run reap once at construction.
+  reapStale()
 
   const settle = Effect.fn("BackgroundJob.settle")(function* (
     id: string,
@@ -178,6 +259,7 @@ export const make = Effect.gen(function* () {
       return [{ info: snapshot(next), done: job.done, scope: job.scope }, new Map(jobs).set(id, next)]
     })
     if (result.info && result.done) yield* Deferred.succeed(result.done, result.info).pipe(Effect.ignore)
+    if (result.info) touchDurable(result.info, false)
     if (result.scope) {
       yield* Scope.close(result.scope, Exit.void).pipe(Effect.forkIn(state.scope, { startImmediately: true }))
     }
@@ -262,6 +344,7 @@ export const make = Effect.gen(function* () {
             0,
             restore(input.run).pipe(Effect.ensuring(Deferred.succeed(tail, undefined))),
           )
+        touchDurable(result.info)
         return result.info
       }),
     )

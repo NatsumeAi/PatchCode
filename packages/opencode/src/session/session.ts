@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
+import { like, or, sql } from "drizzle-orm"
 import { asc } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { like } from "drizzle-orm"
@@ -1029,7 +1030,18 @@ function listByProject(
     conditions.push(gte(SessionTable.time_updated, input.start))
   }
   if (input.search) {
-    conditions.push(like(SessionTable.title, `%${input.search}%`))
+    // Title (compat) OR v2 message JSON text (W7 content search).
+    const term = `%${input.search}%`
+    conditions.push(
+      or(
+        like(SessionTable.title, term),
+        sql`exists (
+          select 1 from session_message sm
+          where sm.session_id = ${SessionTable.id}
+            and cast(sm.data as text) like ${term}
+        )`,
+      )!,
+    )
   }
 
   const limit = input.limit ?? 100

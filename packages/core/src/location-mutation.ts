@@ -124,8 +124,17 @@ const layer = Layer.effect(
       if (relative && !lexicallyInternal) return yield* new PathError({ path: input.path, reason: "relative_escape" })
 
       const resolved = yield* resolvePath(absolute)
-      if (lexicallyInternal && !FSUtil.contains(locationRoot, resolved.canonical)) {
-        return yield* new PathError({ path: input.path, reason: "location_escape" })
+      if (lexicallyInternal) {
+        // Realpath + containment: reject symlink intermediates that escape the
+        // location root (W6). Lexical contains alone is not enough.
+        try {
+          FSUtil.assertWriteContained(locationRoot, resolved.canonical)
+        } catch {
+          return yield* new PathError({ path: input.path, reason: "location_escape" })
+        }
+        if (!FSUtil.contains(locationRoot, resolved.canonical)) {
+          return yield* new PathError({ path: input.path, reason: "location_escape" })
+        }
       }
 
       const external = !lexicallyInternal

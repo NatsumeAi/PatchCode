@@ -114,6 +114,9 @@ export const Definitions = {
   session_fold_toggle: keybind("none", "Fold/unfold selected tool or reasoning entry"),
   session_fold_collapse: keybind("none", "Collapse selected entry"),
   session_fold_expand: keybind("none", "Expand selected entry"),
+  // Entry selection nav (W9): avoid bare j/k (steal typing); ctrl+alt matches line scroll.
+  session_select_next: keybind("ctrl+alt+j", "Select next tool or reasoning entry"),
+  session_select_prev: keybind("ctrl+alt+k", "Select previous tool or reasoning entry"),
   session_expand_all: keybind("none", "Expand or collapse all entries"),
   session_expand_all_thinking: keybind("none", "Toggle all thinking blocks"),
   session_quick_switch_1: keybind("<leader>1", "Switch to session in quick slot 1"),
@@ -329,6 +332,8 @@ export const CommandMap = {
   session_fold_toggle: "session.fold.toggle",
   session_fold_collapse: "session.fold.collapse",
   session_fold_expand: "session.fold.expand",
+  session_select_next: "session.select.next",
+  session_select_prev: "session.select.prev",
   session_expand_all: "session.expand.all",
   session_expand_all_thinking: "session.expand.all_thinking",
   session_quick_switch_1: "session.quick_switch.1",

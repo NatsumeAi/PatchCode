@@ -41,14 +41,26 @@ describe("CircuitBreaker", () => {
     }),
   )
 
-  it.effect("recordSuccess resets failure count and half-opens an Open breaker", () =>
+  it.effect("recordSuccess resets failure count and closes an Open breaker", () =>
     Effect.gen(function* () {
       for (let i = 0; i < 5; i++) {
         yield* CircuitBreaker.recordFailure
       }
       expect(yield* CircuitBreaker.state).toBe("Open")
       yield* CircuitBreaker.recordSuccess
-      expect(yield* CircuitBreaker.state).toBe("HalfOpen")
+      // True half-open is entered via cooldown + allowRequest probe; success closes.
+      expect(yield* CircuitBreaker.state).toBe("Closed")
+    }),
+  )
+
+  it.effect("per-provider isolation: A open does not block B", () =>
+    Effect.gen(function* () {
+      const svc = yield* CircuitBreaker.Service
+      for (let i = 0; i < 5; i++) yield* svc.recordFailureFor("provider-a")
+      expect(yield* svc.stateFor("provider-a")).toBe("Open")
+      expect(yield* svc.stateFor("provider-b")).toBe("Closed")
+      expect(yield* svc.allowRequest("provider-b")).toBe(true)
+      expect(yield* svc.allowRequest("provider-a")).toBe(false)
     }),
   )
 

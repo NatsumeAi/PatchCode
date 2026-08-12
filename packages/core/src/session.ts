@@ -3,7 +3,7 @@ export * from "./session/schema"
 
 import { Cause, DateTime, Effect, Exit, Layer, Schema, Context, Stream } from "effect"
 import { ListAnchor } from "@opencode-ai/schema/session"
-import { and, asc, desc, eq, gt, like, lt, or, type SQL } from "drizzle-orm"
+import { and, asc, desc, eq, gt, like, lt, or, sql, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
 import { WorkspaceV2 } from "./workspace"
 import { ModelV2 } from "./model"
@@ -306,7 +306,20 @@ const layer = Layer.effect(
         if ("directory" in input) conditions.push(eq(SessionTable.directory, input.directory))
         if (input.workspaceID) conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
         if ("project" in input) conditions.push(eq(SessionTable.project_id, input.project))
-        if (input.search) conditions.push(like(SessionTable.title, `%${input.search}%`))
+        if (input.search) {
+          // Title match (backward compatible) OR v2 message body JSON text (W7 content search).
+          const term = `%${input.search}%`
+          conditions.push(
+            or(
+              like(SessionTable.title, term),
+              sql`exists (
+                select 1 from session_message sm
+                where sm.session_id = ${SessionTable.id}
+                  and cast(sm.data as text) like ${term}
+              )`,
+            )!,
+          )
+        }
         if (input.anchor) {
           conditions.push(
             order === "asc"

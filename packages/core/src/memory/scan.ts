@@ -229,15 +229,38 @@ function normalizeNfkc(text: string): string {
 }
 
 /**
- * Returns the ids of all threat patterns matched in `text` (empty when clean).
+ * Threat scan scopes (W5 / hermes-style):
+ * - `strict` — full catalog (default for memory writes entering the system prompt)
+ * - `context` — injection + soft-policy only (skills / instruction files at install)
+ * - `all` — same as strict (alias for callers that want the broadest pass)
  */
-export function scanForThreats(text: string): string[] {
+export type ThreatScanScope = "strict" | "context" | "all"
+
+const CONTEXT_PATTERN_IDS = new Set(
+  THREAT_PATTERNS.filter((p) => p.id.startsWith("inject_")).map((p) => p.id),
+)
+
+function patternsForScope(scope: ThreatScanScope): ReadonlyArray<(typeof THREAT_PATTERNS)[number]> {
+  if (scope === "context") return THREAT_PATTERNS.filter((p) => CONTEXT_PATTERN_IDS.has(p.id))
+  return THREAT_PATTERNS
+}
+
+/**
+ * Returns the ids of all threat patterns matched in `text` (empty when clean).
+ * Default scope is `strict` (full catalog) for backward compatibility.
+ */
+export function scanForThreats(text: string, scope: ThreatScanScope = "strict"): string[] {
+  return scanForThreatsInScope(text, scope)
+}
+
+/** Explicit scoped scan (W5). `strict`/`all` = full catalog; `context` = inject-only. */
+export function scanForThreatsInScope(text: string, scope: ThreatScanScope): string[] {
   const nfkc = normalizeNfkc(text)
   const spaced = nfkc.replace(INVISIBLE_RE, " ")
   const joined = nfkc.replace(INVISIBLE_RE, "")
-  return THREAT_PATTERNS.filter((pattern) => pattern.re.test(spaced) || pattern.re.test(joined)).map(
-    (pattern) => pattern.id,
-  )
+  return patternsForScope(scope)
+    .filter((pattern) => pattern.re.test(spaced) || pattern.re.test(joined))
+    .map((pattern) => pattern.id)
 }
 
 /**

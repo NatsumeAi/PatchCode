@@ -194,6 +194,8 @@ const sessionGlobalBindingCommands = [
   "session.line.down",
   "session.half.page.up",
   "session.half.page.down",
+  "session.select.next",
+  "session.select.prev",
 ] as const
 
 const sessionGlobalUnfocusedBindingCommands = ["session.first", "session.last"] as const
@@ -992,6 +994,26 @@ export function Session() {
       hidden: true,
       run: () => {
         scroll.scrollBy(1)
+        dialog.clear()
+      },
+    },
+    {
+      title: "Select next entry",
+      value: "session.select.next",
+      category: "Session",
+      hidden: true,
+      run: () => {
+        selection.selectNext()
+        dialog.clear()
+      },
+    },
+    {
+      title: "Select previous entry",
+      value: "session.select.prev",
+      category: "Session",
+      hidden: true,
+      run: () => {
+        selection.selectPrev()
         dialog.clear()
       },
     },

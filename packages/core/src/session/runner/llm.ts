@@ -889,17 +889,13 @@ const layer = Layer.effect(
             }
 
             // Stream success path (original post-stream settlement).
-            if (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) yield* FiberSet.clear(toolFibers)
             const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
             if (settled._tag === "Failure" && isUserDeclined(settled.cause)) {
               yield* FiberSet.clear(toolFibers)
               yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
               return yield* Effect.interrupt
             }
-            if (
-              (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) ||
-              (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
-            ) {
+            if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
               yield* FiberSet.clear(toolFibers)
               yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
               if (publisher.hasActiveAssistant())
