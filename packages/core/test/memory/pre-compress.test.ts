@@ -15,7 +15,7 @@ describe("extractPreCompressInsights", () => {
       assistant("let me check"),
       user("We decided to use Bun for all scripts."),
     ])
-    expect(out).toContain("## Pre-compress insights")
+    expect(out).not.toContain("## Pre-compress insights")
     expect(out).toContain("- [decision] We decided to use Bun for all scripts.")
   })
 

@@ -195,7 +195,14 @@ export const importExternalHistory = Effect.fn("Memory.importExternalHistory")(f
       skipped++
       continue
     }
-    const heading = message.ts === undefined ? `### ${message.role}` : `### ${message.role} (${message.ts})`
+    // Sanitize role for a single-line heading (no # / newlines that restructure markdown).
+    const safeRole =
+      message.role
+        .replace(/[\r\n#]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 64) || "message"
+    const heading = message.ts === undefined ? `### ${safeRole}` : `### ${safeRole} (${message.ts})`
     sections.push(`${heading}\n\n${message.text}`)
     imported++
   }

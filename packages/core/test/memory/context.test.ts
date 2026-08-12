@@ -56,41 +56,38 @@ describe("Memory SystemContext", () => {
     ),
   )
 
-  it.live("off mode keeps decision framework but suppresses summary body", () => {
-    // The node's layer (and its memoryCitationsMode read) is built when the
-    // effect is provided, before the effect body runs, so the env must be set
-    // before the effect is constructed.
-    const previous = process.env.OPENCODE_MEMORY_CITATIONS
-    process.env.OPENCODE_MEMORY_CITATIONS = "off"
-    return Effect.acquireRelease(
+  it.live("off mode keeps decision framework but suppresses summary body", () =>
+    Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
-          const fs = yield* FSUtil.Service
-          const globalSummary = path.join(dir.path, "global", "memory", "memory_summary.md")
-          const workspaceSummary = path.join(dir.path, "proj", ".opencode", "memory", "memory_summary.md")
-          yield* writeTextAtomic(fs, globalSummary, "global note")
-          yield* writeTextAtomic(fs, workspaceSummary, "workspace note")
-          const registry = yield* SystemContextRegistry.Service
-          const ctx = yield* registry.load()
-          const generation = yield* SystemContext.initialize(ctx)
-          expect(generation.baseline).toContain("## Memory")
-          expect(generation.baseline).toContain("USER/PROJECT DATA")
-          expect(generation.baseline).toContain("untrusted")
-          expect(generation.baseline).not.toContain("workspace note")
-          expect(generation.baseline).not.toContain("USER-PROVIDED MEMORY DATA")
+          // Citations mode is read on every load (not at node construction).
+          const previous = process.env.OPENCODE_MEMORY_CITATIONS
+          process.env.OPENCODE_MEMORY_CITATIONS = "off"
+          try {
+            const fs = yield* FSUtil.Service
+            const globalSummary = path.join(dir.path, "global", "memory", "memory_summary.md")
+            const workspaceSummary = path.join(dir.path, "proj", ".opencode", "memory", "memory_summary.md")
+            yield* writeTextAtomic(fs, globalSummary, "global note")
+            yield* writeTextAtomic(fs, workspaceSummary, "workspace note")
+            const registry = yield* SystemContextRegistry.Service
+            const ctx = yield* registry.load()
+            const generation = yield* SystemContext.initialize(ctx)
+            expect(generation.baseline).toContain("## Memory")
+            expect(generation.baseline).toContain("USER/PROJECT DATA")
+            expect(generation.baseline).toContain("untrusted")
+            expect(generation.baseline).not.toContain("workspace note")
+            expect(generation.baseline).not.toContain("USER-PROVIDED MEMORY DATA")
+          } finally {
+            if (previous === undefined) delete process.env.OPENCODE_MEMORY_CITATIONS
+            else process.env.OPENCODE_MEMORY_CITATIONS = previous
+          }
         }).pipe(Effect.provide(layer(dir.path))),
       ),
-      Effect.ensuring(
-        Effect.sync(() => {
-          if (previous === undefined) delete process.env.OPENCODE_MEMORY_CITATIONS
-          else process.env.OPENCODE_MEMORY_CITATIONS = previous
-        }),
-      ),
-    )
-  })
+    ),
+  )
 
   it.live("renders framework alone when no summaries exist", () =>
     Effect.acquireRelease(

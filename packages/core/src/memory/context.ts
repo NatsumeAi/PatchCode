@@ -95,10 +95,16 @@ export const node = makeLocationNode({
 
       const render = (text: string) => (text === "" ? DECISION_FRAMEWORK : `${DECISION_FRAMEWORK}\n\n${text}`)
 
-      const mode = memoryCitationsMode()
-      const summaryBlock = loadSummaries(fs, resolveRoots(path.join(global.data, "memory"), location.directory)).pipe(
-        Effect.map((loaded) => renderSummaryBlock(loaded, mode)),
-      )
+      // Read citations mode on every load so OPENCODE_MEMORY_CITATIONS hot-swaps
+      // without restarting the location scope (recall already reads per request).
+      const summaryBlock = Effect.gen(function* () {
+        const mode = memoryCitationsMode()
+        const loaded = yield* loadSummaries(
+          fs,
+          resolveRoots(path.join(global.data, "memory"), location.directory),
+        )
+        return renderSummaryBlock(loaded, mode)
+      })
 
       const context = SystemContext.make({
         key: MemoryContextKey,

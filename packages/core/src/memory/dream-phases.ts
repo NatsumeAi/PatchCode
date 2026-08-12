@@ -1,4 +1,5 @@
 import type { MergeSource } from "./sources"
+import { jaccardSimilarity } from "./flush-dedup"
 
 /**
  * Dream-phase policy for memory consolidation, aligned with openclaw's
@@ -97,6 +98,26 @@ export function filterSourcesForPhase(
  */
 export function shouldRecover(health: number, threshold: number, shortTermCount: number): boolean {
   return health < threshold && shortTermCount > 0
+}
+
+/**
+ * Light/recovery near-dup gate (openclaw-style ~0.9 Jaccard): drop sources that
+ * already match the archive or an earlier kept source. Fail-open when archive
+ * is empty. Pure — no I/O.
+ */
+export function dedupeLightSources(
+  sources: ReadonlyArray<MergeSource>,
+  existingArchive: string,
+  threshold: number = DEFAULT_DREAM_POLICY.dedupeThreshold,
+): MergeSource[] {
+  const archive = existingArchive.trim()
+  const kept: MergeSource[] = []
+  for (const source of sources) {
+    if (archive.length > 0 && jaccardSimilarity(source.text, archive) >= threshold) continue
+    if (kept.some((prior) => jaccardSimilarity(source.text, prior.text) >= threshold)) continue
+    kept.push(source)
+  }
+  return kept
 }
 
 function passesLight(source: MergeSourceWithAccess, policy: PhasePolicy, now: number): boolean {

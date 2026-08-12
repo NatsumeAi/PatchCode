@@ -8,9 +8,9 @@
  * later via `PRECOMPRESS_SYSTEM` (see prompts.ts), gated on the
  * OPENCODE_MEMORY_PRECOMPRESS env var (read by the compaction wiring).
  *
- * Output contract (deterministic):
- *
- *   ## Pre-compress insights
+ * Output contract (deterministic): bullet list only (no markdown H2 header).
+ * Compaction wraps this under "## Memory insights to preserve" so the prompt
+ * has a single section title.
  *
  *   - [path] <line>
  *   - [decision] <line>
@@ -120,11 +120,11 @@ function classify(line: string): Label | null {
 }
 
 function formatOutput(labeled: Array<{ label: Label; line: string }>): string {
-  const header = "## Pre-compress insights\n\n"
-  let output = header + labeled.map(({ label, line }) => `- [${label}] ${line}`).join("\n")
+  // Bullets only — compaction injects a single "## Memory insights to preserve" header.
+  let output = labeled.map(({ label, line }) => `- [${label}] ${line}`).join("\n")
   while (output.length > PRECOMPRESS_CAP_CHARS) {
     const lastBreak = output.lastIndexOf("\n")
-    if (lastBreak <= header.length) return output.slice(0, PRECOMPRESS_CAP_CHARS)
+    if (lastBreak <= 0) return output.slice(0, PRECOMPRESS_CAP_CHARS)
     output = output.slice(0, lastBreak)
   }
   return output

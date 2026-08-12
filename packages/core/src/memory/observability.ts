@@ -78,6 +78,18 @@ export function recordConsolidateHardFailure(baseDir: string, now = Date.now()):
   failureBackoffByBase.set(baseDir, { count, skipUntil: now + minutes * 60_000 })
 }
 
+/**
+ * Recovery phase failed or no-op'd while curated health stays low: always cool
+ * down at least 30 minutes so the 30m tick cannot re-burn LLM every cycle.
+ * Stacks count for longer backoff on repeated recovery misses (max 4h).
+ */
+export function recordRecoveryCooldown(baseDir: string, now = Date.now()): void {
+  const prev = failureBackoffByBase.get(baseDir)
+  const count = (prev?.count ?? 0) + 1
+  const minutes = Math.min(240, Math.max(30, 30 * 2 ** Math.min(Math.max(count - 1, 0), 3)))
+  failureBackoffByBase.set(baseDir, { count, skipUntil: now + minutes * 60_000 })
+}
+
 /** Clear failure backoff after a successful merge or clean nothing-to-do. */
 export function clearConsolidateBackoff(baseDir: string): void {
   failureBackoffByBase.delete(baseDir)

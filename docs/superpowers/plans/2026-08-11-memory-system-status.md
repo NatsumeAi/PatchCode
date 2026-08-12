@@ -66,3 +66,17 @@ Expect: **292+ pass / 0 fail** (36 files; grew 217 → 292 as gaps 1–6 landed)
 ## Residual system work
 
 - experimental HTTP suite harness 502 (environment-wide, not memory-only) — unit guards cover mutation policy; full e2e needs a healthy experimental instance
+
+## Audit hardenings (2026-08-12)
+
+| Fix | Detail |
+|-----|--------|
+| D1 recovery cooldown | `recordRecoveryCooldown` ≥30m on recovery no-reply / empty / fail (stops 30m tick re-burn) |
+| D2 light Jaccard 0.9 | `dedupeLightSources` before light/recovery merge |
+| C1 citations hot-read | `memoryCitationsMode()` on every context load |
+| R1 minScore session-only | score floor + age on session only (FTS -bm25 near 0 would kill curated hits) |
+| G2 empty task/result | placeholder either side; skip only when both empty |
+| G3 child flush skip | `session.parentID` → no content flush |
+| P1 single header | pre-compress bullets only; compact wraps once |
+| H1 role sanitize | import history headings strip `#`/newlines |
+| D3 | removed unused monolithic `shouldConsolidate` 4h gate |

@@ -336,6 +336,39 @@ describe("Memory flush", () => {
     ),
   )
 
+  it.live("skips content flush for child sessions with parentID", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          resetFlushGuardForTests()
+          const child = SessionV2.Info.make({
+            ...session,
+            id: SessionSchema.ID.make("ses_flush_child"),
+            parentID: SessionSchema.ID.make("ses_flush_parent"),
+            title: "child",
+          })
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "## Decisions\n- Child should not flush" })]
+          yield* flushSession(
+            child,
+            yield* SessionStore.Service,
+            yield* LLMClient.Service,
+            yield* SessionRunnerModel.Service,
+            yield* FSUtil.Service,
+            yield* Global.Service,
+            yield* Location.Service,
+          )
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "global", "memory"), path.join(dir.path, "proj"))
+          const text = yield* readTextSafe(fs, sessionLogPath(roots, String(child.id), new Date()))
+          expect(text).toBeUndefined()
+        }).pipe(Effect.provide(layer(dir.path))),
+      ),
+    ),
+  )
+
   it.live("skips paraphrase flush when cosine embedding vectors match", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

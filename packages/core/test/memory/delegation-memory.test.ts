@@ -103,20 +103,39 @@ describe("Memory delegation observation", () => {
     ),
   )
 
-  it.effect("does not write when task or result is empty after trimming", () =>
+  it.effect("writes with placeholder when only one of task/result is non-empty", () =>
     withTmpRoots((fs, roots) =>
       Effect.gen(function* () {
         yield* writeDelegationObservation(fs, roots, {
           parentSessionID: "ses_parent_1",
           childSessionID: "ses_child_1",
           task: "   ",
-          result: "Done.",
+          result: "Done only result.",
           ok: true,
         })
         yield* writeDelegationObservation(fs, roots, {
           parentSessionID: "ses_parent_1",
           childSessionID: "ses_child_2",
           task: "Do the thing",
+          result: "",
+          ok: false,
+        })
+        const list = yield* listCandidates(fs, roots, 0)
+        expect(list.length).toBe(2)
+        const texts = yield* Effect.forEach(list, (item) => readCandidate(fs, roots, item.id))
+        expect(texts.some((t) => t?.includes("(no task text)") && t.includes("Done only result."))).toBe(true)
+        expect(texts.some((t) => t?.includes("Do the thing") && t.includes("(no result text)"))).toBe(true)
+      }),
+    ),
+  )
+
+  it.effect("does not write when both task and result are empty", () =>
+    withTmpRoots((fs, roots) =>
+      Effect.gen(function* () {
+        yield* writeDelegationObservation(fs, roots, {
+          parentSessionID: "ses_parent_1",
+          childSessionID: "ses_child_empty",
+          task: "  ",
           result: "",
           ok: true,
         })

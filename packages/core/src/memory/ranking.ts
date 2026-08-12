@@ -45,14 +45,16 @@ export function filterRecallHits<T extends RecallHitLike>(
   opts: { maxAgeDays: number; minScore: number },
 ): T[] {
   return items.filter((item) => {
-    // Only session hits are temporally gated; curated workspace/global are exempt
-    if (item.source === "session") {
-      // Age: unknown age kept
-      const age = item.ageDays
-      if (Number.isFinite(age) && age > opts.maxAgeDays) return false
-      // Score floor after caller applied decay; NaN/undefined-like kept
-      if (Number.isFinite(item.score) && item.score < opts.minScore) return false
-    }
+    // Age + minScore gates are session-only:
+    // - Curated (workspace/global) FTS ranks use raw -bm25 values that often sit
+    //   near 0 even for the best hit — a 0–1 floor would drop real MEMORY.md hits.
+    // - Hybrid search already applies DEFAULT_MIN_SCORE (0.35) before results
+    //   reach this filter; session decay can still push ranks below minScore.
+    // Unknown / non-finite age or score fails open (kept).
+    if (item.source !== "session") return true
+    const age = item.ageDays
+    if (Number.isFinite(age) && age > opts.maxAgeDays) return false
+    if (Number.isFinite(item.score) && item.score < opts.minScore) return false
     return true
   })
 }

@@ -22,7 +22,13 @@ import { listMergeSources, budgetSources, deleteSources, type MergeSource } from
 import { appendMergedHashes, contentHash, isAlreadyMerged, loadMergedHashes } from "./merged-hashes"
 import type { IndexChunk } from "./reindex"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, refreshMergeLock, loadDreamStamps, markDreamPhase } from "./merge-lock"
-import { DEFAULT_DREAM_POLICY, filterSourcesForPhase, selectDuePhase, shouldRecover } from "./dream-phases"
+import {
+  DEFAULT_DREAM_POLICY,
+  dedupeLightSources,
+  filterSourcesForPhase,
+  selectDuePhase,
+  shouldRecover,
+} from "./dream-phases"
 import { DREAM_SYSTEM, DREAM_LIGHT_SYSTEM, DREAM_REM_SYSTEM } from "./prompts"
 import { PRUNE_SYSTEM, selectPruneCandidates } from "./prune"
 import { openConfiguredMemoryIndex } from "./reindex"
@@ -37,6 +43,7 @@ import {
   persistConsolidateStatus,
   recordConsolidate,
   recordConsolidateHardFailure,
+  recordRecoveryCooldown,
   shouldSkipConsolidateBackoff,
   type ConsolidateStatus,
 } from "./observability"
@@ -298,8 +305,10 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         // re-select the same due phase (the no-source state cannot change
         // within the interval). The summary-heal branch above stays un-advanced
         // so a failed heal retries next tick instead of waiting out the phase.
+        // Recovery still needs cooldown: health may stay 0 while only noise existed.
         yield* markDreamPhase(fs, roots, phase)
-        clearConsolidateBackoff(base)
+        if (phase === "recovery") recordRecoveryCooldown(base)
+        else clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", "no-sources")
         return
       }
@@ -350,7 +359,10 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         // the next tick does not re-select the same due phase and re-filter
         // identical sources (mirrors the no-reply fix).
         yield* markDreamPhase(fs, roots, phase)
-        clearConsolidateBackoff(base)
+        // Recovery ignores phase stamps (health-gated). Empty eligible during
+        // recovery would otherwise re-fire every 30m — apply hard-failure backoff.
+        if (phase === "recovery") recordRecoveryCooldown(base)
+        else clearConsolidateBackoff(base)
         yield* noteOutcome(fs, roots, "nothing", "no-sources-for-phase")
         return
       }
@@ -361,14 +373,27 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         yield* noteOutcome(fs, roots, wrote ? "completed" : "nothing", wrote ? undefined : "no-patterns")
         return
       }
+      // Light/recovery: Jaccard near-dup against archive + earlier sources (0.9).
+      let mergeInput = eligible
+      if (phase === "light" || phase === "recovery") {
+        const archive = (yield* readTextSafe(fs, memoryPath(roots))) ?? ""
+        mergeInput = dedupeLightSources(eligible, archive, DEFAULT_DREAM_POLICY.dedupeThreshold)
+        if (mergeInput.length === 0) {
+          yield* markDreamPhase(fs, roots, phase)
+          if (phase === "recovery") recordRecoveryCooldown(base)
+          else clearConsolidateBackoff(base)
+          yield* noteOutcome(fs, roots, "nothing", "light-deduped")
+          return
+        }
+      }
       const outcome = yield* mergeCandidates(
         fs,
         roots,
         llm,
         model,
-        eligible,
+        mergeInput,
         pruneList,
-        phase === "light" ? DREAM_LIGHT_SYSTEM : DREAM_SYSTEM,
+        phase === "light" || phase === "recovery" ? DREAM_LIGHT_SYSTEM : DREAM_SYSTEM,
       )
       if (outcome.ok) {
         // Write summary before marking the phase stamp so a crash leaves sources
@@ -387,13 +412,21 @@ export const runConsolidation = Effect.fn("Memory.runConsolidation")(function* (
         // A no-reply pass ran the LLM and found nothing worth persisting: mark
         // the phase done so the next 30-min tick does not burn tokens re-asking
         // with identical input. already-merged/budget-empty never reached the
-        // LLM (sources gone or over budget), so they stay free to retry.
+        // LLM (sources gone or over budget), so they stay free to retry —
+        // except recovery, which ignores stamps and would re-burn LLM every tick.
         if (outcome.reason === "no-reply") yield* markDreamPhase(fs, roots, phase)
-        clearConsolidateBackoff(base)
+        if (phase === "recovery") {
+          recordRecoveryCooldown(base)
+        } else {
+          clearConsolidateBackoff(base)
+        }
         yield* noteOutcome(fs, roots, "nothing", outcome.reason)
       } else {
         // Hard failures (over-cap, threat, atomic, ledger, no-markdown): backoff to avoid token burn.
-        if (
+        // Recovery failures always cool down (health stays low until next success).
+        if (phase === "recovery") {
+          recordRecoveryCooldown(base)
+        } else if (
           outcome.reason === "over-cap" ||
           outcome.reason === "threat" ||
           outcome.reason === "atomic" ||

@@ -175,6 +175,12 @@ export const flushSession = Effect.fn("Memory.flushSession")(function* (
   location: Location.Interface,
 ) {
   const sessionKey = String(session.id)
+  // Child/subagent sessions: parent-side delegation observation already captures
+  // task+result; skip content flush to avoid dual-write noise.
+  if (session.parentID !== undefined) {
+    yield* Effect.logInfo(`memory flush skipped: child session ${sessionKey}`)
+    return
+  }
   if (!shouldFlushSession(sessionKey)) {
     yield* Effect.logInfo(`memory flush skipped: cooldown for session ${sessionKey}`)
     return

@@ -83,11 +83,25 @@ describe("Memory delegation wiring", () => {
     ),
   )
 
-  it.effect("skips silently when the result text is empty", () =>
+  it.effect("writes placeholder when result is empty but task is present", () =>
     withDelegationEnv("1", () =>
       withTmpRoots((fs, roots) =>
         Effect.gen(function* () {
           yield* recordDelegationIfWired(fs, roots, { ...observation, result: "   " })
+          const list = yield* listCandidates(fs, roots, 0)
+          expect(list.length).toBe(1)
+          const text = yield* readCandidate(fs, roots, list[0]!.id)
+          expect(text).toContain("(no result text)")
+        }),
+      ),
+    ),
+  )
+
+  it.effect("skips silently when both task and result are empty", () =>
+    withDelegationEnv("1", () =>
+      withTmpRoots((fs, roots) =>
+        Effect.gen(function* () {
+          yield* recordDelegationIfWired(fs, roots, { ...observation, task: "  ", result: "" })
           const list = yield* listCandidates(fs, roots, 0)
           expect(list.length).toBe(0)
         }),

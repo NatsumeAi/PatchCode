@@ -5,7 +5,6 @@ import type { DreamPhase } from "./dream-phases"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
 
 export const STALE_LOCK_SECS = 3600
-const MIN_CONSOLIDATION_HOURS = 4
 
 const baseDir = (roots: MemoryRoots) => roots.workspaceDir ?? roots.globalDir
 const lockPath = (roots: MemoryRoots) => path.join(baseDir(roots), "consolidation.lock")
@@ -83,16 +82,10 @@ export const lastConsolidatedAt = Effect.fn("Memory.lastConsolidatedAt")(functio
   return yield* fileMtime(fs, lastPath(roots))
 })
 
-/** True when a consolidation may run again (older than the min interval). */
-export const shouldConsolidate = Effect.fn("Memory.shouldConsolidate")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
-  const last = yield* lastConsolidatedAt(fs, roots)
-  if (last === undefined) return true
-  return Date.now() - last >= MIN_CONSOLIDATION_HOURS * 60 * 60 * 1000
-})
-
 /**
  * Last-run timestamps per dream phase, read from `dream-phase.last.json`.
  * Missing/corrupt stamps fall back to an empty record, making every phase due.
+ * Phase stamps supersede the old monolithic 4h min-interval gate.
  */
 export const loadDreamStamps = Effect.fn("Memory.loadDreamStamps")(function* (fs: FSUtil.Interface, roots: MemoryRoots) {
   const raw = yield* readTextSafe(fs, stampsPath(roots))

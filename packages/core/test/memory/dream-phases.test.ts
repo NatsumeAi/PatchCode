@@ -3,6 +3,7 @@ import {
   DEFAULT_DREAM_HOURS,
   DEFAULT_DREAM_POLICY,
   DEFAULT_RECOVERY_THRESHOLD,
+  dedupeLightSources,
   filterSourcesForPhase,
   selectDuePhase,
   shouldRecover,
@@ -298,5 +299,41 @@ describe("shouldRecover", () => {
 
   test("zero health with sources → recovery", () => {
     expect(shouldRecover(0, 0.35, 1)).toBe(true)
+  })
+})
+
+describe("dedupeLightSources", () => {
+  test("drops sources near-dup of the archive at 0.9 Jaccard", () => {
+    // Identical token multiset except order → Jaccard 1.0 against archive.
+    const archive = "## Decisions\nUse Effect layers for memory consolidation pipeline"
+    const near = makeSource("note", {
+      id: "near",
+      text: "Use Effect layers for memory consolidation pipeline ## Decisions",
+    })
+    const novel = makeSource("note", {
+      id: "novel",
+      text: "## Architecture\nPrefer dual-root isolation for workspace memory",
+    })
+    const kept = dedupeLightSources([near, novel], archive, 0.9)
+    expect(kept.map((s) => s.id)).toEqual(["novel"])
+  })
+
+  test("drops later source near-dup of an earlier kept source", () => {
+    const a = makeSource("note", {
+      id: "a",
+      text: "## Decisions\nPrefer layered architecture for the subsystem",
+    })
+    const b = makeSource("note", {
+      id: "b",
+      text: "## Decisions\nPrefer layered architecture for the subsystem too",
+    })
+    const kept = dedupeLightSources([a, b], "", 0.65)
+    expect(kept.map((s) => s.id)).toEqual(["a"])
+  })
+
+  test("empty archive keeps all non-cross-dup sources", () => {
+    const a = makeSource("note", { id: "a", text: "alpha unique content about widgets" })
+    const b = makeSource("note", { id: "b", text: "beta unique content about gadgets" })
+    expect(dedupeLightSources([a, b], "", 0.9).map((s) => s.id)).toEqual(["a", "b"])
   })
 })

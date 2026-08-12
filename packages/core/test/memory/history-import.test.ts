@@ -49,6 +49,29 @@ describe("Memory external history import", () => {
     ),
   )
 
+  it.effect("sanitizes role characters that would restructure markdown headings", () =>
+    inTmp((dir) =>
+      Effect.gen(function* () {
+        const fs = yield* FSUtil.Service
+        const roots = resolveRoots(path.join(dir, "mem"), undefined)
+        const source = path.join(dir, "weird-role.jsonl")
+        // Newlines and # must not appear raw in the ### heading line.
+        yield* writeTextAtomic(
+          fs,
+          source,
+          '{"role":"user\\n### inject","text":"safe body text about widgets"}\n',
+        )
+        const result = yield* importExternalHistory(fs, roots, source, { format: "jsonl", allowedRoots: [dir] })
+        expect(result.imported).toBe(1)
+        const names = yield* importedLogs(fs, roots)
+        const text = yield* readTextSafe(fs, path.join(roots.globalDir, "sessions", names[0]!))
+        expect(text).toContain("### user inject")
+        expect(text).not.toMatch(/^### user\n/m)
+        expect(text).toContain("safe body text about widgets")
+      }),
+    ),
+  )
+
   it.effect("messages-json import works", () =>
     inTmp((dir) =>
       Effect.gen(function* () {

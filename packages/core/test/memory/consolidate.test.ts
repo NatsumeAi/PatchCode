@@ -12,6 +12,10 @@ import { writeCandidate } from "../../src/memory/candidates"
 import { contentHash, loadMergedHashes } from "../../src/memory/merged-hashes"
 import { acquireMergeLock, releaseMergeLock, markConsolidated, markDreamPhase, loadDreamStamps } from "../../src/memory/merge-lock"
 import { writeDelegationObservation } from "../../src/memory/delegation-memory"
+import {
+  resetMemoryStatsForTests,
+  shouldSkipConsolidateBackoff,
+} from "../../src/memory/observability"
 import { systemError } from "effect/PlatformError"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
@@ -701,6 +705,31 @@ describe("Memory consolidation", () => {
             if (prior === undefined) delete process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH
             else process.env.OPENCODE_MEMORY_DREAM_RECOVERY_HEALTH = prior
           }
+        }),
+      ),
+    ),
+  )
+
+  it.effect("recovery no-reply applies cooldown so the next tick does not re-burn LLM", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()).pipe(Effect.orDie),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          resetMemoryStatsForTests()
+          const fs = yield* FSUtil.Service
+          const roots = resolveRoots(path.join(dir.path, "mem"), undefined)
+          // Health 0 + note → recovery. LLM returns NO_REPLY → recovery cooldown.
+          yield* plantNote(fs, roots, "stub.md", "## Decision\nSomething durable enough for recovery attempt")
+          streamOutput = [LLMEvent.textDelta({ id: "t1", text: "NO_REPLY" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          expect(shouldSkipConsolidateBackoff(roots.globalDir)).toBe(true)
+          // Immediate second pass is skipped by backoff (not a second LLM call).
+          streamOutput = [LLMEvent.textDelta({ id: "t2", text: "## Merged\n- should not write while cooling" })]
+          yield* runConsolidation({ fs, roots, llm: yield* LLMClient.Service, model })
+          const mem = yield* readTextSafe(fs, path.join(roots.globalDir, "MEMORY.md"))
+          expect(mem).toBeUndefined()
         }),
       ),
     ),

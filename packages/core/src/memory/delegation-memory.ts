@@ -59,10 +59,11 @@ export const writeDelegationObservation = Effect.fn("Memory.writeDelegationObser
     ok: boolean
   },
 ) {
-  const task = input.task.trim()
-  const result = input.result.trim()
+  // Allow either side empty (failed child may have error-only result); skip only when both blank.
+  const task = input.task.trim() || (input.result.trim() === "" ? "" : "(no task text)")
+  const result = input.result.trim() || (input.task.trim() === "" ? "" : "(no result text)")
   if (task === "" || result === "") {
-    yield* Effect.logInfo("memory delegation observation skipped: empty task or result")
+    yield* Effect.logInfo("memory delegation observation skipped: empty task and result")
     return false
   }
   const threatIds = scanForThreats(task).concat(scanForThreats(result))
