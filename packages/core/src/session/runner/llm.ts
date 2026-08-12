@@ -651,7 +651,6 @@ const layer = Layer.effect(
         return { needsContinuation: false, step }
       const agent = yield* agents.select(session.agent)
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContextAndRecall(agent, session.id), session.id)
-      const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
       let needsContinuation = false
       let currentStep = step
       if (promotion) {
@@ -735,216 +734,243 @@ const layer = Layer.effect(
         }
       }
       const startSnapshot = yield* snapshots.capture()
-      const publisher = createLLMEventPublisher(events, {
-        sessionID: session.id,
-        agent: agent.id,
-        model: {
-          id: ModelV2.ID.make(model.id),
-          providerID: ProviderV2.ID.make(model.provider),
-          ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
-        },
-        snapshot: startSnapshot,
-      })
-      const withPublication = Semaphore.makeUnsafe(1).withPermit
-      const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
-        withPublication(publisher.publish(event, outputPaths))
-      let overflowFailure: ProviderErrorEvent | undefined
-      // Abort hung provider pulls: no chunk for STREAM_IDLE_TIMEOUT ends the turn so
-      // child drains settle instead of sitting forever in execution.active.
+      // Bounded drain-internal retries for transient provider failures (W1).
+      // One-shot TurnRetryState limits same-reason recoveries; this caps total
+      // stream attempts (1 initial + 2 retries). Budget was already debited above.
+      const MAX_STREAM_ATTEMPTS = 3
       const STREAM_IDLE_TIMEOUT = Duration.seconds(120)
-      const providerStream = llm.stream(request).pipe(
-        Stream.timeoutOrElse({
-          duration: STREAM_IDLE_TIMEOUT,
-          orElse: () =>
-            Stream.fail(
-              new LLMError({
-                module: "SessionRunner",
-                method: "stream",
-                reason: new UnknownProviderReason({
-                  message: "LLM stream idle timeout (no chunk for 120s)",
-                }),
-              }),
-            ),
-        }),
-        Stream.runForEach((event) =>
-          Effect.gen(function* () {
-            if (overflowFailure || publisher.hasProviderError()) return
-            if (LLMEvent.is.providerError(event)) {
-              if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
-                overflowFailure = event
-                return
-              }
-            }
-            yield* publish(event)
-            yield* drain.hooks.onStream({ _tag: "chunk", sessionID: session.id })
-            if (event.type !== "tool-call" || event.providerExecuted) return
-            if (!toolMaterialization) {
-              yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
-              return
-            }
-            yield* drain.hooks.onToolCall({
-              name: event.name,
-              callID: event.id,
-              sessionID: session.id,
-              input: "input" in event ? (event as { input?: unknown }).input : undefined,
-            })
-            needsContinuation = true
-            const assistantMessageID = yield* publisher.assistantMessageID(event.id)
-            yield* Effect.uninterruptibleMask((restore) =>
-              restore(
-                toolMaterialization.settle({
-                  sessionID: session.id,
-                  agent: agent.id,
-                  assistantMessageID,
-                  call: event,
-                }),
-              ).pipe(
-                Effect.flatMap((settlement) =>
-                  publish(
-                    LLMEvent.toolResult({
-                      id: event.id,
-                      name: event.name,
-                      result: settlement.result,
-                      output: settlement.output,
-                    }),
-                    settlement.outputPaths ?? [],
-                  ),
-                ),
-              ),
-            ).pipe(FiberSet.run(toolFibers))
-          }),
-        ),
-        Effect.ensuring(withPublication(publisher.flush())),
-      )
 
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const stream = yield* restore(providerStream).pipe(Effect.exit)
-          const failure =
-            stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
-          if (
-            recoverOverflow &&
-            !publisher.hasAssistantStarted() &&
-            isContextOverflowFailure(overflowFailure ?? failure) &&
-            (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
-          ) {
-            // Context-overflow recovery via compaction succeeded; do not route
-            // through onFailover (a non-retryable classification would wrongly
-            // request terminal failure when the turn legitimately replays).
-            yield* flushMemoryIfWired(session.id)
-            return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
-          }
-          // Post-compaction attempt (no further recoverOverflow): surface a clear
-          // Step.Failed so the TUI is not left with a silent die/drain failure.
-          if (
-            !recoverOverflow &&
-            isContextOverflowFailure(overflowFailure ?? failure)
-          ) {
-            yield* withPublication(
-              publisher.failAssistant(
-                "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually.",
-              ),
-            )
-          }
-          if (overflowFailure) yield* publish(overflowFailure)
-          const llmFailure = failure instanceof LLMError ? failure : undefined
-          if (llmFailure && !publisher.hasProviderError()) {
-            yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-            yield* withPublication(publisher.failAssistant(llmFailure.reason.message))
-          }
-          if (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) yield* FiberSet.clear(toolFibers)
-          const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
-          if (settled._tag === "Failure" && isUserDeclined(settled.cause)) {
-            yield* FiberSet.clear(toolFibers)
-            yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-            return yield* Effect.interrupt
-          }
-          if (
-            (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) ||
-            (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
-          ) {
-            yield* FiberSet.clear(toolFibers)
-            yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-            if (publisher.hasActiveAssistant())
-              yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
-          }
-          if (settled._tag === "Failure" && !Cause.hasInterrupts(settled.cause)) {
-            const failure = Cause.squash(settled.cause)
-            const message = failure instanceof Error ? failure.message : String(failure)
-            yield* withPublication(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
-          }
-          const stepSettlement = publisher.stepSettlement()
-          const endSnapshot = yield* snapshots.capture()
-          const files =
-            startSnapshot && endSnapshot
-              ? yield* snapshots
-                  .files({ from: startSnapshot, to: endSnapshot })
-                  .pipe(Effect.catch(() => Effect.succeed(undefined)))
-              : undefined
-          // Verifier audit only runs on a genuinely successful stream; a failed
-          // provider stream must not audit a partial or empty claim.
-          if (stream._tag === "Success" && !publisher.hasProviderError()) {
-            yield* drain.hooks.onStreamComplete({
-              sessionID: session.id,
-              finishReason: stepSettlement?.finish ?? "stop",
-              workerClaim: publisher.assistantText(),
-              workerDiffPath: files?.join("\n") ?? "",
-              model,
-            })
-          }
-          // onStreamComplete may request a terminal state (verifier approval,
-          // verifier failure, hard abort). When it does, no further provider
-          // continuation should be offered even if the stream produced tool calls.
-          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
+          let streamAttempt = 0
+          // Loop: each attempt uses a fresh publisher so a failed stream does not
+          // leave failAssistant residue before a recoverable retry.
+          while (true) {
+            streamAttempt++
             needsContinuation = false
-            return { needsContinuation: false, step: currentStep }
-          }
-          if (stepSettlement && !publisher.hasProviderError()) {
-            // FULL tree token budget: debit input+output+reasoning; stop when exhausted.
-            const used =
-              stepSettlement.tokens.input +
-              stepSettlement.tokens.output +
-              stepSettlement.tokens.reasoning
-            const tree = yield* drain.treeBudget.debit(used)
-            if (tree.exhausted) {
-              yield* drain.terminal.request("budget_exhausted")
-              needsContinuation = false
-            }
-            yield* withPublication(
-              events.publish(SessionEvent.Step.Ended, {
-                sessionID: session.id,
-                timestamp: yield* DateTime.now,
-                assistantMessageID: yield* publisher.startAssistant(),
-                finish: stepSettlement.finish,
-                cost: costOf(stepSettlement.tokens, modelInfo),
-                tokens: stepSettlement.tokens,
-                snapshot: endSnapshot,
-                files,
+            // Fresh fiber set per stream attempt so a failed attempt cannot leave
+            // dangling tool fibers that block the next try or scope exit.
+            const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error>()
+            const publisher = createLLMEventPublisher(events, {
+              sessionID: session.id,
+              agent: agent.id,
+              model: {
+                id: ModelV2.ID.make(model.id),
+                providerID: ProviderV2.ID.make(model.provider),
+                ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
+              },
+              snapshot: startSnapshot,
+            })
+            const withPublication = Semaphore.makeUnsafe(1).withPermit
+            const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
+              withPublication(publisher.publish(event, outputPaths))
+            let overflowFailure: ProviderErrorEvent | undefined
+            // Abort hung provider pulls: no chunk for STREAM_IDLE_TIMEOUT ends the turn so
+            // child drains settle instead of sitting forever in execution.active.
+            const providerStream = llm.stream(request).pipe(
+              Stream.timeoutOrElse({
+                duration: STREAM_IDLE_TIMEOUT,
+                orElse: () =>
+                  Stream.fail(
+                    new LLMError({
+                      module: "SessionRunner",
+                      method: "stream",
+                      reason: new UnknownProviderReason({
+                        message: "LLM stream idle timeout (no chunk for 120s)",
+                      }),
+                    }),
+                  ),
               }),
+              Stream.runForEach((event) =>
+                Effect.gen(function* () {
+                  if (overflowFailure || publisher.hasProviderError()) return
+                  if (LLMEvent.is.providerError(event)) {
+                    if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
+                      overflowFailure = event
+                      return
+                    }
+                  }
+                  yield* publish(event)
+                  yield* drain.hooks.onStream({ _tag: "chunk", sessionID: session.id })
+                  if (event.type !== "tool-call" || event.providerExecuted) return
+                  if (!toolMaterialization) {
+                    yield* withPublication(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
+                    return
+                  }
+                  yield* drain.hooks.onToolCall({
+                    name: event.name,
+                    callID: event.id,
+                    sessionID: session.id,
+                    input: "input" in event ? (event as { input?: unknown }).input : undefined,
+                  })
+                  needsContinuation = true
+                  const assistantMessageID = yield* publisher.assistantMessageID(event.id)
+                  yield* Effect.uninterruptibleMask((inner) =>
+                    inner(
+                      toolMaterialization.settle({
+                        sessionID: session.id,
+                        agent: agent.id,
+                        assistantMessageID,
+                        call: event,
+                      }),
+                    ).pipe(
+                      Effect.flatMap((settlement) =>
+                        publish(
+                          LLMEvent.toolResult({
+                            id: event.id,
+                            name: event.name,
+                            result: settlement.result,
+                            output: settlement.output,
+                          }),
+                          settlement.outputPaths ?? [],
+                        ),
+                      ),
+                    ),
+                  ).pipe(FiberSet.run(toolFibers))
+                }),
+              ),
+              Effect.ensuring(withPublication(publisher.flush())),
             )
-            // Persist unified diffs onto session.summary for TUI diff panel (V1 parity).
-            yield* persistStepDiffs(session.id, startSnapshot, endSnapshot, files).pipe(Effect.ignore, Effect.forkScoped)
-          }
-          if (publisher.hasProviderError())
-            yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-          if (stream._tag === "Success" && !publisher.hasProviderError())
-            yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-          if (stream._tag === "Failure") {
-            // Classify the failure once for loop-control observation: a
-            // non-retryable or repeated reason requests terminal
-            // unrecoverable_failure so the outer drain stops. The runner does
-            // not replay the provider turn here; the original error is
-            // propagated so a later explicit resume can retry.
-            const err = failure instanceof LLMError ? failure : undefined
-            if (err && !publisher.hasProviderError()) {
-              yield* drain.hooks.onFailover(err)
+
+            const stream = yield* restore(providerStream).pipe(Effect.exit)
+            const failure =
+              stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
+            if (
+              recoverOverflow &&
+              !publisher.hasAssistantStarted() &&
+              isContextOverflowFailure(overflowFailure ?? failure) &&
+              (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
+            ) {
+              // Context-overflow recovery via compaction succeeded; do not route
+              // through onFailover (a non-retryable classification would wrongly
+              // request terminal failure when the turn legitimately replays).
+              yield* flushMemoryIfWired(session.id)
+              return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
             }
-            return yield* Effect.failCause(stream.cause)
+            // Post-compaction attempt (no further recoverOverflow): surface a clear
+            // Step.Failed so the TUI is not left with a silent die/drain failure.
+            if (!recoverOverflow && isContextOverflowFailure(overflowFailure ?? failure)) {
+              yield* withPublication(
+                publisher.failAssistant(
+                  "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually.",
+                ),
+              )
+            }
+            if (overflowFailure) yield* publish(overflowFailure)
+
+            // Transient retry: only before assistant content or provider tool errors.
+            if (stream._tag === "Failure") {
+              const err = failure instanceof LLMError ? failure : undefined
+              const canClassify = err !== undefined && !publisher.hasProviderError() && !publisher.hasAssistantStarted()
+              if (canClassify && streamAttempt < MAX_STREAM_ATTEMPTS) {
+                const failover = yield* drain.hooks.onFailover(err)
+                if (failover.recovered) {
+                  if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
+                    yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
+                    yield* withPublication(publisher.failAssistant(err.reason.message))
+                    return yield* Effect.failCause(stream.cause)
+                  }
+                  // No sleep under uninterruptibleMask (can starve the runtime);
+                  // one-shot TurnRetryState already bounds same-reason retries.
+                  continue
+                }
+                // Not recovered: terminal already requested by onFailover when !recovered.
+              } else if (canClassify) {
+                // Attempts exhausted — classify once more for terminal side effects.
+                yield* drain.hooks.onFailover(err)
+              }
+              // Exhausted or non-retryable: durable fail + propagate (no tool fiber wait —
+              // a clean pre-assistant failure has no tool work to settle).
+              if (err && !publisher.hasProviderError()) {
+                yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
+                yield* withPublication(publisher.failAssistant(err.reason.message))
+              }
+              return yield* Effect.failCause(stream.cause)
+            }
+
+            // Stream success path (original post-stream settlement).
+            if (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) yield* FiberSet.clear(toolFibers)
+            const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
+            if (settled._tag === "Failure" && isUserDeclined(settled.cause)) {
+              yield* FiberSet.clear(toolFibers)
+              yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
+              return yield* Effect.interrupt
+            }
+            if (
+              (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) ||
+              (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause))
+            ) {
+              yield* FiberSet.clear(toolFibers)
+              yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
+              if (publisher.hasActiveAssistant())
+                yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
+            }
+            if (settled._tag === "Failure" && !Cause.hasInterrupts(settled.cause)) {
+              const toolFailure = Cause.squash(settled.cause)
+              const message = toolFailure instanceof Error ? toolFailure.message : String(toolFailure)
+              yield* withPublication(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
+            }
+            const stepSettlement = publisher.stepSettlement()
+            const endSnapshot = yield* snapshots.capture()
+            const files =
+              startSnapshot && endSnapshot
+                ? yield* snapshots
+                    .files({ from: startSnapshot, to: endSnapshot })
+                    .pipe(Effect.catch(() => Effect.succeed(undefined)))
+                : undefined
+            // Verifier audit only runs on a genuinely successful stream; a failed
+            // provider stream must not audit a partial or empty claim.
+            if (stream._tag === "Success" && !publisher.hasProviderError()) {
+              yield* drain.hooks.onStreamComplete({
+                sessionID: session.id,
+                finishReason: stepSettlement?.finish ?? "stop",
+                workerClaim: publisher.assistantText(),
+                workerDiffPath: files?.join("\n") ?? "",
+                model,
+              })
+            }
+            // onStreamComplete may request a terminal state (verifier approval,
+            // verifier failure, hard abort). When it does, no further provider
+            // continuation should be offered even if the stream produced tool calls.
+            if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
+              needsContinuation = false
+              return { needsContinuation: false, step: currentStep }
+            }
+            if (stepSettlement && !publisher.hasProviderError()) {
+              // FULL tree token budget: debit input+output+reasoning; stop when exhausted.
+              const used =
+                stepSettlement.tokens.input +
+                stepSettlement.tokens.output +
+                stepSettlement.tokens.reasoning
+              const tree = yield* drain.treeBudget.debit(used)
+              if (tree.exhausted) {
+                yield* drain.terminal.request("budget_exhausted")
+                needsContinuation = false
+              }
+              yield* withPublication(
+                events.publish(SessionEvent.Step.Ended, {
+                  sessionID: session.id,
+                  timestamp: yield* DateTime.now,
+                  assistantMessageID: yield* publisher.startAssistant(),
+                  finish: stepSettlement.finish,
+                  cost: costOf(stepSettlement.tokens, modelInfo),
+                  tokens: stepSettlement.tokens,
+                  snapshot: endSnapshot,
+                  files,
+                }),
+              )
+              // Persist unified diffs onto session.summary for TUI diff panel (V1 parity).
+              yield* persistStepDiffs(session.id, startSnapshot, endSnapshot, files).pipe(Effect.ignore, Effect.forkScoped)
+            }
+            if (publisher.hasProviderError())
+              yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
+            if (stream._tag === "Success" && !publisher.hasProviderError())
+              yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
+            if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
+              return yield* Effect.failCause(settled.cause)
+            }
+            return { needsContinuation: !publisher.hasProviderError() && needsContinuation, step: currentStep }
           }
-          if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
-            return yield* Effect.failCause(settled.cause)
-          }
-          return { needsContinuation: !publisher.hasProviderError() && needsContinuation, step: currentStep }
         }),
       )
     }, Effect.scoped)

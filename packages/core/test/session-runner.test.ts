@@ -3776,12 +3776,52 @@ describe("SessionRunnerLLM", () => {
       )
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail raw" }), resume: false })
       const failure = providerUnavailable()
-      responseStream = Stream.fail(failure)
+      // streamFailure is re-read every llm.stream() (not one-shot like responseStream).
+      streamFailure = failure
       expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
-      expect(hardAborts).toEqual([])
+      // Transient transport: first onFailover recovers (retry), second exhausts one-shot
+      // and requests terminal unrecoverable_failure + HardAbort.
+      expect(hardAborts.some((r) => r.startsWith("unrecoverable_"))).toBe(true)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("failed")
+      expect(snap.reason).toBe("unrecoverable_failure")
+    }),
+  )
+
+  it.effect("transient provider failure retries then succeeds without terminal", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Retry then ok" }), resume: false })
+      let calls = 0
+      const failure = providerUnavailable()
+      // Harness clears responseStream after each llm.stream() — reinstall for the retry.
+      const install = () => {
+        responseStream = Stream.suspend(() => {
+          calls++
+          if (calls === 1) {
+            // After first failure, re-arm so the drain-internal retry gets a success stream.
+            return Stream.fail(failure).pipe(
+              Stream.ensuring(Effect.sync(() => install())),
+            )
+          }
+          return Stream.fromIterable([
+            LLMEvent.stepStart({ index: 0 }),
+            LLMEvent.textStart({ id: "t1" }),
+            LLMEvent.textDelta({ id: "t1", text: "ok after retry" }),
+            LLMEvent.textEnd({ id: "t1" }),
+            LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+            LLMEvent.finish({ reason: "stop" }),
+          ])
+        })
+      }
+      install()
+      yield* session.resume(sessionID)
+      expect(calls).toBe(2)
       const snap = yield* instance.terminal.snapshot
       expect(snap.state).toBe("running")
-      expect(snap.reason).toBe(null)
     }),
   )
 
