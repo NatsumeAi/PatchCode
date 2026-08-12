@@ -1,18 +1,28 @@
 # Loop Resilience & Hardening — Real-Gap Remediation Implementation Plan
 
-## Implementation status (2026-08-12)
+## Implementation status (2026-08-12 → residual closeout)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| R1 W1 drain retry | **done** | `llm.ts` loop; session-runner tests |
-| R2 W3 durable jobs | **partial** | Optional JSON ledger via `OPENCODE_BACKGROUND_JOB_LEDGER` + stale reap on start |
-| R3 W4 tool framing | **done** | `tool-result-framing.ts` + `to-llm-message` |
+| R1 W1 drain retry | **done** | Bounded stream retry + **interruptible wall-clock backoff** (`restore` + `setTimeout` callback); stream-interrupt durable close restored |
+| R2 W3 durable jobs | **done** | SQLite `background_job` table (default); stale reap on start; in-memory fast path; JSON ledger removed |
+| R3 W4 tool framing | **done** | Untrusted wrap; **skip framing for providerExecuted** (wire-shape replay) |
 | R4 W2 breaker | **done** | per-provider + sliding window + half-open probe + allowRequest |
 | R5 W6 write containment | **done** | `assertWriteContained` + location-mutation |
 | R6 W5 threat scopes | **done** | `scanForThreatsInScope` + skill load gate |
-| R7 W7 content search | **done** | title OR session_message data LIKE |
+| R7 W7 content search | **done** | Title LIKE **OR FTS5** `session_message_fts` + LIKE fallback; ensure on DB open |
 | R8 W9 keyboard nav | **done** | `ctrl+alt+j/k` → selectNext/Prev |
-| R9 gate | run suite below |
+| R10 W10 dual command | **done** | Slash-path audit: instance `Command` is execute authority; **bridge CommandV2 → Command** on init |
+| R9 gate | **done** | session-runner 95/95; memory 308+; background-job SQL tests; core typecheck 0 |
+
+### W10 slash-path audit (closed)
+
+| Surface | Registry | Role |
+|---------|----------|------|
+| Instance `GET /command` + `SessionPrompt.command` | `@/command` `Command` | **Slash list + execute** (skills, MCP, cfg.command, builtins) |
+| Location `command.list` (server API) | `CommandV2` | Config/plugin location registry |
+| Risk | Dual list | Location-only CommandV2 names were invisible to slash execute |
+| Fix | Merge missing `CommandV2.list()` into instance `Command` init | Single execute authority keeps skills/MCP; config-plugin names run via slash |
 
 ---
 

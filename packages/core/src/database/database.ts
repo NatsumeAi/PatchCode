@@ -19,6 +19,40 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/storage/Database") {}
 
+/**
+ * W7: ensure FTS5 + triggers exist even when empty-DB bootstrap marks migrations
+ * complete without executing their SQL (schema.up path). Idempotent.
+ */
+function ensureSessionMessageFts(db: DatabaseShape) {
+  return Effect.gen(function* () {
+    yield* db.run(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS session_message_fts USING fts5(
+        text,
+        session_id UNINDEXED,
+        message_id UNINDEXED
+      )
+    `)
+    yield* db.run(`
+      CREATE TRIGGER IF NOT EXISTS session_message_fts_ai AFTER INSERT ON session_message BEGIN
+        INSERT INTO session_message_fts(text, session_id, message_id)
+        VALUES (cast(new.data as text), new.session_id, new.id);
+      END
+    `)
+    yield* db.run(`
+      CREATE TRIGGER IF NOT EXISTS session_message_fts_ad AFTER DELETE ON session_message BEGIN
+        DELETE FROM session_message_fts WHERE message_id = old.id;
+      END
+    `)
+    yield* db.run(`
+      CREATE TRIGGER IF NOT EXISTS session_message_fts_au AFTER UPDATE OF data ON session_message BEGIN
+        DELETE FROM session_message_fts WHERE message_id = old.id;
+        INSERT INTO session_message_fts(text, session_id, message_id)
+        VALUES (cast(new.data as text), new.session_id, new.id);
+      END
+    `)
+  }).pipe(Effect.catch(() => Effect.void))
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -31,6 +65,7 @@ const layer = Layer.effect(
     yield* db.run("PRAGMA foreign_keys = ON")
     yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
     yield* DatabaseMigration.apply(db)
+    yield* ensureSessionMessageFts(db)
 
     return { db }
   }).pipe(Effect.orDie),

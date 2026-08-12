@@ -860,6 +860,14 @@ const layer = Layer.effect(
 
             // Transient retry: only before assistant content or provider tool errors.
             if (stream._tag === "Failure") {
+              // User/runtime interrupt: durable-close partials (W1 must not skip this).
+              if (Cause.hasInterrupts(stream.cause)) {
+                yield* FiberSet.clear(toolFibers)
+                yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
+                if (publisher.hasActiveAssistant())
+                  yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
+                return yield* Effect.failCause(stream.cause)
+              }
               const err = failure instanceof LLMError ? failure : undefined
               const canClassify = err !== undefined && !publisher.hasProviderError() && !publisher.hasAssistantStarted()
               if (canClassify && streamAttempt < MAX_STREAM_ATTEMPTS) {
@@ -870,8 +878,22 @@ const layer = Layer.effect(
                     yield* withPublication(publisher.failAssistant(err.reason.message))
                     return yield* Effect.failCause(stream.cause)
                   }
-                  // No sleep under uninterruptibleMask (can starve the runtime);
-                  // one-shot TurnRetryState already bounds same-reason retries.
+                  // Interruptible wall-clock backoff via restore() + Effect.callback.
+                  // Uses setTimeout (not Effect.sleep) so TestClock environments do not
+                  // hang, and Fiber.interrupt clears the timer. Cap: 500ms → 4s.
+                  // HTTP layer may also retry 429.
+                  const backoffMs = Math.min(500 * 2 ** (streamAttempt - 1), 4000)
+                  yield* restore(
+                    Effect.callback<void>((resume) => {
+                      const handle = setTimeout(() => resume(Effect.void), backoffMs)
+                      return Effect.sync(() => clearTimeout(handle))
+                    }),
+                  )
+                  if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
+                    yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
+                    yield* withPublication(publisher.failAssistant(err.reason.message))
+                    return yield* Effect.failCause(stream.cause)
+                  }
                   continue
                 }
                 // Not recovered: terminal already requested by onFailover when !recovered.

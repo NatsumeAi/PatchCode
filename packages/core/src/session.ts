@@ -307,11 +307,26 @@ const layer = Layer.effect(
         if (input.workspaceID) conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
         if ("project" in input) conditions.push(eq(SessionTable.project_id, input.project))
         if (input.search) {
-          // Title match (backward compatible) OR v2 message body JSON text (W7 content search).
+          // Title (LIKE, backward compatible) OR message content via FTS5 (W7).
+          // FTS query: tokenize like memory.ftsQuery (OR terms); fall back to LIKE if FTS empty.
           const term = `%${input.search}%`
+          const ftsTerms = input.search
+            .toLowerCase()
+            .split(/[^\p{L}\p{N}_-]+/u)
+            .filter((t) => t.length >= 2)
+          const ftsQuery =
+            ftsTerms.length > 0
+              ? ftsTerms.map((t) => `"${t.replaceAll('"', "")}"`).join(" OR ")
+              : `"${input.search.replaceAll('"', "")}"`
           conditions.push(
             or(
               like(SessionTable.title, term),
+              sql`exists (
+                select 1 from session_message_fts f
+                where f.session_id = ${SessionTable.id}
+                  and session_message_fts match ${ftsQuery}
+              )`,
+              // LIKE fallback for installs without FTS rows or pre-trigger data.
               sql`exists (
                 select 1 from session_message sm
                 where sm.session_id = ${SessionTable.id}

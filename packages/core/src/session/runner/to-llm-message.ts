@@ -41,27 +41,33 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
   if (tool.state.status === "completed") {
     // TODO: Materialize remote and managed URIs before provider-history lowering.
     // ToolOutput.toResultValue rejects unresolved URIs rather than treating them as media bytes.
+    const providerExecuted = tool.provider?.executed === true
     const raw =
-      tool.provider?.executed === true && tool.state.result !== undefined
+      providerExecuted && tool.state.result !== undefined
         ? tool.state.result
         : ToolOutput.toResultValue({ structured: tool.state.structured, content: tool.state.content })
+    // Provider-executed (hosted) results must keep wire shape for multi-turn replay;
+    // only frame local/untrusted tool outputs the model will re-read as data.
+    const result = providerExecuted ? raw : frameToolResult(tool.name, raw)
     return ToolResultPart.make({
       id: tool.id,
       name: tool.name,
-      result: frameToolResult(tool.name, raw),
+      result,
       providerExecuted: tool.provider?.executed,
       providerMetadata,
     })
   }
   if (tool.state.status === "error") {
+    const providerExecuted = tool.provider?.executed === true
     const raw =
-      tool.provider?.executed === true && tool.state.result !== undefined
+      providerExecuted && tool.state.result !== undefined
         ? tool.state.result
         : { error: tool.state.error, content: tool.state.content, structured: tool.state.structured }
+    const result = providerExecuted ? raw : frameToolResult(tool.name, raw)
     return ToolResultPart.make({
       id: tool.id,
       name: tool.name,
-      result: frameToolResult(tool.name, raw),
+      result,
       resultType: "error",
       providerExecuted: tool.provider?.executed,
       providerMetadata,

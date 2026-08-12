@@ -1,10 +1,11 @@
 export * as BackgroundJob from "./background-job"
 
-import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Scope, SynchronizedRef } from "effect"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Option, Scope, SynchronizedRef } from "effect"
+import { eq, and, lt } from "drizzle-orm"
 import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
+import { Database } from "./database/database"
+import { BackgroundJobTable } from "./background-job/sql"
 
 export type Status = "running" | "completed" | "error" | "cancelled"
 
@@ -125,94 +126,134 @@ function errorText(error: unknown) {
 /** Stale running jobs older than this are reaped as failed after crash (W3). */
 export const STALE_JOB_MS = Duration.toMillis(PROMOTE_WAIT_TIMEOUT)
 
-type DurableRow = {
-  id: string
-  type: string
-  status: Status
-  started_at: number
-  heartbeat_at: number
-  completed_at?: number
-  error?: string
-  output?: string
-  metadata?: Record<string, unknown>
+function sessionIdFrom(info: Info): string | undefined {
+  const meta = info.metadata
+  if (!meta) return undefined
+  const raw = meta.sessionId ?? meta.sessionID ?? meta.parentSessionID
+  return typeof raw === "string" && raw.length > 0 ? raw : undefined
+}
+
+function rowToInfo(row: typeof BackgroundJobTable.$inferSelect): Info {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title ?? undefined,
+    status: row.status as Status,
+    started_at: row.started_at,
+    completed_at: row.completed_at ?? undefined,
+    error: row.error ?? undefined,
+    output: row.output ?? undefined,
+    metadata: row.metadata ?? undefined,
+  }
 }
 
 /**
- * Process-local fast path + optional durable JSON ledger for crash recovery.
- * Live work still runs in-memory; on start we reap stale `running` rows whose
- * heartbeat is older than STALE_JOB_MS (30m, matching promotion timeout).
+ * Process-local fast path + SQLite durable ledger for crash recovery (W3).
+ * Live work still runs in-memory; durable table is the source of truth across
+ * restarts. When Database is unavailable (unit tests using bare `make`), falls
+ * back to process-local only. Production `node` depends on Database so SQL is default.
  */
 export const make = Effect.gen(function* () {
   const state: State = {
     jobs: yield* SynchronizedRef.make(new Map()),
     scope: yield* Scope.Scope,
   }
-  // Durable ledger path is process-local under tmp — survives restarts of the
-  // same machine profile without requiring a SQL migration for v1.
-  const durablePath = `${process.env.OPENCODE_BACKGROUND_JOB_LEDGER ?? ""}`.trim() || undefined
-  const durable = durablePath
-    ? {
-        read: (): Map<string, DurableRow> => {
-          try {
-            const raw = readFileSync(durablePath, "utf8")
-            const parsed = JSON.parse(raw) as DurableRow[]
-            return new Map(parsed.map((r) => [r.id, r]))
-          } catch {
-            return new Map()
-          }
-        },
-        write: (map: Map<string, DurableRow>) => {
-          try {
-            mkdirSync(dirname(durablePath), { recursive: true })
-            writeFileSync(durablePath, JSON.stringify([...map.values()]), "utf8")
-          } catch {
-            /* best-effort */
-          }
-        },
-      }
-    : undefined
+  const databaseOpt = yield* Effect.serviceOption(Database.Service)
+  const db = Option.isSome(databaseOpt) ? databaseOpt.value.db : undefined
 
-  const touchDurable = (info: Info, heartbeat = true) => {
-    if (!durable) return
-    const map = durable.read()
-    const prev = map.get(info.id)
-    map.set(info.id, {
-      id: info.id,
-      type: info.type,
-      status: info.status,
-      started_at: info.started_at,
-      heartbeat_at: heartbeat ? Date.now() : (prev?.heartbeat_at ?? info.started_at),
-      completed_at: info.completed_at,
-      error: info.error,
-      output: info.output,
-      metadata: info.metadata,
-    })
-    durable.write(map)
-  }
-
-  /** Reap stale running rows left by a prior crash. */
-  const reapStale = () => {
-    if (!durable) return [] as DurableRow[]
-    const map = durable.read()
+  const touchDurable = (info: Info, heartbeat = true): Effect.Effect<void> => {
+    if (!db) return Effect.void
     const now = Date.now()
-    const reaped: DurableRow[] = []
-    for (const [id, row] of map) {
-      if (row.status !== "running") continue
-      if (now - row.heartbeat_at < STALE_JOB_MS) continue
-      const next: DurableRow = {
-        ...row,
-        status: "error",
-        completed_at: now,
-        error: "stale-after-crash",
-      }
-      map.set(id, next)
-      reaped.push(next)
-    }
-    if (reaped.length > 0) durable.write(map)
-    return reaped
+    return db
+      .insert(BackgroundJobTable)
+      .values({
+        id: info.id,
+        type: info.type,
+        status: info.status,
+        title: info.title,
+        session_id: sessionIdFrom(info),
+        started_at: info.started_at,
+        heartbeat_at: heartbeat ? now : info.started_at,
+        completed_at: info.completed_at,
+        error: info.error,
+        output: info.output,
+        metadata: info.metadata,
+      })
+      .onConflictDoUpdate({
+        target: BackgroundJobTable.id,
+        set: {
+          type: info.type,
+          status: info.status,
+          title: info.title,
+          session_id: sessionIdFrom(info),
+          started_at: info.started_at,
+          ...(heartbeat ? { heartbeat_at: now } : {}),
+          completed_at: info.completed_at,
+          error: info.error,
+          output: info.output,
+          metadata: info.metadata,
+        },
+      })
+      .run()
+      .pipe(
+        Effect.orDie,
+        Effect.asVoid,
+        Effect.catch(() => Effect.void),
+      )
   }
-  // Run reap once at construction.
-  reapStale()
+
+  const getDurable = (id: string): Effect.Effect<Info | undefined> => {
+    if (!db) return Effect.succeed(undefined)
+    return db
+      .select()
+      .from(BackgroundJobTable)
+      .where(eq(BackgroundJobTable.id, id))
+      .get()
+      .pipe(
+        Effect.orDie,
+        Effect.map((row) => (row ? rowToInfo(row) : undefined)),
+        Effect.catch(() => Effect.succeed(undefined as Info | undefined)),
+      )
+  }
+
+  /** Reap stale running rows left by a prior crash. Returns reaped infos. */
+  const reapStale = (): Effect.Effect<Info[]> => {
+    if (!db) return Effect.succeed([])
+    const now = Date.now()
+    const cutoff = now - STALE_JOB_MS
+    return Effect.gen(function* () {
+      const stale = yield* db
+        .select()
+        .from(BackgroundJobTable)
+        .where(and(eq(BackgroundJobTable.status, "running"), lt(BackgroundJobTable.heartbeat_at, cutoff)))
+        .all()
+        .pipe(Effect.orDie)
+      const reaped: Info[] = []
+      for (const row of stale) {
+        yield* db
+          .update(BackgroundJobTable)
+          .set({ status: "error", completed_at: now, error: "stale-after-crash" })
+          .where(eq(BackgroundJobTable.id, row.id))
+          .run()
+          .pipe(Effect.orDie)
+        reaped.push(
+          rowToInfo({
+            ...row,
+            status: "error",
+            completed_at: now,
+            error: "stale-after-crash",
+          }),
+        )
+      }
+      if (reaped.length > 0) {
+        yield* Effect.logInfo("BackgroundJob.reapStale", { count: reaped.length }).pipe(Effect.ignore)
+      }
+      return reaped
+    }).pipe(Effect.catch(() => Effect.succeed([] as Info[])))
+  }
+
+  // Run reap once at construction (best-effort).
+  yield* reapStale()
 
   const settle = Effect.fn("BackgroundJob.settle")(function* (
     id: string,
@@ -259,7 +300,7 @@ export const make = Effect.gen(function* () {
       return [{ info: snapshot(next), done: job.done, scope: job.scope }, new Map(jobs).set(id, next)]
     })
     if (result.info && result.done) yield* Deferred.succeed(result.done, result.info).pipe(Effect.ignore)
-    if (result.info) touchDurable(result.info, false)
+    if (result.info) yield* touchDurable(result.info, false)
     if (result.scope) {
       yield* Scope.close(result.scope, Exit.void).pipe(Effect.forkIn(state.scope, { startImmediately: true }))
     }
@@ -291,8 +332,9 @@ export const make = Effect.gen(function* () {
 
   const get: Interface["get"] = Effect.fn("BackgroundJob.get")(function* (id) {
     const job = (yield* SynchronizedRef.get(state.jobs)).get(id)
-    if (!job) return
-    return snapshot(job)
+    if (job) return snapshot(job)
+    // After crash/reap, live map is empty — fall back to durable ledger.
+    return yield* getDurable(id)
   })
 
   const start: Interface["start"] = Effect.fn("BackgroundJob.start")(function* (input) {
@@ -344,7 +386,7 @@ export const make = Effect.gen(function* () {
             0,
             restore(input.run).pipe(Effect.ensuring(Deferred.succeed(tail, undefined))),
           )
-        touchDurable(result.info)
+        yield* touchDurable(result.info)
         return result.info
       }),
     )
@@ -381,6 +423,9 @@ export const make = Effect.gen(function* () {
             Effect.ensuring(Deferred.succeed(result.tail, undefined)),
           ),
         )
+        // Heartbeat on extend so long multi-step jobs are not reaped while live.
+        const live = (yield* SynchronizedRef.get(state.jobs)).get(input.id)
+        if (live) yield* touchDurable(snapshot(live), true)
         return true
       }),
     )
@@ -431,6 +476,7 @@ export const make = Effect.gen(function* () {
       }),
     )
     if (result.info && result.promoted) yield* Deferred.succeed(result.promoted, result.info).pipe(Effect.ignore)
+    if (result.info) yield* touchDurable(result.info, true)
     if (result.onPromote) yield* result.onPromote.pipe(Effect.ignore)
     return result.info
   })
@@ -454,6 +500,7 @@ export const make = Effect.gen(function* () {
       return [{ info: snapshot(next), done: job.done, scope: job.scope }, new Map(jobs).set(id, next)]
     })
     if (result.info && result.done) yield* Deferred.succeed(result.done, result.info).pipe(Effect.ignore)
+    if (result.info) yield* touchDurable(result.info, false)
     if (result.scope) yield* Scope.close(result.scope, Exit.void)
     return result.info
   })
@@ -463,4 +510,5 @@ export const make = Effect.gen(function* () {
 
 const layer = Layer.effect(Service, make)
 
-export const node = makeGlobalNode({ service: Service, layer, deps: [] })
+/** Production node: Database required so crash durability is on by default. */
+export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node] })

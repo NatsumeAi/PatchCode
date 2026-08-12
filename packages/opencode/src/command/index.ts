@@ -3,10 +3,11 @@ import path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect/bridge"
 import type { InstanceContext } from "@/project/instance-context"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Option, Schema } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
+import { CommandV2 } from "@opencode-ai/core/command"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
@@ -156,6 +157,32 @@ const layer = Layer.effect(
             ].join("\n")
           },
           hints: [],
+        }
+      }
+
+      // W10: bridge CommandV2 (location/config plugin registry) into the
+      // slash-execution registry so location-only commands remain runnable.
+      // Instance Command is the single authority for /command list + execute.
+      // CommandV2 remains for location plugins / server.command.list; we merge
+      // missing names here so dual registration does not hide slash commands.
+      const commandV2 = yield* Effect.serviceOption(CommandV2.Service)
+      if (Option.isSome(commandV2)) {
+        for (const item of yield* commandV2.value.list()) {
+          if (commands[item.name]) continue
+          const model =
+            item.model === undefined
+              ? undefined
+              : `${item.model.providerID}/${item.model.id}${item.model.variant ? `:${item.model.variant}` : ""}`
+          commands[item.name] = {
+            name: item.name,
+            description: item.description,
+            agent: item.agent,
+            model,
+            source: "command",
+            template: item.template,
+            subtask: item.subtask,
+            hints: hints(item.template),
+          }
         }
       }
 

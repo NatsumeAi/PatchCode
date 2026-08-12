@@ -1,8 +1,13 @@
 import { describe, expect } from "bun:test"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
+import { BackgroundJobTable } from "@opencode-ai/core/background-job/sql"
+import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Deferred, Effect, Exit, Scope } from "effect"
+import { eq } from "drizzle-orm"
+import { Deferred, Effect, Exit, Layer, Scope } from "effect"
 import { it } from "./lib/effect"
+import { tmpdir } from "./fixture/tmpdir"
+import path from "path"
 
 const jobsLayer = LayerNode.compile(BackgroundJob.node)
 
@@ -101,6 +106,98 @@ describe("BackgroundJob", () => {
       yield* Deferred.await(interrupted).pipe(Effect.timeout("1 second"))
       // The abandoned in-memory registry is not a durable observation channel.
       expect((yield* jobs.get(job.id))?.status).toBe("running")
+    }),
+  )
+
+  it.live("persists running rows to SQL and reaps stale after crash", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.promise(() => tmpdir())
+      const filename = path.join(tmp.path, "jobs.sqlite")
+      const layer = Layer.mergeAll(LayerNode.compile(BackgroundJob.node), Database.layerFromPath(filename))
+
+      // Spawn live job → durable row running + complete.
+      yield* Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const latch = yield* Deferred.make<void>()
+        const job = yield* jobs.start({
+          id: "job_durable_1",
+          type: "test",
+          metadata: { sessionId: "ses_parent" },
+          run: Deferred.await(latch).pipe(Effect.as("done")),
+        })
+        const db = (yield* Database.Service).db
+        const row = yield* db
+          .select()
+          .from(BackgroundJobTable)
+          .where(eq(BackgroundJobTable.id, job.id))
+          .get()
+          .pipe(Effect.orDie)
+        expect(row?.status).toBe("running")
+        expect(row?.session_id).toBe("ses_parent")
+        expect(typeof row?.heartbeat_at).toBe("number")
+        yield* Deferred.succeed(latch, undefined)
+        expect(yield* jobs.wait({ id: job.id })).toMatchObject({
+          timedOut: false,
+          info: { status: "completed", output: "done" },
+        })
+        const done = yield* db
+          .select()
+          .from(BackgroundJobTable)
+          .where(eq(BackgroundJobTable.id, job.id))
+          .get()
+          .pipe(Effect.orDie)
+        expect(done?.status).toBe("completed")
+      }).pipe(Effect.provide(layer), Effect.scoped)
+
+      // Simulate crash: insert stale running row, construct make → reaped.
+      yield* Effect.gen(function* () {
+        const db = (yield* Database.Service).db
+        const staleAt = Date.now() - BackgroundJob.STALE_JOB_MS - 60_000
+        yield* db
+          .insert(BackgroundJobTable)
+          .values({
+            id: "job_stale_crash",
+            type: "test",
+            status: "running",
+            started_at: staleAt,
+            heartbeat_at: staleAt,
+            session_id: "ses_x",
+          })
+          .run()
+          .pipe(Effect.orDie)
+        yield* BackgroundJob.make
+        const row = yield* db
+          .select()
+          .from(BackgroundJobTable)
+          .where(eq(BackgroundJobTable.id, "job_stale_crash"))
+          .get()
+          .pipe(Effect.orDie)
+        expect(row?.status).toBe("error")
+        expect(row?.error).toBe("stale-after-crash")
+
+        const freshAt = Date.now()
+        yield* db
+          .insert(BackgroundJobTable)
+          .values({
+            id: "job_fresh_running",
+            type: "test",
+            status: "running",
+            started_at: freshAt,
+            heartbeat_at: freshAt,
+          })
+          .run()
+          .pipe(Effect.orDie)
+        yield* BackgroundJob.make
+        const fresh = yield* db
+          .select()
+          .from(BackgroundJobTable)
+          .where(eq(BackgroundJobTable.id, "job_fresh_running"))
+          .get()
+          .pipe(Effect.orDie)
+        expect(fresh?.status).toBe("running")
+      }).pipe(Effect.provide(Database.layerFromPath(filename)), Effect.scoped)
+
+      yield* Effect.promise(() => tmp[Symbol.asyncDispose]())
     }),
   )
 })

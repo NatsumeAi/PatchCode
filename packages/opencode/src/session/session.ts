@@ -1030,11 +1030,24 @@ function listByProject(
     conditions.push(gte(SessionTable.time_updated, input.start))
   }
   if (input.search) {
-    // Title (compat) OR v2 message JSON text (W7 content search).
+    // Title (compat) OR FTS5 message content (W7) with LIKE fallback.
     const term = `%${input.search}%`
+    const ftsTerms = input.search
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}_-]+/u)
+      .filter((t) => t.length >= 2)
+    const ftsQuery =
+      ftsTerms.length > 0
+        ? ftsTerms.map((t) => `"${t.replaceAll('"', "")}"`).join(" OR ")
+        : `"${input.search.replaceAll('"', "")}"`
     conditions.push(
       or(
         like(SessionTable.title, term),
+        sql`exists (
+          select 1 from session_message_fts f
+          where f.session_id = ${SessionTable.id}
+            and session_message_fts match ${ftsQuery}
+        )`,
         sql`exists (
           select 1 from session_message sm
           where sm.session_id = ${SessionTable.id}
