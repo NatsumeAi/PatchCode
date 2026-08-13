@@ -52,7 +52,9 @@ export const make = (
   options?: { windowMs?: number; cooldownMs?: number; enabled?: boolean },
 ): Effect.Effect<Interface> =>
   Effect.gen(function* () {
-    const enabled = options?.enabled !== false
+    // Default off: production construction stays a no-op unless explicitly enabled
+    // (plan: do not change existing drain behavior). Tests pass { enabled: true }.
+    const enabled = options?.enabled === true
     const windowMs = options?.windowMs ?? DEFAULT_WINDOW_MS
     const cooldownMs = options?.cooldownMs ?? DEFAULT_COOLDOWN_MS
     const buckets = yield* SynchronizedRef.make(new Map<string, Bucket>())
@@ -174,6 +176,6 @@ export const reset: Effect.Effect<void, never, Interface> = Effect.gen(function*
   yield* svc.reset
 })
 
-export const layerForTest: Layer.Layer<Interface> = Layer.effect(Service, make())
+export const layerForTest: Layer.Layer<Interface> = Layer.effect(Service, make(DEFAULT_FAILURE_THRESHOLD, { enabled: true }))
 
 export const node = makeGlobalNode({ service: Service, layer: Layer.effect(Service, make()), deps: [] })

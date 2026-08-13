@@ -1,7 +1,7 @@
 export * as BackgroundJob from "./background-job"
 
 import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Option, Scope, SynchronizedRef } from "effect"
-import { eq, and, lt } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
 import { Database } from "./database/database"
@@ -222,12 +222,13 @@ export const make = Effect.gen(function* () {
   const reapStale = (): Effect.Effect<Info[]> => {
     if (!db) return Effect.succeed([])
     const now = Date.now()
-    const cutoff = now - STALE_JOB_MS
     return Effect.gen(function* () {
+      // This process cannot inherit live work. Every leftover `running` row is
+      // a prior-crash orphan (the 30m heartbeat is only for live extend).
       const stale = yield* db
         .select()
         .from(BackgroundJobTable)
-        .where(and(eq(BackgroundJobTable.status, "running"), lt(BackgroundJobTable.heartbeat_at, cutoff)))
+        .where(eq(BackgroundJobTable.status, "running"))
         .all()
         .pipe(Effect.orDie)
       const reaped: Info[] = []

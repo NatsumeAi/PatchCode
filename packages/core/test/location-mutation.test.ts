@@ -79,7 +79,7 @@ describe("LocationMutation", () => {
           await fs.symlink(outside, path.join(directory, "escape"))
         })
         const error = yield* Effect.flip(
-          (yield* LocationMutation.Service).resolve({ path: path.join("escape", "new.txt") }),
+          (yield* LocationMutation.Service).resolve({ path: path.join("escape", "new.txt"), forWrite: true }),
         )
         expect(error).toMatchObject({ _tag: "LocationMutation.PathError", reason: "location_escape" })
         yield* Effect.promise(() => fs.rm(outside, { recursive: true, force: true }))
@@ -170,7 +170,7 @@ describe("LocationMutation", () => {
   )
 
   test("ignores unknown mutation input fields", () => {
-    expect(Object.keys(LocationMutation.ResolveInput.fields)).toEqual(["path", "kind"])
+    expect(Object.keys(LocationMutation.ResolveInput.fields)).toEqual(["path", "kind", "forWrite"])
     expect(Schema.decodeUnknownSync(LocationMutation.ResolveInput)({ path: "README.md", reference: "docs" })).toEqual({
       path: "README.md",
     })

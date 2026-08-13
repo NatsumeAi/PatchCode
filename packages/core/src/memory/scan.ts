@@ -236,8 +236,9 @@ function normalizeNfkc(text: string): string {
  */
 export type ThreatScanScope = "strict" | "context" | "all"
 
+/** Context/skill install: injection hijacks only. Omit `inject_soft_must` ("you must") — too common in legit skills. */
 const CONTEXT_PATTERN_IDS = new Set(
-  THREAT_PATTERNS.filter((p) => p.id.startsWith("inject_")).map((p) => p.id),
+  THREAT_PATTERNS.filter((p) => p.id.startsWith("inject_") && p.id !== "inject_soft_must").map((p) => p.id),
 )
 
 function patternsForScope(scope: ThreatScanScope): ReadonlyArray<(typeof THREAT_PATTERNS)[number]> {

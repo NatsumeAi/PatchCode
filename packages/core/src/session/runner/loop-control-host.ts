@@ -35,6 +35,8 @@ import type * as SessionRuntime from "../runtime"
 export interface TurnStartCtx {
   readonly sessionID: string
   readonly step: number
+  /** Provider id for per-provider circuit breaker routing (W2). */
+  readonly providerID?: string
 }
 
 export interface StreamEvent {
@@ -185,13 +187,16 @@ const buildRealHooks = (
     yield* Effect.addFinalizer(() => unsubscribe)
     yield* Effect.addFinalizer(disposeVerifiers)
 
+    const lastProvider = yield* SynchronizedRef.make<string>("default")
     const hooks: LoopControlHooks = {
       onTurnStart: (ctx) =>
         Effect.gen(function* () {
           if (owner.kind === "mutable") yield* owner.set(ctx.sessionID)
           if (yield* SynchronizedRef.get(abortRequested)) return
+          const key = ctx.providerID?.trim() || "default"
+          yield* SynchronizedRef.set(lastProvider, key)
           // allowRequest: Closed always; HalfOpen claims a single probe slot; Open blocks.
-          const allowed = yield* instance.circuitBreaker.allowRequest()
+          const allowed = yield* instance.circuitBreaker.allowRequest(key)
           if (!allowed) return
           yield* instance.retry.reset
           yield* instance.workerState.transition({ _tag: "Active" }).pipe(Effect.ignore)
@@ -204,7 +209,8 @@ const buildRealHooks = (
           const aborted = yield* SynchronizedRef.get(abortRequested)
           if (aborted) return false
           // Do not claim a probe here — only block when fully Open.
-          const breaker = yield* instance.circuitBreaker.state
+          const key = yield* SynchronizedRef.get(lastProvider)
+          const breaker = yield* instance.circuitBreaker.stateFor(key)
           if (breaker === "Open") return false
           return yield* instance.terminal.shouldContinue
         }),
@@ -277,7 +283,7 @@ const buildRealHooks = (
             if (outcome.value.broken) {
               verifiers.delete(out.sessionID)
               yield* verifier.dispose
-              yield* instance.circuitBreaker.recordSuccess
+              yield* instance.circuitBreaker.recordSuccessFor(yield* SynchronizedRef.get(lastProvider))
               yield* instance.eventBus.publish({ _tag: "LoopTerminated", reason: "verifier_approved" })
             }
             return
@@ -294,7 +300,7 @@ const buildRealHooks = (
               [],
             )
             .pipe(Effect.provideService(EventBus.Service, instance.eventBus))
-          yield* instance.circuitBreaker.recordFailure
+          yield* instance.circuitBreaker.recordFailureFor(yield* SynchronizedRef.get(lastProvider))
         }),
       onFailover: (cause) =>
         Effect.gen(function* () {
@@ -316,11 +322,11 @@ const buildRealHooks = (
           const first = yield* instance.retry.consume(classified.reason)
           const recovered = classified.retryable && first
           if (!recovered) {
-            yield* instance.circuitBreaker.recordFailure
+            yield* instance.circuitBreaker.recordFailureFor(yield* SynchronizedRef.get(lastProvider))
             yield* instance.terminal.request("unrecoverable_failure")
             yield* instance.eventBus.publish({ _tag: "HardAbort", reason: `unrecoverable_${classified.reason}` })
           } else {
-            yield* instance.circuitBreaker.recordSuccess
+            yield* instance.circuitBreaker.recordSuccessFor(yield* SynchronizedRef.get(lastProvider))
           }
           return { recovered }
         }),

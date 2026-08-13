@@ -184,6 +184,7 @@ describe("BackgroundJob", () => {
         })
         expect((yield* recovered.list()).some((j) => j.id === "job_stale_crash" && j.status === "error")).toBe(true)
 
+        // Fresh heartbeat still reaped: leftover running cannot be live after restart.
         const freshAt = Date.now()
         yield* db
           .insert(BackgroundJobTable)
@@ -203,7 +204,8 @@ describe("BackgroundJob", () => {
           .where(eq(BackgroundJobTable.id, "job_fresh_running"))
           .get()
           .pipe(Effect.orDie)
-        expect(fresh?.status).toBe("running")
+        expect(fresh?.status).toBe("error")
+        expect(fresh?.error).toBe("stale-after-crash")
       }).pipe(Effect.provide(Database.layerFromPath(filename)), Effect.scoped)
 
       yield* Effect.promise(() => tmp[Symbol.asyncDispose]())

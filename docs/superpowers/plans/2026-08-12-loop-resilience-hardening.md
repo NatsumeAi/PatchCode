@@ -15,7 +15,9 @@
 | R10 W10 dual command | **done** | Bridge CommandV2 → Command on init |
 | R9 gate | **done** | session-runner 95/95; background-job SQL; core typecheck 0 |
 
-**2026-08-13 audit of prior-AI review (9 red tests + W3 JSON):** both were true on `bf1b9cc`; closed on `b0ebe6900d` + this follow-up (prod Database inject + wait/list).
+**2026-08-13 audits:**
+- Prior-AI 9 red tests + W3 JSON: true on `bf1b9cc`; closed `b0ebe6900d` + `527e9f844f`.
+- Independent review follow-up: W4 envelope leak, W2 default-on + no provider key, W5 V2 bypass + `you must` FP, W6 read=write containment, W9 `ctrl+alt+k` clash, W3 leftover-running zombies, W7 `listGlobal` title-only.
 
 ### W10 slash-path audit (closed)
 

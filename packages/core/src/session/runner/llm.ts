@@ -646,7 +646,11 @@ const layer = Layer.effect(
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
       // D1: auto-seed goal once at drain start is done in buildDrainContext (step-independent).
-      yield* drain.hooks.onTurnStart({ sessionID: session.id, step })
+      yield* drain.hooks.onTurnStart({
+        sessionID: session.id,
+        step,
+        providerID: session.model?.providerID,
+      })
       if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id)))
         return { needsContinuation: false, step }
       const agent = yield* agents.select(session.agent)

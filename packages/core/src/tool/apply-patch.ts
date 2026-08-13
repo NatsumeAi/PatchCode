@@ -99,7 +99,10 @@ const layer = Layer.effectDiscard(
 
                 const targets: Array<{ readonly hunk: Patch.Hunk; readonly target: LocationMutation.Target }> = []
                 for (const hunk of hunks)
-                  targets.push({ hunk, target: yield* mutation.resolve({ path: hunk.path, kind: "file" }) })
+                  targets.push({
+                    hunk,
+                    target: yield* mutation.resolve({ path: hunk.path, kind: "file", forWrite: true }),
+                  })
                 const externalDirectories = new Map<string, LocationMutation.ExternalDirectoryAuthorization>()
                 for (const { target } of targets) {
                   const external = target.externalDirectory

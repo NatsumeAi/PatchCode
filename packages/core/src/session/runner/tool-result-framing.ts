@@ -40,23 +40,46 @@ export function neutralizeDelimiters(text: string): string {
   return text.replace(DELIMITER_RE, (match) => match.replace(/[<>]/g, (ch) => (ch === "<" ? "‹" : "›")))
 }
 
+function wrapUntrusted(text: string): string {
+  return `<untrusted_tool_result>\n${neutralizeDelimiters(text)}\n</untrusted_tool_result>`
+}
+
 /**
  * Frame a tool result for the model. Trusted tools return the value unchanged.
- * Untrusted tools wrap string (or JSON) payloads in <untrusted_tool_result>.
+ * Untrusted tools wrap the *visible* payload (string or ToolResultValue) so the
+ * provider stringify path cannot leak raw injection text beside a framed copy.
  */
 export function frameToolResult(toolName: string, result: unknown): unknown {
   if (isTrustedToolOutput(toolName)) return result
-  if (typeof result === "string") {
-    return `<untrusted_tool_result>\n${neutralizeDelimiters(result)}\n</untrusted_tool_result>`
-  }
-  // Structured results: wrap a JSON snapshot so nested text is still neutralized.
-  try {
-    const json = neutralizeDelimiters(JSON.stringify(result))
-    return {
-      untrusted: true,
-      framed: `<untrusted_tool_result>\n${json}\n</untrusted_tool_result>`,
-      result,
+  if (typeof result === "string") return wrapUntrusted(result)
+  if (result && typeof result === "object" && "type" in result) {
+    const r = result as { type: string; value?: unknown }
+    if (r.type === "text" && typeof r.value === "string") return { ...r, value: wrapUntrusted(r.value) }
+    if (r.type === "json") {
+      const raw = typeof r.value === "string" ? r.value : JSON.stringify(r.value)
+      return { type: "text", value: wrapUntrusted(raw ?? "") }
     }
+    if (r.type === "content" && Array.isArray(r.value)) {
+      return {
+        ...r,
+        value: r.value.map((part) => {
+          if (part && typeof part === "object" && (part as { type?: string }).type === "text") {
+            const text = (part as { text?: unknown }).text
+            if (typeof text === "string") return { ...part, text: wrapUntrusted(text) }
+          }
+          return part
+        }),
+      }
+    }
+    if (r.type === "error") {
+      const extra = r as { message?: unknown }
+      const msg =
+        typeof r.value === "string" ? r.value : typeof extra.message === "string" ? extra.message : JSON.stringify(r)
+      return { ...r, value: wrapUntrusted(String(msg)) }
+    }
+  }
+  try {
+    return wrapUntrusted(JSON.stringify(result))
   } catch {
     return result
   }

@@ -149,6 +149,9 @@ describe("Memory threat scan", () => {
     // API key patterns are strict/all only (skills install should not flag secrets alone).
     expect(scanForThreatsInScope("the key is sk-abc123DEF456ghi789jkl012", "context")).toEqual([])
     expect(scanForThreatsInScope("the key is sk-abc123DEF456ghi789jkl012", "strict")).toContain("exfil_api_key")
+    // "you must" is too common in legit skills — context must not reject it.
+    expect(scanForThreatsInScope("you must run the tests first", "context")).toEqual([])
+    expect(scanForThreatsInScope("you must run the tests first", "strict")).toContain("inject_soft_must")
   })
 
   test("scanForThreats defaults to strict (full catalog)", () => {

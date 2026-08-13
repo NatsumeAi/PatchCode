@@ -18,6 +18,8 @@ export const ResolveInput = Schema.Struct({
   path: Schema.String,
   /** Selects the external approval boundary; it does not validate the target type. */
   kind: Kind.pipe(Schema.optional),
+  /** When true, reject symlink escapes (write path). Reads may follow out-of-tree links. */
+  forWrite: Schema.Boolean.pipe(Schema.optional),
 })
 export type ResolveInput = typeof ResolveInput.Type
 
@@ -124,9 +126,8 @@ const layer = Layer.effect(
       if (relative && !lexicallyInternal) return yield* new PathError({ path: input.path, reason: "relative_escape" })
 
       const resolved = yield* resolvePath(absolute)
-      if (lexicallyInternal) {
-        // Realpath + containment: reject symlink intermediates that escape the
-        // location root (W6). Lexical contains alone is not enough.
+      if (lexicallyInternal && input.forWrite === true) {
+        // Write-only: reject symlink intermediates that escape the location root.
         try {
           FSUtil.assertWriteContained(locationRoot, resolved.canonical)
         } catch {

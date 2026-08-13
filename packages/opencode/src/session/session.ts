@@ -562,7 +562,32 @@ const layer: Layer.Layer<
       if (input?.roots) conditions.push(isNull(SessionTable.parent_id))
       if (input?.start) conditions.push(gte(SessionTable.time_updated, input.start))
       if (input?.cursor) conditions.push(lt(SessionTable.time_updated, input.cursor))
-      if (input?.search) conditions.push(like(SessionTable.title, `%${input.search}%`))
+      if (input?.search) {
+        const term = `%${input.search}%`
+        const ftsTerms = input.search
+          .toLowerCase()
+          .split(/[^\p{L}\p{N}_-]+/u)
+          .filter((t) => t.length >= 2)
+        const ftsQuery =
+          ftsTerms.length > 0
+            ? ftsTerms.map((t) => `"${t.replaceAll('"', "")}"`).join(" OR ")
+            : `"${input.search.replaceAll('"', "")}"`
+        conditions.push(
+          or(
+            like(SessionTable.title, term),
+            sql`exists (
+              select 1 from session_message_fts f
+              where f.session_id = ${SessionTable.id}
+                and session_message_fts match ${ftsQuery}
+            )`,
+            sql`exists (
+              select 1 from session_message sm
+              where sm.session_id = ${SessionTable.id}
+                and cast(sm.data as text) like ${term}
+            )`,
+          )!,
+        )
+      }
       if (!input?.archived) conditions.push(isNull(SessionTable.time_archived))
 
       const query =

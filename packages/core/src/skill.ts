@@ -11,6 +11,7 @@ import { PermissionV2 } from "./permission"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
 import { State } from "./state"
+import { scanForThreatsInScope } from "./memory/scan"
 
 export const DirectorySource = Skill.DirectorySource
 export type DirectorySource = Skill.DirectorySource
@@ -92,6 +93,14 @@ const layer = Layer.effect(
                 ? path.basename(filepath, ".md")
                 : undefined
           if (!name) continue
+          const threats = scanForThreatsInScope(
+            `${name}\n${frontmatter.description ?? ""}\n${markdown.content}`,
+            "context",
+          )
+          if (threats.length > 0) {
+            yield* Effect.logError("SkillV2 rejected by threat scan", { skill: name, path: filepath, threats })
+            continue
+          }
           skills.push({
             name,
             description: frontmatter.description,

@@ -116,7 +116,8 @@ export const Definitions = {
   session_fold_expand: keybind("none", "Expand selected entry"),
   // Entry selection nav (W9): avoid bare j/k (steal typing); ctrl+alt matches line scroll.
   session_select_next: keybind("ctrl+alt+j", "Select next tool or reasoning entry"),
-  session_select_prev: keybind("ctrl+alt+k", "Select previous tool or reasoning entry"),
+  // ctrl+alt+k is which-key; use h (vim left) for prev.
+  session_select_prev: keybind("ctrl+alt+h", "Select previous tool or reasoning entry"),
   session_expand_all: keybind("none", "Expand or collapse all entries"),
   session_expand_all_thinking: keybind("none", "Toggle all thinking blocks"),
   session_quick_switch_1: keybind("<leader>1", "Switch to session in quick slot 1"),
