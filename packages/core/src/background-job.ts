@@ -125,6 +125,8 @@ function errorText(error: unknown) {
 
 /** Stale running jobs older than this are reaped as failed after crash (W3). */
 export const STALE_JOB_MS = Duration.toMillis(PROMOTE_WAIT_TIMEOUT)
+/** Live jobs refresh heartbeat this often so a 30m crash window is meaningful. */
+const HEARTBEAT_INTERVAL = Duration.minutes(5)
 
 function sessionIdFrom(info: Info): string | undefined {
   const meta = info.metadata
@@ -324,10 +326,24 @@ export const make = Effect.gen(function* () {
     )
   })
 
+  const listDurable = (): Effect.Effect<Info[]> => {
+    if (!db) return Effect.succeed([])
+    return db
+      .select()
+      .from(BackgroundJobTable)
+      .all()
+      .pipe(
+        Effect.orDie,
+        Effect.map((rows) => rows.map(rowToInfo)),
+        Effect.catch(() => Effect.succeed([] as Info[])),
+      )
+  }
+
   const list: Interface["list"] = Effect.fn("BackgroundJob.list")(function* () {
-    return Array.from((yield* SynchronizedRef.get(state.jobs)).values())
-      .map(snapshot)
-      .toSorted((a, b) => a.started_at - b.started_at)
+    const live = Array.from((yield* SynchronizedRef.get(state.jobs)).values()).map(snapshot)
+    const liveIds = new Set(live.map((j) => j.id))
+    const durable = (yield* listDurable()).filter((row) => !liveIds.has(row.id))
+    return [...live, ...durable].toSorted((a, b) => a.started_at - b.started_at)
   })
 
   const get: Interface["get"] = Effect.fn("BackgroundJob.get")(function* (id) {
@@ -378,7 +394,7 @@ export const make = Effect.gen(function* () {
             ]
           }),
         )
-        if ("scope" in result)
+        if ("scope" in result) {
           yield* fork(
             result.scope,
             id,
@@ -386,6 +402,17 @@ export const make = Effect.gen(function* () {
             0,
             restore(input.run).pipe(Effect.ensuring(Deferred.succeed(tail, undefined))),
           )
+          if (db) {
+            yield* Effect.gen(function* () {
+              while (true) {
+                yield* Effect.sleep(HEARTBEAT_INTERVAL)
+                const live = (yield* SynchronizedRef.get(state.jobs)).get(id)
+                if (!live || live.info.status !== "running") return
+                yield* touchDurable(snapshot(live), true)
+              }
+            }).pipe(Effect.ignore, Effect.forkIn(result.scope, { startImmediately: true }))
+          }
+        }
         yield* touchDurable(result.info)
         return result.info
       }),
@@ -433,7 +460,11 @@ export const make = Effect.gen(function* () {
 
   const wait: Interface["wait"] = Effect.fn("BackgroundJob.wait")(function* (input) {
     const job = (yield* SynchronizedRef.get(state.jobs)).get(input.id)
-    if (!job) return { timedOut: false }
+    if (!job) {
+      // Crash recovery: job is gone from memory; return durable terminal/status.
+      const durable = yield* getDurable(input.id)
+      return durable ? { info: durable, timedOut: false } : { timedOut: false }
+    }
     if (job.info.status !== "running") return { info: snapshot(job), timedOut: false }
     if (input.timeout === undefined) return { info: yield* Deferred.await(job.done), timedOut: false }
     if (input.timeout <= 0) return { info: snapshot(job), timedOut: true }

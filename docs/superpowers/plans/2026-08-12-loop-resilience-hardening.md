@@ -1,19 +1,21 @@
 # Loop Resilience & Hardening — Real-Gap Remediation Implementation Plan
 
-## Implementation status (2026-08-12 → residual closeout)
+## Implementation status (2026-08-13 audit)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| R1 W1 drain retry | **done** | Bounded stream retry + **interruptible wall-clock backoff** (`restore` + `setTimeout` callback); stream-interrupt durable close restored |
-| R2 W3 durable jobs | **done** | SQLite `background_job` table (default); stale reap on start; in-memory fast path; JSON ledger removed |
-| R3 W4 tool framing | **done** | Untrusted wrap; **skip framing for providerExecuted** (wire-shape replay) |
+| R1 W1 drain retry | **done** | Bounded stream retry + interruptible wall-clock backoff; stream-interrupt durable close |
+| R2 W3 durable jobs | **done** | SQLite default; opencode instance `make()` **provided Database**; `wait`/`list` durable fallback; 5m heartbeat |
+| R3 W4 tool framing | **done** | Untrusted wrap; skip framing for providerExecuted |
 | R4 W2 breaker | **done** | per-provider + sliding window + half-open probe + allowRequest |
 | R5 W6 write containment | **done** | `assertWriteContained` + location-mutation |
 | R6 W5 threat scopes | **done** | `scanForThreatsInScope` + skill load gate |
-| R7 W7 content search | **done** | Title LIKE **OR FTS5** `session_message_fts` + LIKE fallback; ensure on DB open |
+| R7 W7 content search | **done** | Title LIKE OR FTS5 OR LIKE fallback |
 | R8 W9 keyboard nav | **done** | `ctrl+alt+j/k` → selectNext/Prev |
-| R10 W10 dual command | **done** | Slash-path audit: instance `Command` is execute authority; **bridge CommandV2 → Command** on init |
-| R9 gate | **done** | session-runner 95/95; memory 308+; background-job SQL tests; core typecheck 0 |
+| R10 W10 dual command | **done** | Bridge CommandV2 → Command on init |
+| R9 gate | **done** | session-runner 95/95; background-job SQL; core typecheck 0 |
+
+**2026-08-13 audit of prior-AI review (9 red tests + W3 JSON):** both were true on `bf1b9cc`; closed on `b0ebe6900d` + this follow-up (prod Database inject + wait/list).
 
 ### W10 slash-path audit (closed)
 

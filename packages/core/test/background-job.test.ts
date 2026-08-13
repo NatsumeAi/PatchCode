@@ -165,7 +165,7 @@ describe("BackgroundJob", () => {
           })
           .run()
           .pipe(Effect.orDie)
-        yield* BackgroundJob.make
+        const recovered = yield* BackgroundJob.make
         const row = yield* db
           .select()
           .from(BackgroundJobTable)
@@ -174,6 +174,15 @@ describe("BackgroundJob", () => {
           .pipe(Effect.orDie)
         expect(row?.status).toBe("error")
         expect(row?.error).toBe("stale-after-crash")
+        expect(yield* recovered.get("job_stale_crash")).toMatchObject({
+          status: "error",
+          error: "stale-after-crash",
+        })
+        expect(yield* recovered.wait({ id: "job_stale_crash" })).toMatchObject({
+          timedOut: false,
+          info: { status: "error", error: "stale-after-crash" },
+        })
+        expect((yield* recovered.list()).some((j) => j.id === "job_stale_crash" && j.status === "error")).toBe(true)
 
         const freshAt = Date.now()
         yield* db
