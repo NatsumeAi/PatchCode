@@ -8,6 +8,9 @@ import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import { CommandV2 } from "@opencode-ai/core/command"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { Location } from "@opencode-ai/core/location"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
@@ -160,32 +163,6 @@ const layer = Layer.effect(
         }
       }
 
-      // W10: bridge CommandV2 (location/config plugin registry) into the
-      // slash-execution registry so location-only commands remain runnable.
-      // Instance Command is the single authority for /command list + execute.
-      // CommandV2 remains for location plugins / server.command.list; we merge
-      // missing names here so dual registration does not hide slash commands.
-      const commandV2 = yield* Effect.serviceOption(CommandV2.Service)
-      if (Option.isSome(commandV2)) {
-        for (const item of yield* commandV2.value.list()) {
-          if (commands[item.name]) continue
-          const model =
-            item.model === undefined
-              ? undefined
-              : `${item.model.providerID}/${item.model.id}${item.model.variant ? `:${item.model.variant}` : ""}`
-          commands[item.name] = {
-            name: item.name,
-            description: item.description,
-            agent: item.agent,
-            model,
-            source: "command",
-            template: item.template,
-            subtask: item.subtask,
-            hints: hints(item.template),
-          }
-        }
-      }
-
       return {
         commands,
       }
@@ -193,20 +170,64 @@ const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>((ctx) => init(ctx))
 
+    const fromV2 = (item: CommandV2.Info): Info => {
+      const model =
+        item.model === undefined
+          ? undefined
+          : `${item.model.providerID}/${item.model.id}${item.model.variant ? `:${item.model.variant}` : ""}`
+      return {
+        name: item.name,
+        description: item.description,
+        agent: item.agent,
+        model,
+        source: "command",
+        template: item.template,
+        subtask: item.subtask,
+        hints: hints(item.template),
+      }
+    }
+
+    /** Live CommandV2 merge via LocationServiceMap (W10). serviceOption(CommandV2) at
+     * instance init is always None — CommandV2 is location-scoped. */
+    const listV2 = Effect.fn("Command.listV2")(function* () {
+      // LocationServiceMap is global (AppLayer). CommandV2 lives inside a location
+      // layer — resolve it via locations.get(ref), never serviceOption(CommandV2).
+      const locations = yield* Effect.serviceOption(LocationServiceMap.Service)
+      if (Option.isNone(locations)) return [] as CommandV2.Info[]
+      const ctx = yield* InstanceState.context
+      const ref = Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) })
+      return yield* Effect.gen(function* () {
+        const v2 = yield* CommandV2.Service
+        return yield* v2.list()
+      }).pipe(
+        Effect.provide(locations.value.get(ref)),
+        Effect.catch(() => Effect.succeed([] as CommandV2.Info[])),
+      )
+    })
+
     const get = Effect.fn("Command.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
-      return s.commands[name]
+      if (s.commands[name]) return s.commands[name]
+      const extras = yield* listV2()
+      const hit = extras.find((item) => item.name === name)
+      return hit ? fromV2(hit) : undefined
     })
 
     const list = Effect.fn("Command.list")(function* () {
       const s = yield* InstanceState.get(state)
-      return Object.values(s.commands)
+      const extras = yield* listV2()
+      const merged = { ...s.commands }
+      for (const item of extras) {
+        if (merged[item.name]) continue
+        merged[item.name] = fromV2(item)
+      }
+      return Object.values(merged)
     })
 
     return Service.of({ get, list })
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [Config.node, MCP.node, Skill.node] })
+export const node = LayerNode.make({ service: Service, layer, deps: [Config.node, MCP.node, Skill.node] })
 
 export * as Command from "."

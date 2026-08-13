@@ -1,11 +1,14 @@
 export * as BackgroundJob from "./background-job"
 
-import { Cause, Clock, Context, Deferred, Duration, Effect, Exit, Layer, Option, Scope, SynchronizedRef } from "effect"
+import { Cause, Clock, Context, DateTime, Deferred, Duration, Effect, Exit, Layer, Option, Scope, SynchronizedRef } from "effect"
 import { eq } from "drizzle-orm"
 import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
 import { Database } from "./database/database"
 import { BackgroundJobTable } from "./background-job/sql"
+import { EventV2 } from "./event"
+import { SessionEvent } from "./session/event"
+import { SessionSchema } from "./session/schema"
 
 export type Status = "running" | "completed" | "error" | "cancelled"
 
@@ -162,6 +165,7 @@ export const make = Effect.gen(function* () {
   }
   const databaseOpt = yield* Effect.serviceOption(Database.Service)
   const db = Option.isSome(databaseOpt) ? databaseOpt.value.db : undefined
+  const eventsOpt = yield* Effect.serviceOption(EventV2.Service)
 
   const touchDurable = (info: Info, heartbeat = true): Effect.Effect<void> => {
     if (!db) return Effect.void
@@ -250,6 +254,23 @@ export const make = Effect.gen(function* () {
       }
       if (reaped.length > 0) {
         yield* Effect.logInfo("BackgroundJob.reapStale", { count: reaped.length }).pipe(Effect.ignore)
+        if (Option.isSome(eventsOpt)) {
+          const events = eventsOpt.value
+          for (const row of stale) {
+            const parent = row.session_id
+            if (!parent) continue
+            yield* events
+              .publish(SessionEvent.Subagent.Failed, {
+                timestamp: yield* DateTime.now,
+                sessionID: SessionSchema.ID.make(parent),
+                childSessionID: row.id,
+                subagentType: row.type,
+                error: "stale-after-crash",
+                resumeFrom: row.id,
+              })
+              .pipe(Effect.ignore)
+          }
+        }
       }
       return reaped
     }).pipe(Effect.catch(() => Effect.succeed([] as Info[])))
@@ -543,4 +564,4 @@ export const make = Effect.gen(function* () {
 const layer = Layer.effect(Service, make)
 
 /** Production node: Database required so crash durability is on by default. */
-export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node] })
+export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, EventV2.node] })

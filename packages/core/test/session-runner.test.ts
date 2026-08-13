@@ -7,6 +7,8 @@ import {
   TransportReason,
   InvalidProviderOutputReason,
   InvalidRequestReason,
+  RateLimitReason,
+  ContentPolicyReason,
   type LLMClientShape,
   type LLMRequest,
 } from "@opencode-ai/llm"
@@ -3849,6 +3851,93 @@ describe("SessionRunnerLLM", () => {
       const snap = yield* instance.terminal.snapshot
       expect(snap.state).toBe("failed")
       expect(snap.reason).toBe("unrecoverable_failure")
+    }),
+  )
+
+  it.effect("429 RateLimit retries once then succeeds (exactly 2 stream calls)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Rate limit then ok" }), resume: false })
+      let calls = 0
+      const failure = new LLMError({
+        module: "test",
+        method: "stream",
+        reason: new RateLimitReason({ message: "429" }),
+      })
+      const install = () => {
+        responseStream = Stream.suspend(() => {
+          calls++
+          if (calls === 1) {
+            return Stream.fail(failure).pipe(Stream.ensuring(Effect.sync(() => install())))
+          }
+          return Stream.fromIterable([
+            LLMEvent.stepStart({ index: 0 }),
+            LLMEvent.textStart({ id: "t1" }),
+            LLMEvent.textDelta({ id: "t1", text: "ok after 429" }),
+            LLMEvent.textEnd({ id: "t1" }),
+            LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+            LLMEvent.finish({ reason: "stop" }),
+          ])
+        })
+      }
+      install()
+      yield* session.resume(sessionID)
+      expect(calls).toBe(2)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("running")
+    }),
+  )
+
+  it.effect("content policy failure does not retry (single stream call)", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Blocked" }), resume: false })
+      let calls = 0
+      const failure = new LLMError({
+        module: "test",
+        method: "stream",
+        reason: new ContentPolicyReason({ message: "blocked" }),
+      })
+      responseStream = Stream.suspend(() => {
+        calls++
+        return Stream.fail(failure)
+      })
+      expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
+      expect(calls).toBe(1)
+      const snap = yield* instance.terminal.snapshot
+      expect(snap.state).toBe("failed")
+    }),
+  )
+
+  it.effect("stops retry when terminal is requested during backoff", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Abort mid retry" }), resume: false })
+      const failure = new LLMError({
+        module: "test",
+        method: "stream",
+        reason: new RateLimitReason({ message: "429" }),
+      })
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      streamFailure = failure
+      const fiber = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+      // Terminal before the failed stream settles so the post-fail shouldContinue
+      // check skips backoff/retry (TestClock cannot advance wall-clock setTimeout).
+      yield* instance.terminal.request("unrecoverable_failure")
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(fiber).pipe(Effect.flip)
+      expect(requests.length).toBe(1)
     }),
   )
 })
