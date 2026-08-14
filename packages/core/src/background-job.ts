@@ -131,12 +131,18 @@ export const STALE_JOB_MS = Duration.toMillis(PROMOTE_WAIT_TIMEOUT)
 /** Live jobs refresh heartbeat this often so a 30m crash window is meaningful. */
 const HEARTBEAT_INTERVAL = Duration.minutes(5)
 
+/** Parent session for crash notify. Task hosts store parentSessionId + child sessionId. */
 function sessionIdFrom(info: Info): string | undefined {
   const meta = info.metadata
   if (!meta) return undefined
-  const raw = meta.sessionId ?? meta.sessionID ?? meta.parentSessionID
-  return typeof raw === "string" && raw.length > 0 ? raw : undefined
+  const parent = meta.parentSessionId ?? meta.parentSessionID ?? meta.parent_session_id
+  if (typeof parent === "string" && parent.length > 0) return parent
+  const child = meta.sessionId ?? meta.sessionID
+  return typeof child === "string" && child.length > 0 ? child : undefined
 }
+
+/** Job ids this process is actually running — do not reap these as crash leftovers. */
+const liveJobIds = new Set<string>()
 
 function rowToInfo(row: typeof BackgroundJobTable.$inferSelect): Info {
   return {
@@ -229,12 +235,13 @@ export const make = Effect.gen(function* () {
     return Effect.gen(function* () {
       // This process cannot inherit live work. Every leftover `running` row is
       // a prior-crash orphan (the 30m heartbeat is only for live extend).
-      const stale = yield* db
+      const leftover = yield* db
         .select()
         .from(BackgroundJobTable)
         .where(eq(BackgroundJobTable.status, "running"))
         .all()
         .pipe(Effect.orDie)
+      const stale = leftover.filter((row) => !liveJobIds.has(row.id))
       const reaped: Info[] = []
       for (const row of stale) {
         yield* db
@@ -324,7 +331,10 @@ export const make = Effect.gen(function* () {
       return [{ info: snapshot(next), done: job.done, scope: job.scope }, new Map(jobs).set(id, next)]
     })
     if (result.info && result.done) yield* Deferred.succeed(result.done, result.info).pipe(Effect.ignore)
-    if (result.info) yield* touchDurable(result.info, false)
+    if (result.info) {
+      if (result.info.status !== "running") liveJobIds.delete(id)
+      yield* touchDurable(result.info, false)
+    }
     if (result.scope) {
       yield* Scope.close(result.scope, Exit.void).pipe(Effect.forkIn(state.scope, { startImmediately: true }))
     }
@@ -435,6 +445,7 @@ export const make = Effect.gen(function* () {
             }).pipe(Effect.ignore, Effect.forkIn(result.scope, { startImmediately: true }))
           }
         }
+        liveJobIds.add(id)
         yield* touchDurable(result.info)
         return result.info
       }),
@@ -553,7 +564,10 @@ export const make = Effect.gen(function* () {
       return [{ info: snapshot(next), done: job.done, scope: job.scope }, new Map(jobs).set(id, next)]
     })
     if (result.info && result.done) yield* Deferred.succeed(result.done, result.info).pipe(Effect.ignore)
-    if (result.info) yield* touchDurable(result.info, false)
+    if (result.info) {
+      if (result.info.status !== "running") liveJobIds.delete(id)
+      yield* touchDurable(result.info, false)
+    }
     if (result.scope) yield* Scope.close(result.scope, Exit.void)
     return result.info
   })

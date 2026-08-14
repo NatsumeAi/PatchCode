@@ -19,6 +19,7 @@
 - Prior-AI 9 red tests + W3 JSON: true on `bf1b9cc`; closed `b0ebe6900d` + `527e9f844f`.
 - Independent review follow-up: W4 envelope leak, W2 default-on + no provider key, W5 V2 bypass + `you must` FP, W6 read=write containment, W9 `ctrl+alt+k` clash, W3 leftover-running zombies, W7 `listGlobal` title-only.
 - Follow-up: W10 live CommandV2 merge via LocationServiceMap; W3 reap publishes SessionEvent.Subagent.Failed; W1 RateLimit/ContentPolicy/terminal-stop tests.
+- Confirmed-bug fix: `session_id` prefers `parentSessionId`; reap skips in-process live job ids; W2 recovered retry does not recordSuccess, `allowRequest` false aborts.
 
 ### W10 slash-path audit (closed)
 

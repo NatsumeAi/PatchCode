@@ -122,7 +122,7 @@ describe("BackgroundJob", () => {
         const job = yield* jobs.start({
           id: "job_durable_1",
           type: "test",
-          metadata: { sessionId: "ses_parent" },
+          metadata: { parentSessionId: "ses_parent", sessionId: "ses_child" },
           run: Deferred.await(latch).pipe(Effect.as("done")),
         })
         const db = (yield* Database.Service).db
@@ -206,6 +206,21 @@ describe("BackgroundJob", () => {
           .pipe(Effect.orDie)
         expect(fresh?.status).toBe("error")
         expect(fresh?.error).toBe("stale-after-crash")
+
+        // Live in-process job must not be reaped by a second make() (other instance).
+        const live = yield* recovered.start({
+          id: "job_live_other_instance",
+          type: "test",
+          run: Effect.never,
+        })
+        yield* BackgroundJob.make
+        const stillLive = yield* db
+          .select()
+          .from(BackgroundJobTable)
+          .where(eq(BackgroundJobTable.id, live.id))
+          .get()
+          .pipe(Effect.orDie)
+        expect(stillLive?.status).toBe("running")
       }).pipe(Effect.provide(Database.layerFromPath(filename)), Effect.scoped)
 
       yield* Effect.promise(() => tmp[Symbol.asyncDispose]())

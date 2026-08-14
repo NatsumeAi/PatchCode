@@ -197,7 +197,12 @@ const buildRealHooks = (
           yield* SynchronizedRef.set(lastProvider, key)
           // allowRequest: Closed always; HalfOpen claims a single probe slot; Open blocks.
           const allowed = yield* instance.circuitBreaker.allowRequest(key)
-          if (!allowed) return
+          if (!allowed) {
+            // Half-open probe already claimed (or Open): stop this turn so we
+            // do not send a second stream while shouldContinue still sees HalfOpen.
+            yield* SynchronizedRef.set(abortRequested, true)
+            return
+          }
           yield* instance.retry.reset
           yield* instance.workerState.transition({ _tag: "Active" }).pipe(Effect.ignore)
           // Budget consume moved to the runner after agents.select/models.resolve succeed
@@ -325,9 +330,8 @@ const buildRealHooks = (
             yield* instance.circuitBreaker.recordFailureFor(yield* SynchronizedRef.get(lastProvider))
             yield* instance.terminal.request("unrecoverable_failure")
             yield* instance.eventBus.publish({ _tag: "HardAbort", reason: `unrecoverable_${classified.reason}` })
-          } else {
-            yield* instance.circuitBreaker.recordSuccessFor(yield* SynchronizedRef.get(lastProvider))
           }
+          // Recovered retry is not a provider success — do not reset the window.
           return { recovered }
         }),
       onTurnEnd: (ctx) =>
