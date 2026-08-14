@@ -40,6 +40,8 @@ import { SessionEvent } from "./session/event"
 import { SessionInput } from "./session/input"
 import { Snapshot } from "./snapshot"
 import { SessionRevert } from "./session/revert"
+import { SessionContextEpoch } from "./session/context-epoch"
+import { PromptTapeStore } from "./session/runner/prompt-tape-store"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
@@ -187,7 +189,7 @@ export interface Interface {
     skill: string
     resume?: boolean
   }) => Effect.Effect<void, OperationUnavailableError>
-  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
+  readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | SessionBusyError | SessionRunner.RunError>
   readonly wait: (
     id: SessionSchema.ID,
     after?: number,
@@ -200,7 +202,7 @@ export interface Interface {
       sessionID: SessionSchema.ID
       messageID: SessionMessage.ID
       files?: boolean
-    }) => Effect.Effect<Revert.State, NotFoundError | MessageNotFoundError | Snapshot.Error>
+    }) => Effect.Effect<Revert.State, NotFoundError | SessionBusyError | MessageNotFoundError | Snapshot.Error>
     readonly clear: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | Snapshot.Error>
     readonly commit: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   }
@@ -596,6 +598,9 @@ const layer = Layer.effect(
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         const session = yield* result.get(input.sessionID)
+        if ((yield* execution.active).has(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
         // One flush cycle per compact so auto+manual cannot double-write.
         MemoryFlush.beginFlushCycle(String(input.sessionID))
         // Memory flush hook: guarded optional service; no-op when memory is not wired.
@@ -624,6 +629,9 @@ const layer = Layer.effect(
       revert: {
         stage: Effect.fn("V2Session.revert.stage")(function* (input) {
           const session = yield* result.get(input.sessionID)
+          if ((yield* execution.active).has(input.sessionID)) {
+            return yield* new SessionBusyError({ sessionID: input.sessionID })
+          }
           return yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
             Effect.provideService(Database.Service, database),
             Effect.provideService(EventV2.Service, events),
@@ -636,10 +644,14 @@ const layer = Layer.effect(
             Effect.provideService(EventV2.Service, events),
             Effect.provide(locations.get(session.location)),
           )
+          PromptTapeStore.clear(sessionID)
+          yield* SessionContextEpoch.saveTape(db, sessionID, null)
         }),
         commit: Effect.fn("V2Session.revert.commit")(function* (sessionID) {
           const session = yield* result.get(sessionID)
           yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
+          PromptTapeStore.clear(sessionID)
+          yield* SessionContextEpoch.saveTape(db, sessionID, null)
         }),
       },
     })

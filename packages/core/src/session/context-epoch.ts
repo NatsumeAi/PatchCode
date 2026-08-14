@@ -12,8 +12,15 @@ import { SessionInput } from "./input"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { SessionContextEpochTable } from "./sql"
+import type { PromptTape } from "./runner/prompt-tape"
 
 type DatabaseService = Database.Interface["db"]
+
+export type StoredTape = {
+  readonly tape: PromptTape.Tape
+  readonly lastSeq: number
+  readonly baselineSeq: number
+}
 
 interface Prepared {
   readonly baseline: string
@@ -150,6 +157,7 @@ const replace = Effect.fnUntraced(function* (
       baseline: generation.baseline,
       snapshot: generation.snapshot,
       baseline_seq: baselineSeq,
+      tape_json: null,
     })
     .where(eq(SessionContextEpochTable.session_id, sessionID))
     .returning({ sessionID: SessionContextEpochTable.session_id })
@@ -171,4 +179,45 @@ const advance = Effect.fnUntraced(function* (
     .get()
     .pipe(Effect.orDie)
   if (!updated) return yield* Effect.die("Context Epoch not found")
+})
+
+export const saveTape = Effect.fn("SessionContextEpoch.saveTape")(function* (
+  db: DatabaseService,
+  sessionID: SessionSchema.ID,
+  stored: { readonly tape: PromptTape.Tape; readonly lastSeq: number } | null,
+) {
+  yield* db
+    .update(SessionContextEpochTable)
+    .set({
+      tape_json: stored
+        ? {
+            system: stored.tape.system,
+            tools: stored.tape.tools,
+            messages: stored.tape.messages,
+            lastSeq: stored.lastSeq,
+          }
+        : null,
+    })
+    .where(eq(SessionContextEpochTable.session_id, sessionID))
+    .run()
+    .pipe(Effect.orDie)
+})
+
+export const loadTape = Effect.fn("SessionContextEpoch.loadTape")(function* (
+  db: DatabaseService,
+  sessionID: SessionSchema.ID,
+) {
+  const row = yield* find(db, sessionID)
+  const json = row?.tape_json
+  if (!row || !json || typeof json.system !== "string" || !Array.isArray(json.messages)) return undefined
+  if (typeof json.lastSeq !== "number") return undefined
+  return {
+    baselineSeq: row.baseline_seq,
+    lastSeq: typeof json.lastSeq === "number" ? json.lastSeq : 0,
+    tape: {
+      system: json.system,
+      tools: json.tools as PromptTape.Tape["tools"],
+      messages: json.messages as PromptTape.Tape["messages"],
+    },
+  } satisfies StoredTape
 })

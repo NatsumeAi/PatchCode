@@ -50,4 +50,9 @@ export const compiled = (tape: Tape, ephemeral: ReadonlyArray<ChatMessage> = [])
   tools: tape.tools,
 })
 
+export const truncate = (tape: Tape, keep: number): Tape => ({
+  ...tape,
+  messages: tape.messages.slice(0, keep),
+})
+
 export const isPrefixOf = (prev: Tape, next: Tape) => wireIsPrefixOf(wire(prev), wire(next))

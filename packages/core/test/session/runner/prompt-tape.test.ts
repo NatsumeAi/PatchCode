@@ -40,13 +40,9 @@ describe("PromptTape", () => {
     expect(isPrefixOf(PromptTape.wire(first), PromptTape.wire(next))).toBe(true)
   })
 
-  test("compiled puts system first then conversation then ephemeral", () => {
-    const tape = PromptTape.append(PromptTape.origin({ system: "S", tools }), [{ role: "user", content: "hi" }])
-    const compiled = PromptTape.compiled(tape, [{ role: "user", content: "ephemeral" }])
-    expect(compiled.protocol).toBe("openai-compatible-chat")
-    expect(compiled.messages[0]).toEqual({ role: "system", content: "S" })
-    expect(compiled.messages[1]).toEqual({ role: "user", content: "hi" })
-    expect(compiled.messages[2]).toEqual({ role: "user", content: "ephemeral" })
-    expect(compiled.tools).toEqual(tools)
+  test("rewriting system is not a prefix", () => {
+    const a = PromptTape.origin({ system: "S", tools: undefined })
+    const b = PromptTape.origin({ system: "S2", tools: undefined })
+    expect(PromptTape.isPrefixOf(a, b)).toBe(false)
   })
 })

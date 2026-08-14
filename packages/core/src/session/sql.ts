@@ -173,4 +173,10 @@ export const SessionContextEpochTable = sqliteTable("session_context_epoch", {
   baseline: text().notNull(),
   snapshot: text({ mode: "json" }).notNull().$type<SystemContext.Snapshot>(),
   baseline_seq: integer().notNull(),
+  tape_json: text({ mode: "json" }).$type<{
+    readonly system: string
+    readonly tools?: unknown
+    readonly messages: ReadonlyArray<unknown>
+    readonly lastSeq: number
+  }>(),
 })

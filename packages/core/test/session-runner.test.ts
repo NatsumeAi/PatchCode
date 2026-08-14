@@ -12,6 +12,7 @@ import {
   type LLMClientShape,
   type LLMRequest,
 } from "@opencode-ai/llm"
+import { isPrefixOf, wireFromPrepared } from "@opencode-ai/llm/cache-prefix"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
 import { Database } from "@opencode-ai/core/database/database"
 import { makeLocationNode } from "@opencode-ai/core/effect/app-node"
@@ -36,7 +37,11 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
 import { SessionRunner } from "@opencode-ai/core/session/runner"
+import { SessionRevert } from "@opencode-ai/core/session/revert"
 import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
+import { PromptTapeStore } from "@opencode-ai/core/session/runner/prompt-tape-store"
+import { SessionContextEpoch } from "@opencode-ai/core/session/context-epoch"
+import { Location } from "@opencode-ai/core/location"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
@@ -389,6 +394,7 @@ const setup = Effect.gen(function* () {
   maxActiveToolExecutions = 0
   titleResponse = "Generated Title"
   requests.length = 0
+  PromptTapeStore.clearAll()
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -426,6 +432,22 @@ const messageTexts = (request: LLMRequest, role: "user" | "system") =>
   )
 const userTexts = (request: LLMRequest) => messageTexts(request, "user")
 const systemTexts = (request: LLMRequest) => messageTexts(request, "system")
+const turnRequests = () => requests.filter((request) => !isTitleRequest(request))
+const epochSeq = (id: SessionV2.ID) =>
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    const row = yield* db
+      .select({ seq: SessionContextEpochTable.baseline_seq })
+      .from(SessionContextEpochTable)
+      .where(eq(SessionContextEpochTable.session_id, id))
+      .get()
+      .pipe(Effect.orDie)
+    return row?.seq ?? 0
+  })
+const sessionTape = (id: SessionV2.ID = sessionID) =>
+  Effect.gen(function* () {
+    return PromptTapeStore.get(id, yield* epochSeq(id))
+  })
 
 const replaySessionProjection = (id: SessionV2.ID) =>
   Effect.gen(function* () {
@@ -646,6 +668,8 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
       const info = yield* awaitSessionTitle(sessionID, "Fix auth token refresh")
       expect(info.title).toBe("Fix auth token refresh")
+      const tape = yield* sessionTape()
+      expect(JSON.stringify(tape)).not.toContain("Generate a title for this conversation")
     }),
   )
 
@@ -1162,6 +1186,9 @@ describe("SessionRunnerLLM", () => {
         ["Initial context"],
         ["Initial context"],
       ])
+      const tape = yield* sessionTape()
+      expect(tape?.system).toContain("Initial context")
+      expect(tape?.system).not.toContain("Replacement context")
     }),
   )
 
@@ -1214,6 +1241,8 @@ describe("SessionRunnerLLM", () => {
         resume: false,
       })
       yield* session.resume(sessionID)
+      const preCompact = requests.filter((request) => !isTitleRequest(request) && request.compiled)[0]?.compiled
+      expect(preCompact).toBeDefined()
 
       currentModel = compactModel
       requests.length = 0
@@ -1234,6 +1263,14 @@ describe("SessionRunnerLLM", () => {
       const replayTexts = userTexts(requests[1]).join("\n")
       expect(replayTexts).toContain("<summary>\n## Objective\n- Preserve the task\n</summary>")
       expect(replayTexts).toContain(`Recent exact request `.repeat(10))
+      const postCompact = requests.find((request) => request.compiled)?.compiled
+      expect(postCompact).toBeDefined()
+      expect(
+        isPrefixOf(
+          { tools: preCompact!.tools, messages: preCompact!.messages },
+          { tools: postCompact!.tools, messages: postCompact!.messages },
+        ),
+      ).toBe(false)
 
       const context = yield* (yield* SessionStore.Service).context(sessionID)
       expect(context.map((message) => message.type)).toEqual(["assistant", "user", "compaction", "assistant"])
@@ -1667,6 +1704,35 @@ describe("SessionRunnerLLM", () => {
         },
         { type: "assistant", finish: "stop", content: [{ type: "text", id: "text-final", text: "Done" }] },
       ])
+    }),
+  )
+
+  it.effect("second tool-loop request compiled body is a prefix of the first", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo once" }), resume: false })
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-echo", name: "echo", input: { text: "hi" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+      yield* session.resume(sessionID)
+      const turnRequests = requests.filter((request) => !isTitleRequest(request))
+      expect(turnRequests.length).toBeGreaterThanOrEqual(2)
+      expect(turnRequests[0]!.compiled?.protocol).toBe("openai-compatible-chat")
+      const first = yield* LLMClient.prepare(turnRequests[0]!)
+      const second = yield* LLMClient.prepare(turnRequests[1]!)
+      expect(isPrefixOf(wireFromPrepared(first.body), wireFromPrepared(second.body))).toBe(true)
     }),
   )
 
@@ -3266,7 +3332,9 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(2)
       expect(requests[0]?.toolChoice).toBeUndefined()
       expect(requests[1]?.toolChoice).toMatchObject({ type: "none" })
-      expect(requests[1]?.tools).toEqual([])
+      expect(requests[1]?.tools.length).toBeGreaterThan(0)
+      expect(requests[1]?.compiled?.tools).toBeDefined()
+      expect(requests[1]?.compiled?.tools).toEqual(requests[0]?.compiled?.tools)
       expect(requests[1]?.messages.at(-1)).toMatchObject({
         role: "assistant",
         content: [{ type: "text", text: expect.stringContaining("MAXIMUM STEPS REACHED") }],
@@ -3647,7 +3715,7 @@ describe("SessionRunnerLLM", () => {
   )
 
   it.effect(
-    "drains one verifier-reject feedback into the next turn's system context exactly once and out of the durable transcript",
+    "drains one verifier-reject into an ephemeral trailing user and out of the durable transcript",
     () =>
       Effect.gen(function* () {
         yield* setup
@@ -3661,6 +3729,7 @@ describe("SessionRunnerLLM", () => {
         yield* session.resume(sessionID)
 
         expect(requests).toHaveLength(1)
+        expect(requests[0]!.compiled).toBeDefined()
         expect(requests[0]!.system.map((part) => part.text)).toEqual(["Initial context"])
 
         yield* instance.verifierBiDirectional.injectRejectReasonToWorkerContext(
@@ -3673,11 +3742,14 @@ describe("SessionRunnerLLM", () => {
         yield* session.resume(sessionID)
 
         expect(requests).toHaveLength(1)
-        const secondSystem = requests[0]!.system.map((part) => part.text)
-        expect(secondSystem).toHaveLength(2)
-        expect(secondSystem[0]).toBe("Initial context")
-        expect(secondSystem[1]).toContain("Reject reason one")
-        expect(secondSystem[1]).toContain("src/a.ts:7 — null guard missing")
+        expect(requests[0]!.compiled).toBeDefined()
+        const messages = requests[0]!.compiled!.messages as Array<{ role: string; content?: unknown }>
+        expect(messages[0]).toEqual({ role: "system", content: expect.stringContaining("Initial context") })
+        expect(messages.filter((message) => message.role === "system")).toHaveLength(1)
+        const lastUser = [...messages].reverse().find((message) => message.role === "user")
+        expect(JSON.stringify(lastUser)).toContain("Reject reason one")
+        expect(JSON.stringify(lastUser)).toContain("src/a.ts:7 — null guard missing")
+        expect(requests[0]!.system.map((part) => part.text)).toEqual(["Initial context"])
 
         requests.length = 0
         responses = [[LLMEvent.stepStart({ index: 0 }), LLMEvent.stepFinish({ index: 0, reason: "stop" }), LLMEvent.finish({ reason: "stop" })]]
@@ -3685,6 +3757,9 @@ describe("SessionRunnerLLM", () => {
 
         expect(requests).toHaveLength(1)
         expect(requests[0]!.system.map((part) => part.text)).toEqual(["Initial context"])
+        const third = requests[0]!.compiled!.messages as Array<{ role: string; content?: unknown }>
+        expect(third.filter((message) => message.role === "system")).toHaveLength(1)
+        expect(JSON.stringify(third[0])).not.toContain("Reject reason one")
 
         const transcript = yield* session.context(sessionID)
         const transcriptJson = JSON.stringify(transcript)
@@ -3829,6 +3904,9 @@ describe("SessionRunnerLLM", () => {
       install()
       yield* session.resume(sessionID)
       expect(calls).toBe(2)
+      const retried = turnRequests()
+      expect(retried.length).toBeGreaterThanOrEqual(2)
+      expect(JSON.stringify(retried[0]!.compiled)).toBe(JSON.stringify(retried[1]!.compiled))
       const snap = yield* instance.terminal.snapshot
       expect(snap.state).toBe("running")
     }),
@@ -3910,6 +3988,8 @@ describe("SessionRunnerLLM", () => {
       })
       expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
       expect(calls).toBe(1)
+      const tape = yield* sessionTape()
+      expect(tape?.messages.length).toBe(1)
       const snap = yield* instance.terminal.snapshot
       expect(snap.state).toBe("failed")
     }),
@@ -3938,6 +4018,432 @@ describe("SessionRunnerLLM", () => {
       yield* Deferred.succeed(streamGate, undefined)
       yield* Fiber.join(fiber).pipe(Effect.flip)
       expect(requests.length).toBe(1)
+    }),
+  )
+
+  it.effect("resume after settle does not re-origin compiled.messages[0]", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
+      response = fragmentFixture("text", "text-a", ["A"]).completeEvents
+      yield* session.resume(sessionID)
+      const first = turnRequests()[0]!.compiled!
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
+      response = fragmentFixture("text", "text-b", ["B"]).completeEvents
+      yield* session.resume(sessionID)
+      const second = turnRequests()[0]!.compiled!
+      expect(second.messages[0]).toEqual(first.messages[0])
+      const prepared0 = yield* LLMClient.prepare(turnRequests()[0]!)
+      expect(first.messages[0]).toEqual(second.messages[0])
+      expect(isPrefixOf({ tools: first.tools, messages: first.messages }, { tools: second.tools, messages: second.messages })).toBe(
+        true,
+      )
+      expect(prepared0.body).toBeDefined()
+    }),
+  )
+
+  it.effect("steer append grows compiled by one user with frozen system/tools", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      const first = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Change direction" }) })
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(first)
+      const turns = turnRequests()
+      expect(turns).toHaveLength(2)
+      expect(turns[0]!.compiled!.messages[0]).toEqual(turns[1]!.compiled!.messages[0])
+      expect(turns[0]!.compiled!.tools).toEqual(turns[1]!.compiled!.tools)
+      const users0 = turns[0]!.compiled!.messages.filter((m) => (m as { role: string }).role === "user")
+      const users1 = turns[1]!.compiled!.messages.filter((m) => (m as { role: string }).role === "user")
+      expect(users1.length).toBe(users0.length + 1)
+    }),
+  )
+
+  it.effect("child session compiled.messages[0] is not the parent system", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const agents = yield* AgentV2.Service
+      yield* agents.transform((editor) => {
+        editor.update(AgentV2.ID.make("build"), (agent) => {
+          agent.system = "parent-agent-system"
+          agent.mode = "primary"
+        })
+        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+          agent.system = "child-agent-system"
+          agent.mode = "primary"
+        })
+      })
+      const session = yield* SessionV2.Service
+      const location = Location.Ref.make({ directory: AbsolutePath.make("/project") })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Parent" }), resume: false })
+      response = fragmentFixture("text", "text-parent", ["P"]).completeEvents
+      yield* session.resume(sessionID)
+      const parentCompiled = turnRequests()[0]!.compiled!
+      const child = yield* session.create({
+        parentID: sessionID,
+        location,
+        title: "child-tape",
+        agent: AgentV2.ID.make("reviewer"),
+      })
+      requests.length = 0
+      yield* session.prompt({ sessionID: child.id, prompt: Prompt.make({ text: "Child" }), resume: false })
+      response = fragmentFixture("text", "text-child", ["C"]).completeEvents
+      yield* session.resume(child.id)
+      const childCompiled = turnRequests()[0]!.compiled!
+      expect(PromptTapeStore.key(sessionID, yield* epochSeq(sessionID))).not.toBe(
+        PromptTapeStore.key(child.id, yield* epochSeq(child.id)),
+      )
+      expect(childCompiled.messages[0]).not.toEqual(parentCompiled.messages[0])
+      expect(JSON.stringify(childCompiled.messages[0])).toContain("child-agent-system")
+    }),
+  )
+
+  it.effect("shell output is one extra user-shaped message on the next compiled", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Before shell" }), resume: false })
+      response = fragmentFixture("text", "text-before", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const before = turnRequests()[0]!.compiled!
+      yield* events.publish(SessionEvent.Shell.Started, {
+        sessionID,
+        messageID: SessionMessage.ID.create(),
+        timestamp: DateTime.makeUnsafe(1),
+        callID: "shell-tape",
+        command: "printf 'shell-out\\n'",
+      })
+      yield* events.publish(SessionEvent.Shell.Ended, {
+        sessionID,
+        timestamp: DateTime.makeUnsafe(2),
+        callID: "shell-tape",
+        output: "shell-out",
+      })
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "After shell" }), resume: false })
+      response = fragmentFixture("text", "text-after", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const after = turnRequests()[0]!.compiled!
+      expect(after.messages[0]).toEqual(before.messages[0])
+      expect(JSON.stringify(after.messages)).toContain("printf")
+      expect(JSON.stringify(after.messages).split("printf").length - 1).toBe(1)
+    }),
+  )
+
+  it.effect("interrupt mid-tools does not append a half-built assistant to the tape", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt tool settlement" }), resume: false })
+      executions.length = 0
+      toolExecutionGate = yield* Deferred.make<void>()
+      response = [
+        LLMEvent.stepStart({ index: 0 }),
+        LLMEvent.toolCall({ id: "call-await-interrupt", name: "echo", input: { text: "blocked" } }),
+        LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+        LLMEvent.finish({ reason: "tool-calls" }),
+      ]
+      const runner = yield* SessionRunner.Service
+      const run = yield* runner.run({ sessionID, force: true }).pipe(Effect.forkChild)
+      while (executions.length === 0) yield* Effect.yieldNow
+      const during = yield* sessionTape()
+      expect(during?.messages.some((m) => m.role === "assistant")).toBe(false)
+      yield* Fiber.interrupt(run)
+      toolExecutionGate = undefined
+      yield* Fiber.await(run)
+      const after = yield* sessionTape()
+      expect(after?.messages.some((m) => m.role === "assistant")).toBe(false)
+    }),
+  )
+
+  it.effect("permission correction continues as prefix plus one tool error", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const registry = yield* ToolRegistry.Service
+      yield* registry.register({
+        corrected: Tool.make({
+          description: "Fail with user correction feedback",
+          input: Schema.Struct({}),
+          output: Schema.Struct({}),
+          execute: () =>
+            Effect.fail(new PermissionV2.CorrectedError({ feedback: "Use another tool" })).pipe(
+              Effect.mapError(() => new Tool.Failure({ message: "Use another tool" })),
+            ),
+        }),
+      })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call corrected" }), resume: false })
+      requests.length = 0
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-corrected", name: "corrected", input: {} }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ],
+      ]
+      yield* session.resume(sessionID)
+      const turns = turnRequests()
+      expect(turns.length).toBeGreaterThanOrEqual(2)
+      expect(
+        isPrefixOf(
+          { tools: turns[0]!.compiled!.tools, messages: turns[0]!.compiled!.messages },
+          { tools: turns[1]!.compiled!.tools, messages: turns[1]!.compiled!.messages },
+        ),
+      ).toBe(true)
+      expect(JSON.stringify(turns[1]!.compiled!.messages)).toContain("Use another tool")
+    }),
+  )
+
+  it.effect("switchModel keeps the frozen origin system on compiled.messages[0]", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
+      response = fragmentFixture("text", "text-a", ["A"]).completeEvents
+      yield* session.resume(sessionID)
+      const first = turnRequests()[0]!.compiled!
+      yield* session.switchModel({
+        sessionID,
+        model: ModelV2.Ref.make({ id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") }),
+      })
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
+      response = fragmentFixture("text", "text-b", ["B"]).completeEvents
+      yield* session.resume(sessionID)
+      const second = turnRequests()[0]!.compiled!
+      expect(second.messages[0]).toEqual(first.messages[0])
+    }),
+  )
+
+  it.effect("terminal abort does not rewrite compiled.messages[0]", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      const instance = yield* runtime.getOrCreate(sessionID)
+      yield* instance.goalStore.set("Finish the parser")
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Go" }), resume: false })
+      response = fragmentFixture("text", "text-go", ["working"]).completeEvents
+      yield* session.resume(sessionID)
+      const first = turnRequests()[0]!.compiled!
+      expect(JSON.stringify(first.messages[0])).not.toContain("Goal       :")
+      expect(JSON.stringify(first.messages[0])).not.toContain("<harness-timer-reminder>")
+      yield* instance.terminal.request("unrecoverable_failure")
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "After abort" }), resume: false })
+      response = fragmentFixture("text", "text-after-abort", ["still"]).completeEvents
+      yield* session.resume(sessionID).pipe(Effect.catch(() => Effect.void))
+      const later = turnRequests()[0]?.compiled ?? first
+      expect(later.messages[0]).toEqual(first.messages[0])
+      const tape = yield* sessionTape()
+      expect(tape?.system).toBe((first.messages[0] as { content: string }).content)
+    }),
+  )
+
+  it.effect("busy revert leaves the session tape unchanged", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Busy revert" }), resume: false })
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+      response = fragmentFixture("text", "text-busy", ["hold"]).completeEvents
+      const fiber = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+      const before = JSON.stringify(yield* sessionTape())
+      const context = yield* session.context(sessionID)
+      const user = context.find((m) => m.type === "user")
+      expect(user).toBeDefined()
+      const busy = yield* session.revert.stage({ sessionID, messageID: user!.id }).pipe(Effect.flip)
+      expect(busy._tag).toBe("SessionBusyError")
+      expect(JSON.stringify(yield* sessionTape())).toBe(before)
+      yield* Deferred.succeed(streamGate, undefined)
+      yield* Fiber.join(fiber)
+    }),
+  )
+
+  it.effect("session title patch leaves tape bytes identical", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Title patch" }), resume: false })
+      response = fragmentFixture("text", "text-title-patch", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const before = JSON.stringify(yield* sessionTape())
+      yield* db.update(SessionTable).set({ title: "patched-title" }).where(eq(SessionTable.id, sessionID)).run().pipe(Effect.orDie)
+      expect(JSON.stringify(yield* sessionTape())).toBe(before)
+    }),
+  )
+
+  it.effect("noReply resume:false does not origin a second tape", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep" }), resume: false })
+      response = fragmentFixture("text", "text-keep", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const originSystem = (yield* sessionTape())!.system
+      const originKey = PromptTapeStore.key(sessionID, yield* epochSeq(sessionID))
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Silent" }), resume: false })
+      expect((yield* sessionTape())!.system).toBe(originSystem)
+      expect(PromptTapeStore.key(sessionID, yield* epochSeq(sessionID))).toBe(originKey)
+    }),
+  )
+
+  it.effect("rapid-fire two users is one origin and two user appends", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "One" }), resume: false })
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Two" }), resume: false })
+      response = fragmentFixture("text", "text-rapid", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const compiled = turnRequests()[0]!.compiled!
+      const users = compiled.messages.filter((m) => (m as { role: string }).role === "user")
+      expect(users.length).toBeGreaterThanOrEqual(2)
+      expect(JSON.stringify(users[0])).toContain("One")
+      expect(JSON.stringify(users[1])).toContain("Two")
+    }),
+  )
+
+  it.effect("manual compact clears the session tape", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runner = yield* SessionRunner.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Before compact" }), resume: false })
+      response = fragmentFixture("text", "text-before-compact", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      expect(yield* sessionTape()).toBeDefined()
+      response = fragmentFixture("text", "text-summary-manual", [
+        "<selection>[1]</selection>\n## Objective\n- Compacted",
+      ]).completeEvents
+      yield* runner.compact(sessionID)
+      expect(yield* sessionTape()).toBeUndefined()
+    }),
+  )
+
+  it.effect("revert commit drops tape so the next generate cannot resend deleted assistant bytes", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep this user" }), resume: false })
+      response = fragmentFixture("text", "text-reverted-asst", ["this-assistant-must-die"]).completeEvents
+      yield* session.resume(sessionID)
+      const context = yield* session.context(sessionID)
+      const user = context.find((message) => message.type === "user")
+      expect(user).toBeDefined()
+      const info = yield* session.get(sessionID)
+      yield* SessionRevert.stage({ session: info, messageID: user!.id, files: false })
+      yield* session.revert.commit(sessionID)
+      expect(yield* sessionTape()).toBeUndefined()
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "After revert" }), resume: false })
+      response = fragmentFixture("text", "text-after-revert", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const compiled = turnRequests()[0]!.compiled
+      expect(JSON.stringify(compiled)).not.toContain("this-assistant-must-die")
+    }),
+  )
+
+  it.effect("unrevert (revert.clear) drops tape so the next generate hydrates instead of keeping a staged cursor", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep this user" }), resume: false })
+      response = fragmentFixture("text", "text-unrevert-asst", ["this-assistant-survives-unrevert"]).completeEvents
+      yield* session.resume(sessionID)
+      expect(yield* sessionTape()).toBeDefined()
+      const context = yield* session.context(sessionID)
+      const user = context.find((message) => message.type === "user")
+      expect(user).toBeDefined()
+      const info = yield* session.get(sessionID)
+      yield* SessionRevert.stage({ session: info, messageID: user!.id, files: false })
+      yield* SessionRevert.clear(yield* session.get(sessionID))
+      PromptTapeStore.clear(sessionID)
+      const { db } = yield* Database.Service
+      yield* SessionContextEpoch.saveTape(db, sessionID, null)
+      expect(yield* sessionTape()).toBeUndefined()
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "After unrevert" }), resume: false })
+      response = fragmentFixture("text", "text-after-unrevert", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const compiled = turnRequests()[0]!.compiled
+      expect(JSON.stringify(compiled)).toContain("this-assistant-survives-unrevert")
+    }),
+  )
+
+  it.effect("eight identical tool fingerprints abort without rewriting compiled.messages[0]", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Loop echo" }), resume: false })
+      const calls = Array.from({ length: 8 }, (_, i) =>
+        LLMEvent.toolCall({ id: `doom-${i}`, name: "echo", input: { text: "same" } }),
+      )
+      response = [
+        LLMEvent.stepStart({ index: 0 }),
+        ...calls,
+        LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+        LLMEvent.finish({ reason: "tool-calls" }),
+      ]
+      yield* session.resume(sessionID).pipe(Effect.catch(() => Effect.void))
+      const first = turnRequests()[0]?.compiled
+      expect(first).toBeDefined()
+      expect((first!.messages[0] as { content: string }).content).toBe("Initial context")
+    }),
+  )
+
+  it.effect("clearAll then loadTape restores the persisted marker from the epoch row", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Persist" }), resume: false })
+      response = fragmentFixture("text", "text-persist", ["ok"]).completeEvents
+      yield* session.resume(sessionID)
+      const seq = yield* epochSeq(sessionID)
+      const original = PromptTapeStore.get(sessionID, seq)!
+      const marked = {
+        ...original,
+        messages: [...original.messages, { role: "user" as const, content: "__persist_marker__" }],
+      }
+      yield* SessionContextEpoch.saveTape(db, sessionID, { tape: marked, lastSeq: 99 })
+      PromptTapeStore.clearAll()
+      expect(PromptTapeStore.get(sessionID, seq)).toBeUndefined()
+      const restored = yield* SessionContextEpoch.loadTape(db, sessionID)
+      expect(restored?.tape.system).toBe(original.system)
+      expect(restored?.tape.tools).toEqual(original.tools)
+      expect(restored?.tape.messages.at(-1)).toEqual({ role: "user", content: "__persist_marker__" })
+      expect(restored?.lastSeq).toBe(99)
     }),
   )
 })

@@ -264,4 +264,19 @@ describe("LoopControlHost.layerReal", () => {
       client,
     )
   })
+
+  test("Open circuit breaker makes shouldContinue false so no second stream", () =>
+    program(
+      Effect.gen(function* () {
+        const hooks = yield* LoopControlHost.Interface
+        const breaker = yield* CircuitBreaker.Service
+        yield* hooks.onTurnStart({ sessionID: "s1", step: 1, providerID: "fake" })
+        for (let i = 0; i < 5; i++) yield* breaker.recordFailureFor("fake")
+        expect(yield* breaker.stateFor("fake")).toBe("Open")
+        if (!hooks.shouldContinue) throw new Error("shouldContinue hook missing")
+        expect(yield* hooks.shouldContinue("s1")).toBe(false)
+        expect(yield* breaker.allowRequest("fake")).toBe(false)
+      }),
+    ),
+  )
 })
