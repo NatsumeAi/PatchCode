@@ -12,6 +12,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./cache-prefix": "./src/cache-prefix.ts",
     "./route": "./src/route/index.ts",
     "./provider": "./src/provider.ts",
     "./providers": "./src/providers/index.ts",
