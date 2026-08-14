@@ -74,6 +74,87 @@ describe("OpenAI Chat route", () => {
     }),
   )
 
+  it.effect("compiled chat body is sent without merging system-update into the previous user", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
+        LLM.request({
+          model,
+          prompt: "this prompt must not appear on the wire",
+          compiled: {
+            protocol: "openai-compatible-chat",
+            messages: [
+              { role: "system", content: "S" },
+              { role: "user", content: "Before." },
+              { role: "user", content: "<system-update>\nX\n</system-update>" },
+            ],
+            tools: [{ type: "function", function: { name: "echo", description: "e", parameters: { type: "object" } } }],
+          },
+        }),
+      )
+      expect(prepared.body.messages).toEqual([
+        { role: "system", content: "S" },
+        { role: "user", content: "Before." },
+        { role: "user", content: "<system-update>\nX\n</system-update>" },
+      ])
+      expect(prepared.body.messages.some((message) => JSON.stringify(message).includes("this prompt must not appear"))).toBe(
+        false,
+      )
+      expect(prepared.body.tools).toEqual([
+        { type: "function", function: { name: "echo", description: "e", parameters: { type: "object" } } },
+      ])
+    }),
+  )
+
+  it.effect("compiled preserves exact tool-call argument strings", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
+        LLM.request({
+          model,
+          prompt: "ignored",
+          compiled: {
+            protocol: "openai-compatible-chat",
+            messages: [
+              { role: "system", content: "S" },
+              {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "c1",
+                    type: "function",
+                    function: { name: "echo", arguments: '{"zed":1,"alpha":2}' },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      )
+      const assistant = prepared.body.messages[1] as {
+        tool_calls: Array<{ function: { arguments: string } }>
+      }
+      expect(assistant.tool_calls[0]!.function.arguments).toBe('{"zed":1,"alpha":2}')
+    }),
+  )
+
+  it.effect("updateRequest keeps compiled on the request", () =>
+    Effect.gen(function* () {
+      const compiled = {
+        protocol: "openai-compatible-chat" as const,
+        messages: [
+          { role: "system", content: "S" },
+          { role: "user", content: "hi" },
+        ],
+      }
+      const original = LLM.request({ model, prompt: "ignored", compiled })
+      const updated = LLM.updateRequest(original, { generation: { maxTokens: 8, temperature: 0 } })
+      expect(updated.compiled).toEqual(compiled)
+      const prepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(updated)
+      expect(prepared.body.messages).toEqual(compiled.messages)
+      expect(prepared.body.max_tokens).toBe(8)
+    }),
+  )
+
   it.effect("replays canonical reasoning as OpenAI-compatible reasoning_content", () =>
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(

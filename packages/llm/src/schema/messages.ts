@@ -268,6 +268,13 @@ export const ResponseFormat = Schema.Union([
 ]).pipe(Schema.toTaggedUnion("type"))
 export type ResponseFormat = Schema.Schema.Type<typeof ResponseFormat>
 
+export const CompiledChat = Schema.Struct({
+  protocol: Schema.Literal("openai-compatible-chat"),
+  messages: Schema.Array(Schema.Unknown),
+  tools: Schema.optional(Schema.Array(Schema.Unknown)),
+})
+export type CompiledChat = Schema.Schema.Type<typeof CompiledChat>
+
 export class LLMRequest extends Schema.Class<LLMRequest>("LLM.Request")({
   id: Schema.optional(Schema.String),
   model: ModelSchema,
@@ -281,6 +288,7 @@ export class LLMRequest extends Schema.Class<LLMRequest>("LLM.Request")({
   responseFormat: Schema.optional(ResponseFormat),
   cache: Schema.optional(CachePolicy),
   metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  compiled: Schema.optional(CompiledChat),
 }) {}
 
 export namespace LLMRequest {
@@ -299,6 +307,7 @@ export namespace LLMRequest {
     responseFormat: request.responseFormat,
     cache: request.cache,
     metadata: request.metadata,
+    compiled: request.compiled,
   })
 
   export const update = (request: LLMRequest, patch: Partial<Input>) => {

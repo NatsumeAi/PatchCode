@@ -345,6 +345,24 @@ const fromRequest = Effect.fn("OpenAIChat.fromRequest")(function* (request: LLMR
   // `fromRequest` returns the provider body only. Endpoint, auth, framing,
   // validation, and HTTP execution are composed by `Route.make`.
   const generation = request.generation
+  if (request.compiled?.protocol === "openai-compatible-chat") {
+    return {
+      model: request.model.id,
+      messages: request.compiled.messages as OpenAIChatBody["messages"],
+      tools: request.compiled.tools as OpenAIChatBody["tools"],
+      tool_choice: request.toolChoice ? yield* lowerToolChoice(request.toolChoice) : undefined,
+      stream: true as const,
+      stream_options: { include_usage: true },
+      max_tokens: generation?.maxTokens,
+      temperature: generation?.temperature,
+      top_p: generation?.topP,
+      frequency_penalty: generation?.frequencyPenalty,
+      presence_penalty: generation?.presencePenalty,
+      seed: generation?.seed,
+      stop: generation?.stop,
+      ...(yield* lowerOptions(request)),
+    }
+  }
   const toolSchemaCompatibility = request.model.compatibility?.toolSchema
   return {
     model: request.model.id,
