@@ -688,6 +688,7 @@ const taskHostLayer = Layer.effect(
                 subagent: agentInfo,
                 capability,
               }).map((rule) => toLegacyRule(rule)),
+              metadata: { sandboxProfile: parent.sandboxProfile ?? "off" },
             })
             yield* events
               .publish(SessionV1.Event.Created, { sessionID, info }, { location: parent.location })

@@ -8,7 +8,7 @@ const run = (cmd: string, args: string[], cwd: string) =>
   Effect.tryPromise({
     try: () =>
       new Promise<{ code: number; stderr: string }>((resolve, reject) => {
-        const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] })
+        const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] }) // sandbox:host
         let stderr = ""
         child.stderr?.on("data", (d) => {
           stderr += String(d)

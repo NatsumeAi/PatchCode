@@ -67,7 +67,7 @@ const layer = Layer.effectDiscard(
                   messageID: context.assistantMessageID,
                   callID: context.toolCallID,
                 }
-                const target = yield* mutation.resolve({ path: input.path, kind: "file", forWrite: true })
+                const target = yield* mutation.resolve({ path: input.path, kind: "file", forWrite: true, sessionID: context.sessionID })
                 const external = target.externalDirectory
                 if (external)
                   yield* permission.assert({

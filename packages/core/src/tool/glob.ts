@@ -78,6 +78,7 @@ const layer = Layer.effectDiscard(
                   cwd,
                   pattern: input.pattern,
                   limit: input.limit ?? Number.MAX_SAFE_INTEGER,
+                  sessionID: context.sessionID,
                 })
                 .pipe(
                   Effect.map((result) =>

@@ -5,6 +5,7 @@ import path from "path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { FSUtil } from "./fs-util"
 import { Location } from "./location"
+import { Sandbox } from "./sandbox"
 
 export const Kind = Schema.Literals(["file", "directory"])
 export type Kind = typeof Kind.Type
@@ -20,6 +21,7 @@ export const ResolveInput = Schema.Struct({
   kind: Kind.pipe(Schema.optional),
   /** When true, reject symlink escapes (write path). Reads may follow out-of-tree links. */
   forWrite: Schema.Boolean.pipe(Schema.optional),
+  sessionID: Schema.String.pipe(Schema.optional),
 })
 export type ResolveInput = typeof ResolveInput.Type
 
@@ -57,7 +59,7 @@ export interface Interface {
    * stay inside the Location. Absolute paths outside it require separate
    * `external_directory` approval. This does not approve the mutation.
    */
-  readonly resolve: (input: ResolveInput) => Effect.Effect<Target, PathError | FSUtil.Error>
+  readonly resolve: (input: ResolveInput) => Effect.Effect<Target, PathError | FSUtil.Error | Sandbox.Denied | Sandbox.Unavailable>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/LocationMutation") {}
@@ -83,6 +85,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
+    const sandbox = yield* Sandbox.Service
     const locationRoot = yield* fs.realPath(location.directory)
 
     function notFound<A>(effect: Effect.Effect<A, FSUtil.Error>) {
@@ -138,6 +141,8 @@ const layer = Layer.effect(
         }
       }
 
+      yield* sandbox.assertPath(input.forWrite === true ? "write" : "read", resolved.canonical, input.sessionID)
+
       const external = !lexicallyInternal
       const resource = external
         ? slash(resolved.canonical)
@@ -168,5 +173,5 @@ export const locationLayer = layer
 export const node = makeLocationNode({
   service: Service,
   layer: layer.pipe(Layer.orDie),
-  deps: [FSUtil.node, Location.node],
+  deps: [FSUtil.node, Location.node, Sandbox.node],
 })

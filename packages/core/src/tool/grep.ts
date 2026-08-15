@@ -101,6 +101,7 @@ const layer = Layer.effectDiscard(
                   file: info?.type === "File" ? path.basename(target) : undefined,
                   include: input.include,
                   limit: input.limit ?? Number.MAX_SAFE_INTEGER,
+                  sessionID: context.sessionID,
                 })
                 .pipe(
                   Effect.map((result) =>

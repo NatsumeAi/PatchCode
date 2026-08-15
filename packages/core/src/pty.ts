@@ -9,6 +9,7 @@ import { EventV2 } from "./event"
 import { Location } from "./location"
 import { PtyID } from "./pty/schema"
 import { Shell } from "./shell"
+import { Sandbox } from "./sandbox"
 import { lazy } from "./util/lazy"
 
 const BUFFER_LIMIT = 1024 * 1024 * 2
@@ -95,6 +96,7 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const location = yield* Location.Service
     const config = yield* Config.Service
+    const sandbox = yield* Sandbox.Service
     const context = yield* Effect.context()
     const runFork = Effect.runForkWith(context)
     const sessions = new Map<PtyID, Active>()
@@ -167,6 +169,14 @@ const layer = Layer.effect(
       const command = input.command || Shell.preferred(Config.latest(yield* config.entries(), "shell"))
       const args = Shell.login(command) ? [...(input.args ?? []), "-l"] : [...(input.args ?? [])]
       const cwd = input.cwd || location.directory
+      const wrapped = yield* sandbox.wrapSpawn({
+        class: "workspace-child",
+        command,
+        args,
+        cwd,
+        sessionID: input.sessionID,
+        whenUnpinned: input.sessionID ? "off" : "location",
+      })
       const env = {
         ...process.env,
         ...input.env,
@@ -178,9 +188,9 @@ const layer = Layer.effect(
         env.LC_CTYPE = "C.UTF-8"
         env.LANG = "C.UTF-8"
       }
-      yield* Effect.logInfo("creating session", { id, cmd: command, args, cwd })
+      yield* Effect.logInfo("creating session", { id, cmd: wrapped.command, args: wrapped.args, cwd })
       const { spawn } = yield* Effect.promise(() => pty())
-      const proc = yield* Effect.sync(() => spawn(command, args, { name: "xterm-256color", cwd, env }))
+      const proc = yield* Effect.sync(() => spawn(wrapped.command, wrapped.args, { name: "xterm-256color", cwd, env }))
       const info: Info = {
         id,
         title: input.title || `Terminal ${id.slice(-4)}`,
@@ -315,4 +325,4 @@ const layer = Layer.effect(
 
 export const locationLayer = layer.pipe(Layer.provide(Config.locationLayer))
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Location.node, Config.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Location.node, Config.node, Sandbox.node] })

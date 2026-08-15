@@ -11,6 +11,7 @@ import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { PermissionV2 } from "../permission"
+import { Sandbox } from "../sandbox"
 import { ToolOutputStore } from "../tool-output-store"
 import { PositiveInt } from "../schema"
 import { SessionEvent } from "../session/event"
@@ -107,6 +108,7 @@ const layer = Layer.effectDiscard(
     const appProcess = yield* AppProcess.Service
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
+    const sandbox = yield* Sandbox.Service
     const events = yield* EventV2.Service
     const resources = yield* ToolOutputStore.Service
 
@@ -167,7 +169,11 @@ const layer = Layer.effectDiscard(
                 messageID: context.assistantMessageID,
                 callID: context.toolCallID,
               }
-              const target = yield* mutation.resolve({ path: input.workdir ?? ".", kind: "directory" })
+              const target = yield* mutation.resolve({
+                path: input.workdir ?? ".",
+                kind: "directory",
+                sessionID: context.sessionID,
+              })
               const external = target.externalDirectory
               if (external)
                 yield* permission.assert({
@@ -189,6 +195,10 @@ const layer = Layer.effectDiscard(
                 source,
               })
 
+              // Frozen W1–W3 execute chain (do not invent a second spawn file):
+              // classify → decide → PlanGate → Permission → PreToolUse → wrapSpawn → BackgroundJob.start → AppProcess
+              // W1 only inserts wrapSpawn. Do not implement classify/decide/BackgroundJob.
+
               if ((yield* fs.stat(target.canonical)).type !== "Directory")
                 return yield* Effect.fail(new Error(`Working directory is not a directory: ${target.canonical}`))
 
@@ -196,13 +206,31 @@ const layer = Layer.effectDiscard(
               const shell =
                 Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
                   .shell ?? defaultShell()
-              const command = ChildProcess.make(input.command, [], {
-                cwd: target.canonical,
-                shell,
-                stdin: "ignore",
-                detached: process.platform !== "win32",
-                forceKillAfter: Duration.seconds(3),
-              })
+              const resolved = yield* sandbox.resolve(context.sessionID)
+              const wrapped =
+                resolved.name === "off"
+                  ? undefined
+                  : yield* sandbox.wrapSpawn({
+                      class: "workspace-child",
+                      command: shell,
+                      args: ["-c", input.command],
+                      cwd: target.canonical,
+                      sessionID: context.sessionID,
+                    })
+              const command = wrapped
+                ? ChildProcess.make(wrapped.command, wrapped.args, {
+                    cwd: target.canonical,
+                    stdin: "ignore",
+                    detached: process.platform !== "win32",
+                    forceKillAfter: Duration.seconds(3),
+                  })
+                : ChildProcess.make(input.command, [], {
+                    cwd: target.canonical,
+                    shell,
+                    stdin: "ignore",
+                    detached: process.platform !== "win32",
+                    forceKillAfter: Duration.seconds(3),
+                  })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
               const collect = Effect.scoped(
                 Effect.gen(function* () {
@@ -358,6 +386,7 @@ export const node = makeLocationNode({
     AppProcess.node,
     Config.node,
     PermissionV2.node,
+    Sandbox.node,
     EventV2.node,
     ToolOutputStore.node,
   ],

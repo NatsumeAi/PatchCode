@@ -48,6 +48,9 @@ import { PromptTapeStore } from "./session/runner/prompt-tape-store"
 import { copyPrefix, getForkedTitle } from "./session/clone-prefix"
 import { Revert } from "@opencode-ai/schema/revert"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
+import { Config } from "./config"
+import { ensureBackend, pinSession, resolveNewProfileName } from "./sandbox/resolve"
+import { ProfileMismatch, Unavailable, Unsupported } from "./sandbox/windows"
 
 export const RevertState = Revert.State
 export type RevertState = Revert.State
@@ -98,6 +101,8 @@ type CreateInput = {
   title?: string
   /** Copied onto SessionTable for HTTP/TUI; not part of SessionSchema.Info. */
   metadata?: Record<string, unknown>
+  /** Pin this session to an OS sandbox profile. Resolved if omitted. */
+  sandboxProfile?: string
 }
 
 type CompactInput = {
@@ -135,10 +140,13 @@ export type Error =
   | OperationUnavailableError
   | PromptConflictError
   | SessionBusyError
+  | Unavailable
+  | Unsupported
+  | ProfileMismatch
 
 export interface Interface {
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
-  readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info>
+  readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info, Unavailable | Unsupported>
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info, NotFoundError>
   readonly messages: (input: {
     sessionID: SessionSchema.ID
@@ -201,7 +209,7 @@ export interface Interface {
     after?: number,
   ) => Effect.Effect<SessionMessage.Message[] | undefined, NotFoundError | MessageDecodeError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
-  readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
+  readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError | ProfileMismatch>
   readonly wake: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   readonly fork: (input: {
@@ -319,6 +327,54 @@ const layer = Layer.effect(
         const defaultTitle = input.parentID
           ? `Child session - ${new Date(now).toISOString()}`
           : `New session - ${new Date(now).toISOString()}`
+        let parentProfile: string | undefined
+        if (input.parentID) {
+          const parent = yield* store.get(input.parentID)
+          if (parent) parentProfile = parent.sandboxProfile ?? "off"
+        }
+        const maybeConfig = yield* Effect.serviceOption(Config.Service)
+        let configProfile: string | undefined
+        if (Option.isSome(maybeConfig)) {
+          const entries = yield* maybeConfig.value.entries()
+          configProfile = Config.latest(entries, "sandbox")?.profile
+        }
+        const sandboxProfile = yield* Effect.tryPromise({
+          try: () =>
+            resolveNewProfileName({
+              input: input.sandboxProfile,
+              config: configProfile,
+              parent: parentProfile,
+              location: input.location.directory,
+            }),
+          catch: (cause) =>
+            new Unavailable({
+              profile: input.sandboxProfile ?? "off",
+              backend: process.platform,
+              reason: cause instanceof Error ? cause.message : String(cause),
+            }),
+        })
+        yield* Effect.try({
+          try: () => ensureBackend(sandboxProfile),
+          catch: (cause) =>
+            cause instanceof Unavailable || cause instanceof Unsupported
+              ? cause
+              : new Unavailable({
+                  profile: sandboxProfile,
+                  backend: process.platform,
+                  reason: cause instanceof Error ? cause.message : String(cause),
+                }),
+        })
+        if (process.platform === "win32" && sandboxProfile === "off" && !input.sandboxProfile && !process.env.OPENCODE_SANDBOX && !configProfile) {
+          yield* events
+            .publish(SessionEvent.Sandbox, {
+              sessionID,
+              profile: "off",
+              reason: "unsupported",
+              backend: "win32",
+            })
+            .pipe(Effect.ignore)
+        }
+        pinSession(sessionID, sandboxProfile)
         const info = SessionV1.SessionInfo.make({
           id: sessionID,
           slug: Slug.create(),
@@ -337,7 +393,7 @@ const layer = Layer.effect(
                 variant: input.model.variant,
               }
             : undefined,
-          metadata: input.metadata,
+          metadata: { ...input.metadata, sandboxProfile },
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           time: { created: now, updated: now },
@@ -747,7 +803,12 @@ const layer = Layer.effect(
       }),
       active: occupiedSet,
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
-        yield* result.get(sessionID)
+        const session = yield* result.get(sessionID)
+        const stored = session.sandboxProfile ?? "off"
+        const requested = process.env.OPENCODE_SANDBOX
+        if (requested && requested !== stored) {
+          return yield* new ProfileMismatch({ sessionID, stored, requested })
+        }
         const shellAborted = yield* awaitShell(sessionID)
         if (shellAborted) return
         yield* execution.resume(sessionID)
@@ -785,6 +846,7 @@ const layer = Layer.effect(
           agent: original.agent,
           model: original.model,
           metadata: row?.metadata ?? undefined,
+          sandboxProfile: original.sandboxProfile,
         })
         yield* copyPrefix({
           db,

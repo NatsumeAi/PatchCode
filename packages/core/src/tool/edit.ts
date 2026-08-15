@@ -135,7 +135,7 @@ const layer = Layer.effectDiscard(
                   })
                 }
 
-                const target = yield* unableToEdit(mutation.resolve({ path: input.path, kind: "file", forWrite: true }))
+                const target = yield* unableToEdit(mutation.resolve({ path: input.path, kind: "file", forWrite: true, sessionID: context.sessionID }))
                 const external = target.externalDirectory
                 if (external) {
                   yield* unableToEdit(

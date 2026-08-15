@@ -11,6 +11,9 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { Config } from "@opencode-ai/core/config"
+import { ensureBackend, pinSession, resolveNewProfileName } from "@opencode-ai/core/sandbox/resolve"
+import { Unavailable, Unsupported } from "@opencode-ai/core/sandbox/windows"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { locationServiceMapLayer } from "@opencode-ai/core/location-services"
 
@@ -60,6 +63,7 @@ export function isDefaultTitle(title: string) {
 type SessionRow = typeof SessionTable.$inferSelect
 
 export function fromRow(row: SessionRow): Info {
+  if (row.sandbox_profile) pinSession(row.id, row.sandbox_profile)
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
       ? {
@@ -504,8 +508,56 @@ const layer: Layer.Layer<
       permission?: PermissionV1.Ruleset
     }) {
       const ctx = yield* InstanceState.context
+      const sessionID = SessionID.descending(input.id)
+      let parentProfile: string | undefined
+      if (input.parentID) {
+        const parentRow = yield* db
+          .select()
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.parentID))
+          .get()
+          .pipe(Effect.orDie)
+        parentProfile =
+          parentRow?.sandbox_profile ??
+          (typeof parentRow?.metadata?.sandboxProfile === "string" ? parentRow.metadata.sandboxProfile : undefined)
+      }
+      const maybeConfig = yield* Effect.serviceOption(Config.Service)
+      let configProfile: string | undefined
+      if (Option.isSome(maybeConfig)) {
+        const entries = yield* maybeConfig.value.entries()
+        configProfile = Config.latest(entries, "sandbox")?.profile
+      }
+      const requested =
+        typeof input.metadata?.sandboxProfile === "string" ? input.metadata.sandboxProfile : undefined
+      const sandboxProfile = yield* Effect.tryPromise({
+        try: () =>
+          resolveNewProfileName({
+            input: requested,
+            config: configProfile,
+            parent: parentProfile,
+            location: input.directory,
+          }),
+        catch: (cause) =>
+          new Unavailable({
+            profile: requested ?? "off",
+            backend: process.platform,
+            reason: cause instanceof Error ? cause.message : String(cause),
+          }),
+      })
+      yield* Effect.try({
+        try: () => ensureBackend(sandboxProfile),
+        catch: (cause) =>
+          cause instanceof Unavailable || cause instanceof Unsupported
+            ? cause
+            : new Unavailable({
+                profile: sandboxProfile,
+                backend: process.platform,
+                reason: cause instanceof Error ? cause.message : String(cause),
+              }),
+      })
+      pinSession(sessionID, sandboxProfile)
       const result: Info = {
-        id: SessionID.descending(input.id),
+        id: sessionID,
         slug: Slug.create(),
         version: InstallationVersion,
         projectID: ctx.project.id,
@@ -516,7 +568,7 @@ const layer: Layer.Layer<
         title: input.title ?? (input.parentID ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString(),
         agent: input.agent,
         model: input.model,
-        metadata: input.metadata,
+        metadata: { ...input.metadata, sandboxProfile },
         permission: input.permission ? [...input.permission] : undefined,
         cost: 0,
         tokens: EmptyTokens,

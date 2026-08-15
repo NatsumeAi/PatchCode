@@ -31,6 +31,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { wrapSpawn } from "@opencode-ai/core/sandbox"
 import { McpCatalog } from "./catalog"
 import { McpEvent } from "@opencode-ai/schema/mcp-event"
 import { McpBrowser } from "./browser"
@@ -344,10 +345,22 @@ const layer = Layer.effect(
       const [cmd, ...args] = mcp.command
       const baseDir = yield* InstanceState.directory
       const cwd = mcp.cwd ? path.resolve(baseDir, mcp.cwd) : baseDir
+      const wrapped = yield* Effect.tryPromise({
+        try: () =>
+          wrapSpawn({
+            class: "integration-child",
+            command: cmd,
+            args,
+            cwd,
+            whenUnpinned: "location",
+            location: cwd,
+          }),
+        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      })
       const transport = new StdioClientTransport({
         stderr: "pipe",
-        command: cmd,
-        args,
+        command: wrapped.command,
+        args: wrapped.args,
         cwd,
         env: {
           ...process.env,

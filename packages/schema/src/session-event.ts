@@ -528,6 +528,17 @@ export namespace RevertEvent {
   })
 }
 
+export const Sandbox = Event.define({
+  type: "session.sandbox",
+  schema: {
+    sessionID: SessionID,
+    profile: Schema.String,
+    class: Schema.String.pipe(optional),
+    reason: Schema.String,
+    backend: Schema.String.pipe(optional),
+  },
+})
+
 export const DurableDefinitions = Event.inventory(
   AgentSwitched,
   ModelSwitched,
@@ -598,6 +609,7 @@ export const Definitions = Event.inventory(
   RevertEvent.Staged,
   RevertEvent.Cleared,
   RevertEvent.Committed,
+  Sandbox,
 )
 
 export const Durable = Schema.Union(DurableDefinitions, { mode: "oneOf" })

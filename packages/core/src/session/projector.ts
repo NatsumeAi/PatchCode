@@ -80,6 +80,7 @@ function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInse
     summary_files: info.summary?.files,
     summary_diffs: info.summary?.diffs ? [...info.summary.diffs] : undefined,
     metadata: info.metadata,
+    sandbox_profile: typeof info.metadata?.sandboxProfile === "string" ? info.metadata.sandboxProfile : "off",
     cost: info.cost ?? 0,
     tokens_input: (info.tokens ?? { input: 0 }).input,
     tokens_output: (info.tokens ?? { output: 0 }).output,
@@ -887,14 +888,14 @@ const layer = Layer.effectDiscard(
         }
       }),
     )
-    yield* events.project(SessionV1.Event.Updated, (event) =>
-      db
-        .update(SessionTable)
-        .set(sessionRow(event.data.info))
-        .where(eq(SessionTable.id, event.data.sessionID))
-        .run()
-        .pipe(Effect.orDie),
-    )
+    yield* events.project(SessionV1.Event.Updated, (event) => {
+      const row = sessionRow(event.data.info)
+      const next =
+        typeof event.data.info.metadata?.sandboxProfile === "string"
+          ? row
+          : (({ sandbox_profile: _ignored, ...rest }) => rest)(row)
+      return db.update(SessionTable).set(next).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie)
+    })
     yield* events.project(SessionEvent.Moved, (event) =>
       Effect.gen(function* () {
         yield* db

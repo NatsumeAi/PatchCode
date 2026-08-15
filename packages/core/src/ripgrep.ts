@@ -7,6 +7,7 @@ import { makeGlobalNode } from "./effect/app-node"
 import { AppProcess, collectStream, waitForAbort } from "./process"
 import { NonNegativeInt, PositiveInt, RelativePath } from "./schema"
 import { RipgrepBinary } from "./ripgrep/binary"
+import { wrapSpawn } from "./sandbox/wrap-spawn"
 
 /**
  * Small core-owned ripgrep execution adapter. It deliberately exposes raw
@@ -56,6 +57,7 @@ export interface FindInput {
   readonly follow?: boolean
   readonly signal?: AbortSignal
   readonly onEntry?: (entry: Entry) => Effect.Effect<void>
+  readonly sessionID?: string
 }
 
 export interface GlobInput {
@@ -65,6 +67,7 @@ export interface GlobInput {
   readonly hidden?: boolean
   readonly follow?: boolean
   readonly signal?: AbortSignal
+  readonly sessionID?: string
 }
 
 export interface GrepInput {
@@ -74,6 +77,7 @@ export interface GrepInput {
   readonly include?: string
   readonly limit: number
   readonly signal?: AbortSignal
+  readonly sessionID?: string
 }
 
 export interface Interface {
@@ -103,11 +107,25 @@ const layer = Layer.effect(
       readonly parse: (line: string) => Effect.Effect<A | undefined, Error>
       readonly pattern?: string
       readonly onItem?: (item: A) => Effect.Effect<void>
+      readonly sessionID?: string
     }) => {
       const program = Effect.scoped(
         Effect.gen(function* () {
+          const filepath = yield* binary.filepath
+          const wrapped = yield* Effect.tryPromise({
+            try: () =>
+              wrapSpawn({
+                class: "integration-child",
+                command: filepath,
+                args: input.args,
+                cwd: input.cwd,
+                sessionID: input.sessionID,
+                whenUnpinned: "off",
+              }),
+            catch: (cause) => failure("sandbox wrap failed", cause),
+          })
           const handle = yield* process.spawn(
-            ChildProcess.make(yield* binary.filepath, input.args, { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
+            ChildProcess.make(wrapped.command, wrapped.args, { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
           )
           const stderrFiber = yield* collectStream(handle.stderr, ERROR_BYTES).pipe(
             Effect.map((output) => output.buffer.toString("utf8")),
@@ -157,6 +175,7 @@ const layer = Layer.effect(
           cwd: input.cwd,
           limit: input.limit,
           signal: input.signal,
+          sessionID: input.sessionID,
           args: [
             "--no-config",
             "--files",
@@ -189,6 +208,7 @@ const layer = Layer.effect(
           cwd: input.cwd,
           limit: input.limit,
           signal: input.signal,
+          sessionID: input.sessionID,
           args: [
             "--no-config",
             "--files",

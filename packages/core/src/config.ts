@@ -104,6 +104,13 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   experimental: ConfigExperimental.Experimental.pipe(Schema.optional),
   providers: Schema.Record(Schema.String, ConfigProvider.Info).pipe(Schema.optional),
+  sandbox: Schema.Struct({
+    profile: Schema.String,
+  })
+    .pipe(Schema.optional)
+    .annotate({
+      description: "OS sandbox profile for new sessions (off, workspace, read-only, strict, or a custom name)",
+    }),
 }) {}
 
 export class Document extends Schema.Class<Document>("Config.Document")({

@@ -6,6 +6,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { Pty } from "@opencode-ai/core/pty"
+import { Sandbox } from "@opencode-ai/core/sandbox"
 import type { PtyID } from "@opencode-ai/core/pty/schema"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { location } from "../fixture/location"
@@ -22,6 +23,7 @@ const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Pty.node, EventV2.node]), [
     [Config.node, configLayer],
     [Location.node, locationLayer],
+    [Sandbox.node, Sandbox.noopLayer],
   ]),
 )
 const ptyTest = process.platform === "win32" ? it.live.skip : it.live
@@ -219,6 +221,7 @@ const configuredIt = testEffect(
       }),
     ],
     [Location.node, locationLayer],
+    [Sandbox.node, Sandbox.noopLayer],
   ]),
 )
 const configuredTest = process.platform === "win32" ? configuredIt.live.skip : configuredIt.live

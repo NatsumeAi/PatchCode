@@ -4,6 +4,7 @@ import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@opencode-ai/core/process"
 import { InstanceState } from "@/effect/instance-state"
+import { wrapSpawn } from "@opencode-ai/core/sandbox"
 import path from "path"
 import { mergeDeep } from "remeda"
 import { Config } from "@/config/config"
@@ -81,9 +82,21 @@ const layer = Layer.effect(
               yield* Effect.logInfo("running", { command: cmd })
               const replaced = cmd.map((x) => x.replace("$FILE", filepath))
               const dir = yield* InstanceState.directory
+              const wrapped = yield* Effect.tryPromise({
+                try: () =>
+                  wrapSpawn({
+                    class: "workspace-child",
+                    command: replaced[0]!,
+                    args: replaced.slice(1),
+                    cwd: dir,
+                    whenUnpinned: "location",
+                    location: dir,
+                  }),
+                catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+              })
               const result = yield* appProcess
                 .run(
-                  ChildProcess.make(replaced[0]!, replaced.slice(1), {
+                  ChildProcess.make(wrapped.command, wrapped.args, {
                     cwd: dir,
                     env: item.environment,
                     extendEnv: true,

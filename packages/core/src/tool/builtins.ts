@@ -7,6 +7,7 @@ import { ApplyPatchTool } from "./apply-patch"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { ListDirTool } from "./list-dir"
 import { LspTool } from "./lsp"
 import { PlanEnterTool } from "./plan-enter"
 import { PlanExitTool } from "./plan-exit"
@@ -45,6 +46,7 @@ export const node = makeLocationNode({
     EditTool.node,
     GlobTool.node,
     GrepTool.node,
+    ListDirTool.node,
     LspTool.node,
     PlanEnterTool.node,
     PlanExitTool.node,

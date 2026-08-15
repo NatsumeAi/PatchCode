@@ -329,7 +329,7 @@ const layer = Layer.effect(
     ) {
       const result = yield* proc
         .run(
-          ChildProcess.make("git", repositoryArgs(repository, args), {
+          ChildProcess.make("git", repositoryArgs(repository, args), { // sandbox:host
             cwd: repository.worktree,
             env: options?.env,
             extendEnv: true,
@@ -495,7 +495,7 @@ const layer = Layer.effect(
       if (!input.paths.length) return new Set<RelativePath>()
       const result = yield* proc
         .run(
-          ChildProcess.make("git", repositoryArgs(input.repository, ["check-ignore", "--no-index", "--stdin", "-z"]), {
+          ChildProcess.make("git", repositoryArgs(input.repository, ["check-ignore", "--no-index", "--stdin", "-z"]), { // sandbox:host
             cwd: input.repository.worktree,
             extendEnv: true,
           }),
@@ -793,7 +793,7 @@ const layer = Layer.effect(
     }) {
       const result = yield* proc
         .run(
-          ChildProcess.make("git", ["apply", "-"], {
+          ChildProcess.make("git", ["apply", "-"], { // sandbox:host
             cwd: input.path,
             extendEnv: true,
             stdin: Stream.make(new TextEncoder().encode(input.changes)),
@@ -860,7 +860,7 @@ const layer = Layer.effect(
       cwd = repository.worktree,
     ) {
       const result = yield* proc
-        .run(ChildProcess.make("git", args, { cwd, extendEnv: true, stdin: "ignore" }))
+        .run(ChildProcess.make("git", args, { cwd, extendEnv: true, stdin: "ignore" })) // sandbox:host
         .pipe(
           Effect.mapError(
             (cause) => new WorktreeError({ operation, directory: worktreeDirectory, message: cause.message, cause }),
@@ -960,7 +960,7 @@ function execute(cwd: string, proc: AppProcess.Interface) {
   return (args: string[]) =>
     proc
       .run(
-        ChildProcess.make("git", args, {
+        ChildProcess.make("git", args, { // sandbox:host
           cwd,
           extendEnv: true,
           stdin: "ignore",
