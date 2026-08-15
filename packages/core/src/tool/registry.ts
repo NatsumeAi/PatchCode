@@ -62,26 +62,45 @@ const registryLayer = Layer.effect(
         }
       if (advertised && registration.identity !== advertised)
         return { result: { type: "error" as const, value: `Stale tool call: ${input.call.name}` } }
-      const pending = yield* settle(registration.tool, input.call, {
-        sessionID: input.sessionID,
-        agent: input.agent,
-        assistantMessageID: input.assistantMessageID,
-        toolCallID: input.call.id,
-      }).pipe(
-        Effect.map((output) => ({ output })),
-        Effect.catchTag("LLM.ToolFailure", (failure) =>
-          Effect.succeed({ result: { type: "error" as const, value: failure.message } }),
+      // Execute stays interruptible (bash collect / task host Effect.never).
+      // bound() and the return value must not be in that restored region:
+      // a sticky cancel after execute catches interrupt would otherwise
+      // drop Success and leave the tool `running`.
+      return yield* Effect.uninterruptibleMask((restore) =>
+        restore(
+          settle(registration.tool, input.call, {
+            sessionID: input.sessionID,
+            agent: input.agent,
+            assistantMessageID: input.assistantMessageID,
+            toolCallID: input.call.id,
+          }).pipe(
+            Effect.map((output) => ({ output })),
+            Effect.catchTag("LLM.ToolFailure", (failure) =>
+              Effect.succeed({ result: { type: "error" as const, value: failure.message } }),
+            ),
+          ),
+        ).pipe(
+          // exit/bound must wrap restore(), not sit inside it: fiber interrupt
+          // never yields an Exit from restore(effect.exit), so Success+bound()
+          // would be dropped and the tool would stay `running`.
+          Effect.exit,
+          Effect.flatMap((exit) => {
+            if (exit._tag === "Failure") return Effect.failCause(exit.cause)
+            const pending = exit.value
+            if ("result" in pending) return Effect.succeed(pending)
+            return resources.bound({ sessionID: input.sessionID, toolCallID: input.call.id, output: pending.output }).pipe(
+              Effect.map((bounded) => {
+                const result = ToolOutput.toResultValue(bounded.output)
+                if (result.type === "error")
+                  return bounded.outputPaths.length > 0 ? { result, outputPaths: bounded.outputPaths } : { result }
+                return bounded.outputPaths.length > 0
+                  ? { result, output: bounded.output, outputPaths: bounded.outputPaths }
+                  : { result, output: bounded.output }
+              }),
+            )
+          }),
         ),
       )
-      if ("result" in pending) return pending
-      const output = pending.output
-      const bounded = yield* resources.bound({ sessionID: input.sessionID, toolCallID: input.call.id, output })
-      const result = ToolOutput.toResultValue(bounded.output)
-      if (result.type === "error")
-        return bounded.outputPaths.length > 0 ? { result, outputPaths: bounded.outputPaths } : { result }
-      return bounded.outputPaths.length > 0
-        ? { result, output: bounded.output, outputPaths: bounded.outputPaths }
-        : { result, output: bounded.output }
     })
 
     return Service.of({

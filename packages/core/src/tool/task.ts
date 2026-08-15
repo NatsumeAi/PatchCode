@@ -1,9 +1,11 @@
 export * as TaskTool from "./task"
 
 import { ToolFailure } from "@opencode-ai/llm"
-import { Cause, Context, Effect, Layer, Option, Schema } from "effect"
+import { Cause, Context, DateTime, Effect, Layer, Option, Schema } from "effect"
 import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
+import { EventV2 } from "../event"
 import { PermissionV2 } from "../permission"
+import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -132,6 +134,7 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const permission = yield* PermissionV2.Service
+    const events = yield* EventV2.Service
     // Capture the host at build time: the location graph is hoisted and
     // Layer.provide only exposes the host to node layers while they build —
     // an execute-time serviceOption would always resolve None.
@@ -145,6 +148,17 @@ const layer = Layer.effectDiscard(
           toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
+              // V1 published title via ctx.metadata at execute start so a running
+              // task part is visible before the host blocks.
+              yield* events.publish(SessionEvent.Tool.Progress, {
+                sessionID: context.sessionID,
+                assistantMessageID: context.assistantMessageID,
+                timestamp: yield* DateTime.now,
+                callID: context.toolCallID,
+                structured: { title: input.description, description: input.description },
+                content: [],
+              })
+
               yield* permission
                 .assert({
                   action: "task",
@@ -178,43 +192,59 @@ const layer = Layer.effectDiscard(
                 }
               }
 
-              // Use the build-time captured host (see layer). Keep the
-              // execute-time lookup as a fallback for hosts injected after
-              // registration (tests, thin shells).
-              const hostOpt = capturedHost._tag === "Some" ? capturedHost : yield* Effect.serviceOption(HostService)
-              if (Option.isNone(hostOpt)) {
+              const liveHost = yield* Effect.serviceOption(HostService)
+              // Location hoist replaces hostNode at build time (capturedHost).
+              // Execute-time HostService can still be the placeholder if the
+              // location env kept hostNode; never let that die-stub win.
+              const hosts = [liveHost, capturedHost].flatMap((option) =>
+                option._tag === "Some" ? [option.value] : [],
+              )
+              const unique = hosts.filter((host, index) => hosts.indexOf(host) === index)
+              if (unique.length === 0) {
                 return yield* new ToolFailure({
                   message:
                     "Task host is not available. Subagent spawning requires the opencode task host bridge.",
                 })
               }
 
-              const result = yield* hostOpt.value
-                .run({
-                  parentSessionID: context.sessionID,
-                  description: input.description,
-                  prompt: input.prompt,
-                  subagentType: input.subagent_type,
-                  taskID: input.task_id,
-                  command: input.command,
-                  background: input.background,
-                  cwd: input.cwd,
-                  forkMode: input.fork_mode,
-                  persona: input.persona,
-                  isolation: input.isolation,
-                  agent: context.agent,
-                  assistantMessageID: context.assistantMessageID,
-                  toolCallID: context.toolCallID,
-                })
-                .pipe(
-                  // Host errors surface as model-visible tool failures; interrupts
-                  // must survive so a cancelled parent turn stays cancellable.
-                  Effect.catchCause((cause) =>
-                    Cause.hasInterruptsOnly(cause)
-                      ? Effect.failCause(cause)
-                      : Effect.fail(new ToolFailure({ message: `Task failed: ${Cause.squash(cause)}` })),
-                  ),
+              const runInput = {
+                parentSessionID: context.sessionID,
+                description: input.description,
+                prompt: input.prompt,
+                subagentType: input.subagent_type,
+                taskID: input.task_id,
+                command: input.command,
+                background: input.background,
+                cwd: input.cwd,
+                forkMode: input.fork_mode,
+                persona: input.persona,
+                isolation: input.isolation,
+                agent: context.agent,
+                assistantMessageID: context.assistantMessageID,
+                toolCallID: context.toolCallID,
+              }
+              const tryHost = (
+                index: number,
+              ): Effect.Effect<Schema.Schema.Type<typeof Output>, ToolFailure> => {
+                const host = unique[index]
+                if (!host) {
+                  return new ToolFailure({
+                    message:
+                      "Task host is not available. Subagent spawning requires the opencode task host bridge.",
+                  })
+                }
+                return host.run(runInput).pipe(
+                  Effect.catchCause((cause) => {
+                    if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+                    const message = String(Cause.squash(cause))
+                    if (message.includes("Task host is not available") && index + 1 < unique.length) {
+                      return tryHost(index + 1)
+                    }
+                    return new ToolFailure({ message: `Task failed: ${Cause.squash(cause)}` })
+                  }),
                 )
+              }
+              const result = yield* tryHost(0)
               if (softAdvisory && result.output) {
                 return { ...result, output: `${softAdvisory}\n\n${result.output}` }
               }
@@ -234,5 +264,5 @@ export const node = makeLocationNode({
   // execute-time serviceOption alone would never resolve — the host must be a
   // compile-time dependency of this node so hoist lifts it into the location
   // environment. App graphs replace hostNode with the real bridge.
-  deps: [ToolRegistry.node, PermissionV2.node, hostNode],
+  deps: [ToolRegistry.node, PermissionV2.node, hostNode, EventV2.node],
 })

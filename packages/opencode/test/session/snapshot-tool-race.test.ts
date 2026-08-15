@@ -31,6 +31,9 @@ import { LSP } from "@/lsp/lsp"
 import { MCP } from "../../src/mcp"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
+import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
+import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 
 const mcp = Layer.succeed(
   MCP.Service,
@@ -88,8 +91,8 @@ const root = LayerNode.group([
 ])
 const it = testEffect(
   LayerNode.compile(root, [
-    [MCP.node, mcp],
-    [LSP.node, lsp],
+    [SessionExecution.node, SessionExecutionLocal.node],
+    [LocationServiceMap.node, buildLocationServiceMap()],
     [RuntimeFlags.node, RuntimeFlags.layer({ experimentalEventSystem: true })],
   ]),
 )

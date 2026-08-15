@@ -1,8 +1,21 @@
 # Dual-path classification lock (2026-08-07)
 
-> Locked after re-review: facts were largely correct; severity/labels were not.
-> Test baseline at lock: ~682 pass / 1 skip / 0 fail on related packages.
-> Rule: one live path per capability. V1-only OK. V2-only OK. Dual live = converge. Dead registration ≠ dual. Compat retention ≠ plan failure.
+> **2026-08-14 audit:** several rows below are stale. Authority for current live/parallel/keep-list is `docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md` (rewritten as dual-path + feature keep-list). Do not execute Wave D from this 08-07 table.
+
+| 08-07 row | 2026-08-14 status |
+|---|---|
+| revert/unrevert HTTP still SessionRevert V1 | **Done.** HTTP uses `SessionV2.revert.stage/clear/commit`. `SessionRevert.node` is dead-reg. Semantics below still apply. |
+| SessionPrompt still registered | Drain **dead for HTTP**. **Node unregistered** from `httpapi/server.ts` and never on app-runtime (2026-08-14). `runLoop` still exists for `prompt.test.ts`. Task shim already collapsed. |
+| Persona deferred | **Stale.** Persona inject is on SessionRunner origin + Task Host. Keep-list item. |
+| Compaction v3 | Still true that v3 is implemented; **two modules** remain (core live, opencode file for old tests). Opencode compaction **node unregistered** from production graphs. |
+| subtask parts dropped | Unchanged product lock: do not invent V2 mapping in a delete PR. |
+
+Wave D / parallel-path cleanup **must not** run until the keep-list in the inventory doc is proven on the live path. Features we added (PromptTape, loop/subagent, memory, revert tape, hardening) are not optional.
+
+---
+
+> Locked after re-review (08-07): facts were largely correct; severity/labels were not.
+> Rule: one live path per capability. V1-only OK. V2-only OK. Dual live = converge. Dead registration ≠ dual. Compat retention ≠ plan failure. **Shim (`Host ? V2 : runLoop`) = dual live.**
 
 ## Classification table
 

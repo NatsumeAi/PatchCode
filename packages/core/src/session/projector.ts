@@ -41,6 +41,26 @@ function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] |
   return { cost: value.cost as Usage["cost"], tokens: value.tokens as Usage["tokens"] }
 }
 
+function v1AssistantError(message: SessionMessage.Assistant): { error?: { name: string; data: unknown } } {
+  if (message.finish === "content-filter") {
+    return {
+      error: {
+        name: "ContentFilterError",
+        data: { message: "The response was blocked by the provider's content filter" },
+      },
+    }
+  }
+  if (message.error === undefined) return {}
+  const text = message.error.message
+  if (message.finish === "error" && /overflow|too large|413|prompt too long/i.test(text)) {
+    return { error: { name: "ContextOverflowError", data: { message: text } } }
+  }
+  if (/interrupt|abort/i.test(text)) {
+    return { error: { name: "MessageAbortedError", data: { message: text } } }
+  }
+  return { error: { name: "UnknownError", data: message.error } }
+}
+
 function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
@@ -114,10 +134,34 @@ function run(db: DatabaseService, events: EventV2.Interface, event: SessionEvent
     const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type })
     const updateMessage = (message: SessionMessage.Message) => {
-      if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
-      const encoded = encodeMessage(message)
-      const { id, type, ...data } = encoded
+      if (
+        event.durable === undefined &&
+        event.type !== SessionEvent.Shell.Progress.type &&
+        event.type !== SessionEvent.Tool.Progress.type
+      ) {
+        return Effect.die("Durable Session event is missing aggregate sequence")
+      }
       return Effect.gen(function* () {
+        if (event.type === SessionEvent.Shell.Progress.type || event.type === SessionEvent.Tool.Progress.type) {
+          const existing = yield* db
+            .select()
+            .from(SessionMessageTable)
+            .where(
+              and(
+                eq(SessionMessageTable.id, SessionMessage.ID.make(message.id)),
+                eq(SessionMessageTable.session_id, event.data.sessionID),
+              ),
+            )
+            .get()
+            .pipe(Effect.orDie)
+          if (existing) {
+            const current = decodeRow(existing)
+            if (current.type === "shell" && current.time.completed !== undefined) return
+            if (current.type === "assistant" && current.time.completed !== undefined) return
+          }
+        }
+        const encoded = encodeMessage(message)
+        const { id, type, ...data } = encoded
         yield* db
           .update(SessionMessageTable)
           .set({ type, time_created: DateTime.toEpochMillis(message.time.created), data })
@@ -284,7 +328,7 @@ function legacyMirror(
             created: timeCreated,
             ...(completed === undefined ? {} : { completed }),
           },
-          finish: "stop",
+          ...(completed === undefined ? {} : { finish: "stop" as const }),
         },
       },
       parts: [
@@ -296,20 +340,29 @@ function legacyMirror(
             type: "tool" as const,
             tool: "bash",
             callID: message.callID,
-            state: {
-              status: "completed" as const,
-              input: { command: message.command },
-              output: message.output ?? "",
-              title: "bash",
-              metadata: {
-                output: message.output ?? "",
-                ...(message.exit === undefined ? {} : { exit: message.exit }),
-              },
-              time: {
-                start: timeCreated,
-                end: completed ?? timeCreated,
-              },
-            },
+            state:
+              completed === undefined
+                ? {
+                    status: "running" as const,
+                    input: { command: message.command },
+                    title: "bash",
+                    metadata: { output: message.output ?? "" },
+                    time: { start: timeCreated },
+                  }
+                : {
+                    status: "completed" as const,
+                    input: { command: message.command },
+                    output: message.output ?? "",
+                    title: "bash",
+                    metadata: {
+                      output: message.output ?? "",
+                      ...(message.exit === undefined ? {} : { exit: message.exit }),
+                    },
+                    time: {
+                      start: timeCreated,
+                      end: completed,
+                    },
+                  },
           },
         },
         {
@@ -354,7 +407,7 @@ function legacyMirror(
           },
           ...(message.finish === undefined ? {} : { finish: message.finish }),
           ...(message.model.variant === undefined ? {} : { variant: message.model.variant }),
-          ...(message.error === undefined ? {} : { error: { name: "UnknownError", data: message.error } }),
+          ...v1AssistantError(message),
         },
       },
       parts: message.content.map((part) => {
@@ -392,10 +445,22 @@ function legacyMirror(
         // V1 tool parts expect Record input; V2 pending carries a JSON string.
         const asObject = (value: unknown): Record<string, unknown> => {
           if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>
-          if (typeof value === "string" && value.length > 0) return { value }
+          if (typeof value === "string" && value.length > 0) {
+            try {
+              const parsed = JSON.parse(value) as unknown
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                return parsed as Record<string, unknown>
+              }
+            } catch {
+              // Keep the raw string when the tool input is not JSON.
+            }
+            return { value }
+          }
           return {}
         }
         const input = asObject(rawInput)
+        const nested = typeof input.value === "string" ? asObject(input.value) : {}
+        const fields = { ...nested, ...input }
         const outputText = () => {
           if (!("content" in state) || !Array.isArray(state.content)) return ""
           return state.content
@@ -408,28 +473,53 @@ function legacyMirror(
           "structured" in state && state.structured && typeof state.structured === "object"
             ? (state.structured as Record<string, unknown>)
             : {}
+        const title =
+          (typeof fields.description === "string" && fields.description.length > 0
+            ? fields.description
+            : undefined) ??
+          (typeof structured.title === "string" && structured.title.length > 0 ? structured.title : undefined) ??
+          (typeof structured.description === "string" && structured.description.length > 0
+            ? structured.description
+            : undefined) ??
+          tool.name
+        const taskMeta = tool.name === "task" ? { parentSessionId: sessionID } : {}
+        const outputPaths =
+          "outputPaths" in state && Array.isArray(state.outputPaths)
+            ? state.outputPaths.filter((item): item is string => typeof item === "string")
+            : []
+        const truncated = outputPaths.length > 0
+        const outputPath = outputPaths[0]
+        const v1Output =
+          truncated && outputPath
+            ? `${out}\n\n...output truncated...\n\nFull output saved to: ${outputPath}`
+            : out
+        const truncMeta = truncated
+          ? { truncated: true as const, outputPath, output: v1Output }
+          : { output: v1Output }
         // Shell display reads metadata.output; generic/task read state.output.
         const toolState =
           state.status === "completed"
             ? {
                 status: "completed" as const,
-                input,
-                output: out,
-                title: tool.name,
-                metadata: { ...structured, output: out },
+                input: fields,
+                output: v1Output,
+                title,
+                metadata: { ...taskMeta, ...structured, ...truncMeta },
                 time: { start, end },
               }
             : state.status === "error"
               ? {
                   status: "error" as const,
-                  input,
+                  input: fields,
                   error: state.error?.message ?? "tool error",
-                  metadata: { ...structured, ...(out ? { output: out } : {}) },
+                  metadata: { ...taskMeta, ...structured, ...(out ? { output: out } : {}) },
                   time: { start, end },
                 }
               : {
                   status: "running" as const,
-                  input,
+                  input: fields,
+                  title,
+                  metadata: { ...taskMeta, ...structured, output: out },
                   time: { start },
                 }
         return {
@@ -534,27 +624,32 @@ function dualWriteLegacy(
 
     let parentID: string | undefined
     if (message.type === "assistant" || message.type === "shell") {
-      const parent = yield* db
-        .select({ id: MessageTable.id })
+      const existing = yield* db
+        .select({ data: MessageTable.data })
         .from(MessageTable)
-        .where(eq(MessageTable.session_id, sessionID))
-        .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
-        .limit(20)
-        .all()
+        .where(eq(MessageTable.id, message.id as (typeof MessageTable.$inferSelect)["id"]))
+        .get()
         .pipe(Effect.orDie)
-      // Prefer the latest prior user message as parentID
-      for (const row of parent) {
-        if (String(row.id) === String(message.id)) continue
-        const full = yield* db
-          .select()
-          .from(MessageTable)
-          .where(eq(MessageTable.id, row.id))
-          .get()
+      const recorded = (existing?.data as { parentID?: string } | undefined)?.parentID
+      if (recorded) {
+        parentID = recorded
+      } else {
+        const parent = yield* db
+          .select({ id: SessionMessageTable.id, type: SessionMessageTable.type })
+          .from(SessionMessageTable)
+          .where(eq(SessionMessageTable.session_id, sessionID))
+          .orderBy(desc(SessionMessageTable.seq))
+          .limit(50)
+          .all()
           .pipe(Effect.orDie)
-        const role = (full?.data as { role?: string } | undefined)?.role
-        if (role === "user") {
-          parentID = String(row.id)
-          break
+        // Latest prior user by durable seq at first projection. Keep that
+        // parent on later dual-writes so a queued user cannot steal turn 1.
+        for (const row of parent) {
+          if (String(row.id) === String(message.id)) continue
+          if (row.type === "user") {
+            parentID = String(row.id)
+            break
+          }
         }
       }
     }
@@ -834,6 +929,7 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.ContextUpdated, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, events, event))
+    yield* events.project(SessionEvent.Shell.Progress, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Shell.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Step.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Step.Ended, (event) =>
@@ -853,7 +949,7 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Tool.Input.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Input.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Called, (event) => run(db, events, event))
-    // Tool.Progress is live-only (like Shell.Progress) — not projected.
+    yield* events.project(SessionEvent.Tool.Progress, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Success, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, events, event))
@@ -991,6 +1087,18 @@ const layer = Layer.effectDiscard(
         yield* SessionContextEpoch.reset(db, event.data.sessionID)
       }),
     )
+    // Live-only Progress events are not durable, so events.project never runs.
+    // Dual-write V1 running metadata for TUI + tests (same cadence as V1 updatePart).
+    const unsubProgress = yield* events.listen((event) => {
+      if (
+        event.type !== SessionEvent.Shell.Progress.type &&
+        event.type !== SessionEvent.Tool.Progress.type
+      ) {
+        return Effect.void
+      }
+      return run(db, events, event)
+    })
+    yield* Effect.addFinalizer(() => unsubProgress)
   }),
 )
 

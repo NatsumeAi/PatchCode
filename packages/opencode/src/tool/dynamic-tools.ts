@@ -24,7 +24,25 @@ import path from "path"
 import { pathToFileURL } from "url"
 import { Glob } from "@opencode-ai/core/util/glob"
 import { Config } from "@/config/config"
+import { SystemContext } from "@opencode-ai/core/system-context"
+import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
 import z from "zod"
+
+function renderMcpInstructions(items: MCP.ServerInstructions[]) {
+  const instructions = items.filter((item) => item.instructions.trim().length > 0)
+  if (instructions.length === 0) return
+  return [
+    "<mcp_instructions>",
+    ...instructions.flatMap((item) => [
+      `  <server name="${item.name}">`,
+      ...item.instructions.split("\n").map((line) => `    ${line}`),
+      "  </server>",
+    ]),
+    "</mcp_instructions>",
+  ].join("\n")
+}
+
+const mcpInstructionsKey = SystemContext.Key.make("mcp/instructions")
 
 const DynamicOutput = Schema.Struct({
   title: Schema.String,
@@ -223,12 +241,32 @@ const hostLayer = Layer.effect(
     return DynamicTools.HostService.of({
       install: Effect.gen(function* () {
         const tools = yield* Tools.Service
+        const registry = yield* SystemContextRegistry.Service
         const location = yield* Effect.serviceOption(Location.Service)
         const directory = Option.isSome(location) ? String(location.value.directory) : process.cwd()
         const worktree =
           Option.isSome(location) && location.value.project?.directory
             ? String(location.value.project.directory)
             : directory
+
+        yield* registry.register({
+          key: mcpInstructionsKey,
+          load: Effect.gen(function* () {
+            const items = yield* instances.provide({ directory }, mcp.instructions()).pipe(
+              Effect.catchCause(() => Effect.succeed([] as MCP.ServerInstructions[])),
+            )
+            const text = renderMcpInstructions(items)
+            if (!text) return SystemContext.empty
+            return SystemContext.make({
+              key: mcpInstructionsKey,
+              codec: Schema.toCodecJson(Schema.String),
+              load: Effect.succeed(text),
+              baseline: (value) => value,
+              update: (_previous, value) => value,
+              removed: () => "MCP server instructions no longer apply.",
+            })
+          }),
+        })
 
         let registrationScope: Scope.Scope | undefined
 

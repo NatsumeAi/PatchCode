@@ -1,8 +1,8 @@
 export * as BashTool from "./bash"
 
 import path from "path"
-import { ToolFailure } from "@opencode-ai/llm"
-import { DateTime, Duration, Effect, Layer, Schema, Stream } from "effect"
+import { ToolFailure, type ToolOutput } from "@opencode-ai/llm"
+import { Cause, DateTime, Duration, Effect, Layer, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeLocationNode } from "../effect/app-node"
@@ -11,6 +11,7 @@ import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { PermissionV2 } from "../permission"
+import { ToolOutputStore } from "../tool-output-store"
 import { PositiveInt } from "../schema"
 import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
@@ -105,6 +106,7 @@ const layer = Layer.effectDiscard(
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
     const events = yield* EventV2.Service
+    const resources = yield* ToolOutputStore.Service
 
     yield* tools
       .register({
@@ -122,8 +124,42 @@ const layer = Layer.effectDiscard(
             { type: "text", text: output.output },
             { type: "text", text: modelOutput(output) },
           ],
-          execute: (input, context) =>
-            Effect.gen(function* () {
+          execute: (input, context) => {
+            const partial = {
+              chunks: [] as Uint8Array[],
+              truncated: false,
+            }
+            let published = false
+            const publishPartial = Effect.uninterruptible(
+              Effect.gen(function* () {
+                if (published) return
+                published = true
+                const output = Buffer.concat(partial.chunks).toString("utf8") || "(no output)"
+                const toolOutput = {
+                  structured: { truncated: true },
+                  content: [
+                    { type: "text" as const, text: output },
+                    { type: "text" as const, text: modelOutput({ output, truncated: true }) },
+                  ],
+                } satisfies ToolOutput
+                const bounded = yield* resources.bound({
+                  sessionID: context.sessionID,
+                  toolCallID: context.toolCallID,
+                  output: toolOutput,
+                })
+                yield* events.publish(SessionEvent.Tool.Success, {
+                  sessionID: context.sessionID,
+                  timestamp: yield* DateTime.now,
+                  assistantMessageID: context.assistantMessageID,
+                  callID: context.toolCallID,
+                  structured: bounded.output.structured as Record<string, unknown>,
+                  content: bounded.output.content,
+                  ...(bounded.outputPaths.length > 0 ? { outputPaths: [...bounded.outputPaths] } : {}),
+                  provider: { executed: false },
+                })
+              }).pipe(Effect.catchCause(() => Effect.void)),
+            )
+            return Effect.gen(function* () {
               const source = {
                 type: "tool" as const,
                 messageID: context.assistantMessageID,
@@ -166,11 +202,6 @@ const layer = Layer.effectDiscard(
                 forceKillAfter: Duration.seconds(3),
               })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
-              // Mutable capture survives timeout interrupt so partial stdout is not discarded.
-              const partial = {
-                chunks: [] as Uint8Array[],
-                truncated: false,
-              }
               const collect = Effect.scoped(
                 Effect.gen(function* () {
                   const handle = yield* appProcess.spawn(command)
@@ -189,6 +220,13 @@ const layer = Layer.effectDiscard(
                       content: [{ type: "text" as const, text }],
                     })
                   })
+                  yield* Effect.forkScoped(
+                    Effect.forever(
+                      Effect.sleep(Duration.millis(PROGRESS_EVERY_MS)).pipe(
+                        Effect.andThen(Effect.suspend(() => publishProgress(tail))),
+                      ),
+                    ),
+                  )
                   yield* handle.all.pipe(
                     Stream.mapEffect((chunk: Uint8Array) =>
                       Effect.gen(function* () {
@@ -219,36 +257,68 @@ const layer = Layer.effectDiscard(
                   }
                 }),
               )
-              const settled = yield* Effect.timeoutOrElse(collect, {
-                duration: Duration.millis(timeout),
-                orElse: () =>
-                  Effect.succeed({
-                    buffer: Buffer.concat(partial.chunks),
-                    truncated: partial.truncated,
-                    exitCode: undefined as number | undefined,
-                    timedOut: true as const,
+              const settled = yield* Effect.uninterruptibleMask((restore) =>
+                restore(
+                  Effect.timeoutOrElse(collect, {
+                    duration: Duration.millis(timeout),
+                    orElse: () =>
+                      Effect.succeed({
+                        buffer: Buffer.concat(partial.chunks),
+                        truncated: partial.truncated,
+                        exitCode: undefined as number | undefined,
+                        timedOut: true as const,
+                      }),
                   }),
-              })
-              if ("timedOut" in settled && settled.timedOut) {
-                const captured = settled.buffer.toString("utf8").trimEnd()
-                const notice = `Command exceeded timeout of ${timeout} ms. Retry with a larger timeout if the command is expected to take longer.`
-                return {
-                  output: captured.length > 0 ? `${captured}\n\n${notice}` : notice,
-                  truncated: settled.truncated === true,
-                  timeout: true,
-                  ...(warnings.length ? { warnings } : {}),
-                }
-              }
-
-              const output = settled.buffer.toString("utf8") || "(no output)"
-              const notice = settled.truncated ? "[output capture truncated at the in-memory safety limit]" : undefined
-              return {
-                exit: settled.exitCode,
-                output: notice ? `${output}\n\n${notice}` : output,
-                truncated: settled.truncated === true,
-                ...(warnings.length ? { warnings } : {}),
-              }
+                ).pipe(
+                  // exit/flatMap must wrap restore(), not sit inside it: fiber
+                  // interrupt never yields an Exit from restore(effect.exit).
+                  Effect.exit,
+                  Effect.flatMap((exit) => {
+                    if (exit._tag === "Success") return Effect.succeed(exit.value)
+                    // Killing the process often surfaces as a stream/platform
+                    // error rather than an interrupt; keep the partial buffer.
+                    if (Cause.hasInterrupts(exit.cause) || partial.chunks.length > 0) {
+                      return Effect.succeed({
+                        buffer: Buffer.concat(partial.chunks),
+                        truncated: true,
+                        exitCode: undefined as number | undefined,
+                      })
+                    }
+                    return Effect.failCause(exit.cause)
+                  }),
+                  Effect.map((settled) => {
+                    if ("timedOut" in settled && settled.timedOut) {
+                      const captured = settled.buffer.toString("utf8").trimEnd()
+                      const notice = `Command exceeded timeout of ${timeout} ms. Retry with a larger timeout if the command is expected to take longer.`
+                      return {
+                        output: captured.length > 0 ? `${captured}\n\n${notice}` : notice,
+                        truncated: settled.truncated === true,
+                        timeout: true,
+                        ...(warnings.length ? { warnings } : {}),
+                      }
+                    }
+                    const output = settled.buffer.toString("utf8") || "(no output)"
+                    const notice = settled.truncated ? "[output capture truncated at the in-memory safety limit]" : undefined
+                    return {
+                      exit: settled.exitCode,
+                      output: notice ? `${output}\n\n${notice}` : output,
+                      truncated: settled.truncated === true,
+                      ...(warnings.length ? { warnings } : {}),
+                    }
+                  }),
+                ),
+              )
+              return settled
             }).pipe(
+              Effect.tap(() => Effect.sync(() => { published = true })),
+              Effect.catchCause((cause) => {
+                if (!Cause.hasInterrupts(cause)) return Effect.failCause(cause)
+                const output = Buffer.concat(partial.chunks).toString("utf8") || "(no output)"
+                return Effect.succeed({
+                  output,
+                  truncated: true,
+                })
+              }),
               Effect.mapError((error) => {
                 const detail =
                   error instanceof Error && error.message
@@ -260,7 +330,16 @@ const layer = Layer.effectDiscard(
                   message: `Unable to execute command: ${input.command}${detail ? ` (${detail})` : ""}`,
                 })
               }),
-            ),
+              // Fiber interrupt never lets catchCause/exit succeed; ensuring still
+              // runs. Only publish when execute did not finish and we captured
+              // output — permission/workdir failures must not become Success.
+              Effect.ensuring(
+                Effect.uninterruptible(
+                  Effect.suspend(() => (published || partial.chunks.length === 0 ? Effect.void : publishPartial)),
+                ),
+              ),
+            )
+          },
         }),
       })
       .pipe(Effect.orDie)
@@ -278,5 +357,6 @@ export const node = makeLocationNode({
     Config.node,
     PermissionV2.node,
     EventV2.node,
+    ToolOutputStore.node,
   ],
 })

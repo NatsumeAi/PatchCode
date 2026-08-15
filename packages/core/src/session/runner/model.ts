@@ -12,8 +12,12 @@ import { Catalog } from "../../catalog"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
+import { PluginV2 } from "../../plugin"
 import { ProviderV2 } from "../../provider"
 import { SessionSchema } from "../schema"
+
+/** Signaled after PluginInternal.boot finishes Catalog reloads (not when the last plugin is merely added). */
+const catalogReadyPlugin = PluginV2.ID.make("internal-boot")
 
 export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelectedError>()(
   "SessionRunnerModel.ModelNotSelectedError",
@@ -186,9 +190,12 @@ export const locationLayer = Layer.effect(
   Effect.gen(function* () {
     const catalog = yield* Catalog.Service
     const integrations = yield* Integration.Service
+    const plugins = yield* PluginV2.Service
 
     const selectModel = Effect.fnUntraced(function* (session: SessionSchema.Info) {
-      // Location plugins populate and filter the catalog asynchronously during layer startup.
+      // PluginInternal.boot is forked. V1 Provider.getModel waited because
+      // InstanceState.make finished before runLoop resolved the model.
+      yield* plugins.wait(catalogReadyPlugin)
       const defaultModel = session.model ? undefined : yield* catalog.model.default()
       const selected = session.model
         ? (yield* catalog.model.available()).find(
@@ -226,4 +233,8 @@ export const locationLayer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [Catalog.node, Integration.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer: locationLayer,
+  deps: [Catalog.node, Integration.node, PluginV2.node],
+})

@@ -609,6 +609,11 @@ function isTitleRequest(body: unknown): boolean {
   return JSON.stringify(body).includes("Generate a title for this conversation")
 }
 
+function isVerifierRequest(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false
+  return JSON.stringify(body).includes("You are an independent coding verifier")
+}
+
 namespace TestLLMServer {
   export interface Service {
     readonly url: string
@@ -677,6 +682,13 @@ export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.
           hits = [...hits, current]
           yield* notify()
           const auto: Sse = { type: "sse", head: [role()], tail: [textLine("E2E Title"), finishLine("stop")] }
+          if (mode === "responses") return send(responses(auto, modelFrom(body)))
+          return send(auto)
+        }
+        if (isVerifierRequest(body)) {
+          yield* notify()
+          const payload = JSON.stringify({ verdict: "rejected", reason: "sidecar" })
+          const auto: Sse = { type: "sse", head: [role()], tail: [textLine(payload), finishLine("stop")] }
           if (mode === "responses") return send(responses(auto, modelFrom(body)))
           return send(auto)
         }

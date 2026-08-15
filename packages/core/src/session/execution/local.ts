@@ -6,6 +6,7 @@ import { SessionRunner } from "../runner"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { SessionExecution } from "../execution"
+import { TaskTool } from "../../tool/task"
 
 /** Current-process routing for implicit-local Locations. Future remote placement belongs here. */
 const layer = Layer.effect(
@@ -13,6 +14,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
+    const appTaskHost = yield* TaskTool.HostService
 
     // Mutable holder so drain fibers can re-resolve SessionExecution.Service
     // (FiberSet.makeRuntime freezes construction context, which does not yet
@@ -29,6 +31,10 @@ const layer = Layer.effect(
         if (holder.current) {
           effect = effect.pipe(Effect.provideService(SessionExecution.Service, holder.current))
         }
+        // App-layer task host (tests + ToolHostBridges) must win over the
+        // location-graph placeholder. provide() after locations.get so the
+        // replacement is visible at tool execute time.
+        effect = effect.pipe(Effect.provideService(TaskTool.HostService, appTaskHost))
         return yield* effect.pipe(
           Effect.tapCause((cause) =>
             Cause.hasInterruptsOnly(cause)
@@ -53,7 +59,7 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: SessionExecution.Service,
   layer,
-  deps: [SessionStore.node, LocationServiceMap.node],
+  deps: [SessionStore.node, LocationServiceMap.node, TaskTool.hostNode],
 })
 
 export * as SessionExecutionLocal from "./local"

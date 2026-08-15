@@ -27,8 +27,19 @@ const tokens = (usage: Usage | undefined) => {
   }
 }
 
-const record = (value: unknown): Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : { value }
+const record = (value: unknown): Record<string, unknown> => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+    } catch {
+      // Keep the raw string when the tool input is not JSON.
+    }
+    return { value }
+  }
+  return {}
+}
 
 const message = (value: unknown) => {
   if (typeof value === "string") return value

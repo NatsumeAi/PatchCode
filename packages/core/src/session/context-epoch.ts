@@ -20,6 +20,8 @@ export type StoredTape = {
   readonly tape: PromptTape.Tape
   readonly lastSeq: number
   readonly baselineSeq: number
+  readonly messageSeqs: ReadonlyArray<number>
+  readonly recall: string
 }
 
 interface Prepared {
@@ -184,7 +186,12 @@ const advance = Effect.fnUntraced(function* (
 export const saveTape = Effect.fn("SessionContextEpoch.saveTape")(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
-  stored: { readonly tape: PromptTape.Tape; readonly lastSeq: number } | null,
+  stored: {
+    readonly tape: PromptTape.Tape
+    readonly lastSeq: number
+    readonly messageSeqs?: ReadonlyArray<number>
+    readonly recall?: string
+  } | null,
 ) {
   yield* db
     .update(SessionContextEpochTable)
@@ -195,6 +202,8 @@ export const saveTape = Effect.fn("SessionContextEpoch.saveTape")(function* (
             tools: stored.tape.tools,
             messages: stored.tape.messages,
             lastSeq: stored.lastSeq,
+            messageSeqs: stored.messageSeqs ?? [],
+            recall: stored.recall ?? "",
           }
         : null,
     })
@@ -213,7 +222,9 @@ export const loadTape = Effect.fn("SessionContextEpoch.loadTape")(function* (
   if (typeof json.lastSeq !== "number") return undefined
   return {
     baselineSeq: row.baseline_seq,
-    lastSeq: typeof json.lastSeq === "number" ? json.lastSeq : 0,
+    lastSeq: json.lastSeq,
+    messageSeqs: Array.isArray(json.messageSeqs) ? json.messageSeqs.filter((seq): seq is number => typeof seq === "number") : [],
+    recall: typeof json.recall === "string" ? json.recall : "",
     tape: {
       system: json.system,
       tools: json.tools as PromptTape.Tape["tools"],

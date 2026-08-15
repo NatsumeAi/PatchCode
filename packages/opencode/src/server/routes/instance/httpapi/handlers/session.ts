@@ -248,12 +248,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload?: typeof ForkPayload.Type
     }) {
-      return yield* SessionError.mapStorageNotFound(
-        session.fork({
+      const messageID =
+        ctx.payload?.messageID === undefined
+          ? undefined
+          : yield* Effect.try({
+              try: () => SessionMessage.ID.make(String(ctx.payload!.messageID)),
+              catch: () => new HttpApiError.BadRequest({}),
+            })
+      const child = yield* SessionError.mapV2Write(
+        v2Svc.fork({
           sessionID: ctx.params.sessionID,
-          messageID: ctx.payload?.messageID,
+          ...(messageID ? { messageID } : {}),
         }),
       )
+      return yield* requireSession(SessionID.make(String(child.id)))
     })
 
     const forkRaw = Effect.fn("SessionHttpApi.forkRaw")(function* (ctx: {
@@ -876,8 +884,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (info.revert && String(info.revert.messageID) === String(ctx.params.messageID)) {
         yield* v2Svc.revert.clear(ctx.params.sessionID).pipe(Effect.catch(() => Effect.void))
       }
-      // Publishes message.removed → projector deletes MessageTable + SessionMessageTable.
-      yield* session.removeMessage(ctx.params)
+      const messageID = yield* Effect.try({
+        try: () => SessionMessage.ID.make(String(ctx.params.messageID)),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      yield* SessionError.mapV2Write(v2Svc.removeMessage({ sessionID: ctx.params.sessionID, messageID }))
       return true
     })
 
@@ -885,9 +896,17 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID; messageID: MessageID; partID: PartID }
     }) {
       yield* requireSession(ctx.params.sessionID)
-      // Busy check is best-effort; deletePart endpoint has no SessionBusyError channel.
-      yield* assertNotBusy(ctx.params.sessionID).pipe(Effect.catch(() => Effect.void))
-      yield* session.removePart(ctx.params)
+      const messageID = yield* Effect.try({
+        try: () => SessionMessage.ID.make(String(ctx.params.messageID)),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      yield* SessionError.mapV2Write(
+        v2Svc.removePart({
+          sessionID: ctx.params.sessionID,
+          messageID,
+          partID: SessionV1.PartID.make(String(ctx.params.partID)),
+        }),
+      )
       return true
     })
 
@@ -904,7 +923,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       ) {
         return yield* new HttpApiError.BadRequest({})
       }
-      return yield* session.updatePart(payload)
+      return yield* SessionError.mapV2Write(v2Svc.updatePart(payload))
     })
 
     return handlers

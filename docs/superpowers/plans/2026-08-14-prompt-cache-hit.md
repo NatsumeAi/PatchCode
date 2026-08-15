@@ -4,7 +4,7 @@
 
 **Goal:** One live drain. Put the append-only Chat tape on **that** drain (`SessionRunner`). Remove the **duplicate compile** only after a caller inventory proves it unused. Do not delete every symbol named V1. Then prove 99.85% on an armed ~100k-prefix Go Flash call — not `read > 0` on 5k.
 
-**Architecture:** Live HTTP/TUI/command already call `SessionV2.prompt` → `SessionRunner`. Tape lives only there. SessionMessage is the UI log. Compaction starts a new tape. Prewarm is system-only. `SessionPrompt.runLoop` + `applyCaching` is the second **compile**, not “all V1.” Still-live V1-named modules (summary, permission compat, types, shell/llm if callers remain) stay until their callers move. Suffix rename (`SessionV2` → `Session`) is a later PR.
+**Architecture:** Live HTTP/TUI/command already call `SessionV2.prompt` → `SessionRunner`. Tape lives only there. SessionMessage is the UI log. Compaction starts a new tape. Prewarm is system-only. `SessionPrompt.runLoop` + `applyCaching` is the second **compile**, not “all V1.” Still-live V1-named modules stay until callers move. **Wave D is gated by the 2026-08-14 keep-list** in `docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md` — do not delete from an empty `rg`. Suffix rename is a later PR.
 
 **Tech Stack:** TypeScript, Effect, Bun test, `LLMClient.prepare` / `generate` / `stream`, OpenAI-compatible Chat.
 
@@ -24,11 +24,11 @@
 - Do not canonicalize model tool-argument JSON. Do not merge `<system-update>` into a previous user. Do not insert a dummy user for prewarm.
 - Do not add Anthropic/OpenAI/Gemini live tests. `prompt_cache_key` and Anthropic `cache_control` are not this workstream’s hit strategy.
 - **One compile.** Tape is implemented only on `packages/core/src/session/runner/llm.ts`. Do not add a second tape on `runLoop`.
-- **Delete ≠ “name contains V1.”** Earlier session work kept some V1-named code and deleted some V2-named code. Inventory (`docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md`) before any delete. Production caller remaining → stop and report; cut over first. Tests going red → migrate to the live drain or revert the delete.
-- Wave D removes the **unused duplicate compile** (`runLoop` / `applyCaching` **when rg shows zero src callers**). It does not delete summary, permission compat, Message types, or `session/llm.ts` while they still stream. Suffix strip is not Wave D.
+- **Delete ≠ “name contains V1.”** Inventory (`docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md`, rewritten 2026-08-14) before any delete. Keep-list features (tape, loop/subagent, memory, revert HTTP semantics, hardening) must remain proven on the live path. Production caller or unique behavior on the old path → stop; migrate first. Tests going red → migrate assertions to the live drain or revert the delete. Never drop our features to make a delete green.
+- Wave D removes the **unused duplicate compile** only after that inventory says `already-safe-to-unreg` for `runLoop` (Task shim is gone; `prompt.test.ts` assertions must still move). It does **not** delete summary, permission compat, Message types, or `session/llm.ts` while they still stream. It does **not** run from `rg` empty alone. Suffix strip is not Wave D.
 - Every row in spec §3.6 is in scope. Tool loop, subagent, resume, and retry are **four rows**, not the set. Also: HTTP fork, delete/update part, doom-loop (no `messages[0]` inject), circuit breaker, persona freeze, reasoning bytes, media-once, busy-session wait, harness-not-in-system, title/compact/memory sidecars, revert, steer, shell, permission/question, abort, model switch, overflow, envelope/TTL/stickiness.
 - Append only after a successful stream. Retries resend **identical** `compiled`. `PromptTapeStore.clear` uses the full session id. Test `afterEach` → `clearAll()`.
-- A green Wave A is required before Wave B. Wave B includes boundary CI (Task 9b) before claiming the runner tape is done. Wave C prewarm is required before scoring **turn-1** 99.85%. Without Layer B, do not claim 99.85%. “One compile” is claimed only after Wave D’s inventory is empty **and** the live suites stay green.
+- A green Wave A is required before Wave B. Wave B includes boundary CI (Task 9b) before claiming the runner tape is done. Wave C prewarm is required before scoring **turn-1** 99.85%. Without Layer B, do not claim 99.85%. “One compile” is claimed only after Wave D’s inventory is **`already-safe-to-unreg` for the drain** (not merely `rg` empty) **and** the keep-list tests stay green.
 - No TBD / TODO / “similar to Task N” placeholders.
 
 ## Waves
@@ -1274,13 +1274,13 @@ Not “tool loop + resume + retry” only. Spec §3.6 is the checklist. This tas
 | SubagentFailed parent abort | 9b Step 2 if suite has parentID; parent tape has no child system |
 | Child cap independent | Task 9 on child session if spawned; else 9b Step 1 two tapes |
 | Revert / unrevert / delete last | 9b Step 1 truncate + Step 2 revert |
-| Delete middle / deletePart / updatePart | 9b Step 1: hole → `isPrefixOf` false; hydrate new tape |
+| Delete middle / deletePart / updatePart | 9b Step 1 + `session-runner.test.ts` middle `removeMessage` / `removePart` |
 | Overflow / manual compact | Task 12 |
 | Agent / model / variant switch | 9b Step 2: after `switchModel`, new origin (system or tools may change); first compiled not prefix of previous |
 | Failover model change | new tape (9b Step 1 different origin) |
 | ReplacementBlocked | tape unchanged (Task 12) |
-| HTTP fork | 9b Step 1: child tape key ≠ parent; hydrate prefix once |
-| Busy compact/revert/fork | 9b Step 2: SessionBusy → store snapshot unchanged |
+| HTTP fork | 9b Step 1 + `session-runner.test.ts` fork copies history / exclusive prefix |
+| Busy compact/revert/fork | 9b Step 2 + `session-runner.test.ts` busy revert / busy fork / busy deleteMessage |
 | Compaction hoist forbidden on hot path | Task 8: per-step does not call `toLLMMessages` |
 | Subagent spawn / ForkMode / task_id resume | 9b Step 2 child key; Task 6 origin per session |
 | Title sidecar | 9b Step 2 |
@@ -1753,70 +1753,55 @@ EOF
 
 ### Task 14: Inventory, then remove only the unused duplicate compile (Wave D)
 
-Not “delete V1.” Session work already **kept** some V1-named modules and **dropped** some V2-named ones. Suffixes come off later. This task only removes a **second way to build the provider prompt**, and only after `rg` shows it has no production callers.
+**Do not execute this task as a delete script.** 2026-08-14 audit is in `docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md`. Keep-list features stay. Parallel shells go away only after migrate-then-delete rows are empty.
 
-Authority: `docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md` + a fresh `rg` in this task.
+Authority: that inventory (not “file name contains V1”).
 
-**Do not delete in this task (still-live or compat unless inventory updates):**
+**Filled Step 1 (2026-08-14 `rg` of `packages/*/src`):**
 
-- `SessionSummary`
-- Instance `Permission.Service` (V1-named compat)
-- Message / part types TUI still imports
-- `SessionRevert` **registration** until its tests are migrated
-- `SessionPrompt.shell` / `SessionProcessor` if any `src/` caller remains
-- `packages/opencode/src/session/llm.ts` / `llm/native-runtime.ts` while `app-runtime.ts` or HTTP still construct that `LLM` service (they still do as of 2026-08-14)
-
-**Delete candidates (only if Step 1 is empty):**
-
-- `SessionPrompt.runLoop` / `SessionPrompt.prompt` as an LLM drain
-- `applyCaching` **and** its `ProviderTransform.message` branch, only if no remaining stream uses `session/llm.ts`
-- Per-turn `new Date()` in `system.ts` **only if** `environment()` has no remaining callers
-- `prompt.test.ts` cases that exist solely to keep `runLoop` green — rewrite onto `SessionV2.prompt` or drop
-
-- [ ] **Step 1: Inventory table (write into the spec Risks / a short note in this file)**
-
-```bash
-rg -n "SessionPrompt\\.(prompt|loop|run)|runLoop|applyCaching|ProviderTransform\\.message|from \\\"@/session/llm\\\"" \
-  packages/opencode/src packages/tui/src packages/app/src packages/core/src
-```
-
-Fill:
-
-| Symbol | Production callers | Keep / cut-over / delete |
+| Symbol | Production callers | Verdict |
 |---|---|---|
-| `runLoop` / `SessionPrompt.prompt` | | |
-| `applyCaching` via `session/llm.ts` | | |
-| `SessionPrompt.shell` | | |
-| `SessionPrompt.node` | | |
-| `system.ts` `environment()` | | |
+| `runLoop` / `SessionPrompt.prompt` | **None** in `src/`. **Unregistered** from HTTP (2026-08-14). Tests still construct `SessionPrompt.Service`. | **unregistered**; delete file only after `prompt.test.ts` assertions live on `session-runner.test.ts` |
+| V1 TaskTool + Host shim | Adapter only: Host required; `ops.prompt`/`runTask` deleted | **done** (adapter remains until opencode ToolRegistry unused) |
+| `applyCaching` via `session/llm.ts` | `session/llm.ts`, `llm/native-runtime.ts`; LLM node in app-runtime + HTTP | **keep** |
+| `SessionPrompt.shell` | HTTP shell uses `v2Svc.shell`. No `src/` `SessionPrompt.shell(` | unregistered with SessionPrompt.node; do not delete until keep-list shell-on-tape test stays |
+| `SessionPrompt.node` | **Unregistered** HTTP + app-runtime (2026-08-14) | **done** |
+| `system.ts` `environment()` | not re-audited here | keep unless a later `rg` is empty **and** date is not on the live tape origin |
+| HTTP `Session.fork` / `removePart` / `updatePart` | HTTP + CLI/ACP via `v2Svc.fork` / `removeMessage` / `removePart` / `updatePart` + tape | **done** (2026-08-14) |
+| `SessionRevert` / opencode `SessionCompaction` | **Unregistered** HTTP + app-runtime; HTTP uses V2 | **done** |
+| Permission V1 | Instance compat | **keep** |
 
-Any **Keep** row with a caller → do **not** delete that symbol. Cut the caller to `SessionV2` first (stop and report if the V2 API is missing the capability — do not stub).
+**Do not delete in this task:**
 
-- [ ] **Step 2: Only then delete empty rows**
+- Anything on the keep-list (tape, loop/subagent, memory, revert semantics, hardening)
+- `SessionSummary`, Permission compat, TUI Message types
+- `session/llm.ts` / `native-runtime.ts` while constructed
+- `applyCaching` while those streams run
+- `prompt.test.ts` rows whose assertions are not yet on the runner suite
 
-If `runLoop` has zero `src/` callers: remove that function and migrate `test/session/prompt.test.ts` onto `SessionV2.prompt`.
+- [ ] **Step 1: Re-read the inventory keep-list and table above.** If a keep-list row has no live-path test, **stop**. Do not delete.
 
-If `applyCaching` still runs under `session/llm.ts` and that LLM service is still provided: **leave it**. Removing it would change title/native/copy streams. Track it as “second compile still alive on non-prompt streams” in spec Risks; do not rip it to make Wave D look done.
+- [x] **Step 2: Only `already-safe-to-unreg` rows.** Task shim **done**. HTTP fork/delete **done**. Production `SessionPrompt.node` / Processor / Compaction / Revert **unregistered**. `prompt.ts` file kept for `prompt.test.ts`.
 
-- [ ] **Step 3: Proof no feature regress**
+- [ ] **Step 3: Proof no feature regress** — only after a real unregister:
 
 ```bash
+bun --cwd packages/core test test/session-runner.test.ts test/session/runner/prompt-tape*.ts test/session/runner/prewarm.test.ts test/runner/loop-control-host-layerreal.test.ts
 bun --cwd packages/opencode test test/session/prompt.test.ts test/provider/transform.test.ts test/session/llm-native.test.ts
-bun --cwd packages/core test test/session-runner.test.ts
 ```
 
-All must PASS. A red test means migrate or revert, not “delete the test because V1.”
+All must PASS. A red test means migrate assertions or revert, not “delete the test because V1.”
 
 ```bash
 rg -n "SessionPrompt\\.prompt\\(|runLoop" packages/opencode/src
 ```
 
-- [ ] **Step 4: Commit only what Step 1 allowed**
+- [ ] **Step 4: Commit only what the inventory allowed** (keep-list still green)
 
 ```bash
 git add -p
 git commit -m "$(cat <<'EOF'
-fix(opencode): drop unused SessionPrompt runLoop after caller inventory
+fix(opencode): drop unused SessionPrompt runLoop after keep-list proof
 
 Do not delete still-live V1-named modules. Tape remains only on
 SessionRunner. Suffix rename is a later PR.

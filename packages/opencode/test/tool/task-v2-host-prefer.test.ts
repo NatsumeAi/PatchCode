@@ -1,9 +1,6 @@
 /**
- * End-to-end proof: when Core TaskTool.HostService is in the environment
- * (app graph / shell+command with V2 host), V1 TaskTool.execute prefers the
- * V2 host and never enters the legacy SessionPrompt spawn path.
- *
- * Residual risk from audit ACCEPT-WITH-GAPS #3.
+ * End-to-end proof: V1 TaskTool.execute requires Core TaskTool.HostService
+ * and never enters the legacy SessionPrompt spawn path.
  */
 import { afterEach, describe, expect } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -408,73 +405,39 @@ describe("tool.task V2 host prefer (shell/command e2e gate)", () => {
   )
 
   it.instance(
-    "without HostService: still uses V1 SessionPrompt path (fallback preserved)",
+    "without HostService: execute fails (no SessionPrompt runLoop fallback)",
     () =>
       Effect.gen(function* () {
-        const sessions = yield* Session.Service
         const { chat, assistant } = yield* seed()
         const tool = yield* TaskTool
         const def = yield* tool.init()
-        let v1Prompted = false
-        const promptOps: TaskPromptOps = {
-          cancel: () => Effect.void,
-          resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
-          prompt: (input) =>
-            Effect.sync(() => {
-              v1Prompted = true
-              const id = MessageID.ascending()
-              return {
-                info: {
-                  id,
-                  role: "assistant" as const,
-                  parentID: input.messageID ?? MessageID.ascending(),
-                  sessionID: input.sessionID,
-                  mode: "general",
-                  agent: "general",
-                  cost: 0,
-                  path: { cwd: "/tmp", root: "/tmp" },
-                  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-                  modelID: ref.modelID,
-                  providerID: ref.providerID,
-                  time: { created: Date.now() },
-                  finish: "stop" as const,
-                },
-                parts: [
-                  {
-                    id: PartID.ascending(),
-                    messageID: id,
-                    sessionID: input.sessionID,
-                    type: "text" as const,
-                    text: "v1-fallback-done",
-                  },
-                ],
-              }
-            }),
+        const prompt = trackingPromptOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "fallback task",
+              prompt: "legacy path",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps: prompt.ops },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(prompt.calls).toBe(0)
+        if (exit._tag === "Failure") {
+          expect(String(exit.cause)).toMatch(/Task host is not available/)
         }
-
-        // No HostService in environment — pure V1 fallback.
-        const result = yield* def.execute(
-          {
-            description: "fallback task",
-            prompt: "legacy path",
-            subagent_type: "general",
-          },
-          {
-            sessionID: chat.id,
-            messageID: assistant.id,
-            agent: "build",
-            abort: new AbortController().signal,
-            extra: { promptOps },
-            messages: [],
-            metadata: () => Effect.void,
-            ask: () => Effect.void,
-          },
-        )
-
-        expect(v1Prompted).toBe(true)
-        expect(result.output).toContain("state=\"completed\"")
-        const kids = yield* sessions.children(chat.id)
-        expect(kids.length).toBeGreaterThanOrEqual(1)
       }),
     30000,
   )

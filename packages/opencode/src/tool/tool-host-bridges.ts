@@ -867,6 +867,22 @@ const taskHostLayer = Layer.effect(
               )
           }
 
+          const interruptChild = Effect.gen(function* () {
+            const cancelJob =
+              instanceCtx === undefined
+                ? background.cancel(String(childID))
+                : background
+                    .cancel(String(childID))
+                    .pipe(Effect.provideService(InstanceRef, instanceCtx))
+                    .pipe(Effect.provideService(WorkspaceRef, undefined))
+            yield* cancelJob.pipe(Effect.ignore)
+            yield* execution.interrupt(childID).pipe(Effect.ignore)
+            if (registryOpt._tag === "Some") {
+              yield* registryOpt.value.cancel(childID).pipe(Effect.ignore)
+            }
+          })
+
+          const settleChild = Effect.gen(function* () {
           if (input.background) {
             const admitStamp = yield* admitPrompt(childID).pipe(Effect.orDie)
             yield* launchBackground(admitStamp)
@@ -992,6 +1008,8 @@ const taskHostLayer = Layer.effect(
             },
             output: failed ? `Subagent failed: ${failed}` : text || "Subagent completed with no text output.",
           }
+          })
+          return yield* settleChild.pipe(Effect.onInterrupt(() => interruptChild))
         }),
     })
   }),

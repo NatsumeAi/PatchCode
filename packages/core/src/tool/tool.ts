@@ -100,36 +100,38 @@ export function make<
         Effect.flatMap((input) =>
           config.execute(input, context).pipe(
             Effect.flatMap((output) =>
-              Schema.encodeEffect(config.output)(output).pipe(
-                Effect.flatMap((output) => {
-                  if (!config.structured || !config.toStructuredOutput)
-                    return Effect.succeed({ output, structured: output })
-                  return Schema.encodeEffect(config.structured)(config.toStructuredOutput({ input, output })).pipe(
-                    Effect.map((structured) => ({ output, structured })),
-                  )
-                }),
-                Effect.mapError(
-                  (error) =>
-                    new ToolFailure({
-                      message: `Tool returned an invalid value for its output schema: ${error.message}`,
-                    }),
+              Effect.uninterruptible(
+                Schema.encodeEffect(config.output)(output).pipe(
+                  Effect.flatMap((output) => {
+                    if (!config.structured || !config.toStructuredOutput)
+                      return Effect.succeed({ output, structured: output })
+                    return Schema.encodeEffect(config.structured)(config.toStructuredOutput({ input, output })).pipe(
+                      Effect.map((structured) => ({ output, structured })),
+                    )
+                  }),
+                  Effect.mapError(
+                    (error) =>
+                      new ToolFailure({
+                        message: `Tool returned an invalid value for its output schema: ${error.message}`,
+                      }),
+                  ),
+                  Effect.map(({ output, structured }) => ({
+                    structured,
+                    content:
+                      config.toModelOutput?.({ input, output }).map((part) =>
+                        part.type === "text"
+                          ? { type: "text" as const, text: part.text }
+                          : {
+                              type: "file" as const,
+                              uri: `data:${part.mime};base64,${part.data}`,
+                              mime: part.mime,
+                              name: part.name,
+                            },
+                      ) ?? (typeof output === "string" ? [{ type: "text" as const, text: output }] : []),
+                  })),
                 ),
               ),
             ),
-            Effect.map(({ output, structured }) => ({
-              structured,
-              content:
-                config.toModelOutput?.({ input, output }).map((part) =>
-                  part.type === "text"
-                    ? { type: "text" as const, text: part.text }
-                    : {
-                        type: "file" as const,
-                        uri: `data:${part.mime};base64,${part.data}`,
-                        mime: part.mime,
-                        name: part.name,
-                      },
-                ) ?? (typeof output === "string" ? [{ type: "text" as const, text: output }] : []),
-            })),
           ),
         ),
       ),

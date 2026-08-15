@@ -532,6 +532,10 @@ const MAX_SUMMARIZE_CALLS = 4
 export const make = (dependencies: Dependencies) => {
   const config = settings(dependencies.config)
   const compactAfterOverflow = Effect.fn("SessionCompaction.compactAfterOverflow")(function* (input: Input) {
+    const reason = input.reason ?? "auto"
+    // V1 processor: compaction.auto === false means 413/overflow stops the turn
+    // with ContextOverflowError instead of auto-compacting.
+    if (reason === "auto" && !config.auto) return false
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
     const recentBudget = Math.min(Math.floor(context * config.keepRecentRatio), config.keepRecentMax)
@@ -625,7 +629,6 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
         return failed || text.trim() === "" ? undefined : text
       })
 
-    const reason = input.reason ?? "auto"
     const messageID = SessionMessage.ID.create()
     yield* dependencies.events.publish(SessionEvent.Compaction.Started, {
       sessionID: input.sessionID,
@@ -803,7 +806,11 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     // D13: maxOutput must not participate in the trigger threshold — buffer only.
     const triggerBuffer = config.buffer ?? Math.min(Math.floor(context * 0.1), 20_000)
     if (
-      estimate({ system: input.request.system, messages: input.request.messages, tools: input.request.tools }) <=
+      estimate({
+        system: input.request.system,
+        messages: input.request.compiled?.messages ?? input.request.messages,
+        tools: input.request.compiled?.tools ?? input.request.tools,
+      }) <=
       context - triggerBuffer
     )
       return false

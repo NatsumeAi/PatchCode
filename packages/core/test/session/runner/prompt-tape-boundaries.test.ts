@@ -209,4 +209,18 @@ describe("PromptTape boundaries §3.6", () => {
     const b = PromptTape.origin({ system: "S-model-b", tools })
     expect(isPrefixOf(PromptTape.wire(a), PromptTape.wire(b))).toBe(false)
   })
+
+  test("truncateToSeq keeps the prefix through the boundary seq", () => {
+    const tape = PromptTape.append(PromptTape.origin({ system: "S", tools: undefined }), [
+      { role: "user", content: "keep" },
+      { role: "assistant", content: "drop-me" },
+    ])
+    PromptTapeStore.set("sesT", 1, tape)
+    PromptTapeStore.setLastSeq("sesT", 1, 20)
+    PromptTapeStore.setMessageSeqs("sesT", 1, [10, 20])
+    PromptTapeStore.truncateToSeq("sesT", 10)
+    const kept = PromptTapeStore.get("sesT", 1)!
+    expect(kept.messages).toEqual([{ role: "user", content: "keep" }])
+    expect(PromptTapeStore.getLastSeq("sesT", 1)).toBe(10)
+  })
 })

@@ -105,22 +105,30 @@ const layer = Layer.effectDiscard(
       return plugin.add(PluginV2.ID.make(loaded.id), loaded.effect)
     }
 
-    yield* State.batch(
-      Effect.gen(function* () {
-        yield* add(ConfigReferencePlugin.Plugin)
-        yield* add(AgentPlugin.Plugin)
-        yield* add(CommandPlugin.Plugin)
-        yield* add(SkillPlugin.Plugin)
-        yield* add(ModelsDevPlugin)
-        yield* add(ConfigAgentPlugin.Plugin)
-        yield* add(ConfigCommandPlugin.Plugin)
-        yield* add(ConfigSkillPlugin.Plugin)
-        for (const item of ProviderPlugins) yield* add(item)
-        yield* add(ConfigExternalPlugin.Plugin)
-        yield* add(ConfigProviderPlugin.Plugin)
-        yield* add(VariantPlugin.Plugin)
-      }),
-    ).pipe(Effect.withSpan("PluginInternal.boot"), Effect.forkScoped({ startImmediately: true }))
+    yield* Effect.gen(function* () {
+      yield* State.batch(
+        Effect.gen(function* () {
+          yield* add(ConfigReferencePlugin.Plugin)
+          yield* add(AgentPlugin.Plugin)
+          yield* add(CommandPlugin.Plugin)
+          yield* add(SkillPlugin.Plugin)
+          yield* add(ModelsDevPlugin)
+          yield* add(ConfigAgentPlugin.Plugin)
+          yield* add(ConfigCommandPlugin.Plugin)
+          yield* add(ConfigSkillPlugin.Plugin)
+          for (const item of ProviderPlugins) yield* add(item)
+          yield* add(ConfigExternalPlugin.Plugin)
+          yield* add(ConfigProviderPlugin.Plugin)
+          yield* add(VariantPlugin.Plugin)
+        }),
+      )
+      // After the batch reloads Catalog. SessionRunnerModel waits on this id the
+      // way V1 Provider.getModel waited for InstanceState.make to finish.
+      yield* add({
+        id: "internal-boot",
+        effect: () => Effect.void,
+      })
+    }).pipe(Effect.withSpan("PluginInternal.boot"), Effect.forkScoped({ startImmediately: true }))
   }),
 )
 

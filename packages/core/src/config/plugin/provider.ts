@@ -16,7 +16,7 @@ export const Plugin = define({
         const configuredIntegrations = new Set(
           files.flatMap((file) =>
             Object.entries(file.info.providers ?? {}).flatMap(([id, provider]) =>
-              provider.env === undefined ? [] : [id],
+              !provider.env?.length ? [] : [id],
             ),
           ),
         )
@@ -27,7 +27,7 @@ export const Plugin = define({
             integrations.update(integrationID, (integration) => {
               integration.name = item.name ?? integration.name
             })
-            if (item.env !== undefined) {
+            if (item.env?.length) {
               integrations.method.update({
                 integrationID,
                 method: { type: "env", names: [...item.env] },

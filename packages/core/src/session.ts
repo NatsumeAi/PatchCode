@@ -1,7 +1,8 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { Cause, DateTime, Effect, Exit, Layer, Schema, Context, Stream } from "effect"
+import { Cause, DateTime, Effect, Exit, Fiber, Layer, Schema, Context, Stream } from "effect"
+import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, like, lt, or, sql, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
@@ -42,6 +43,7 @@ import { Snapshot } from "./snapshot"
 import { SessionRevert } from "./session/revert"
 import { SessionContextEpoch } from "./session/context-epoch"
 import { PromptTapeStore } from "./session/runner/prompt-tape-store"
+import { copyPrefix, getForkedTitle } from "./session/clone-prefix"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
@@ -93,6 +95,8 @@ type CreateInput = {
   parentID?: SessionSchema.ID
   /** Optional title; defaults to "New session - <iso>" (or child prefix when parentID is set). */
   title?: string
+  /** Copied onto SessionTable for HTTP/TUI; not part of SessionSchema.Info. */
+  metadata?: Record<string, unknown>
 }
 
 type CompactInput = {
@@ -160,11 +164,11 @@ export interface Interface {
     after?: number
     limit: number
   }) => Effect.Effect<{ events: ReadonlyArray<SessionEvent.DurableEvent>; hasMore: boolean }, NotFoundError>
-  readonly switchAgent: (input: { sessionID: SessionSchema.ID; agent: string }) => Effect.Effect<void, NotFoundError>
+  readonly switchAgent: (input: { sessionID: SessionSchema.ID; agent: string }) => Effect.Effect<void, NotFoundError | SessionBusyError>
   readonly switchModel: (input: {
     sessionID: SessionSchema.ID
     model: ModelV2.Ref
-  }) => Effect.Effect<void, NotFoundError>
+  }) => Effect.Effect<void, NotFoundError | SessionBusyError>
   readonly prompt: (input: {
     id?: SessionMessage.ID
     sessionID: SessionSchema.ID
@@ -182,6 +186,7 @@ export interface Interface {
     sessionID: SessionSchema.ID
     messageID?: SessionMessage.ID
     command: string
+    shell?: string
   }) => Effect.Effect<SessionMessage.Shell, NotFoundError | SessionBusyError>
   readonly skill: (input: {
     id?: EventV2.ID
@@ -197,6 +202,22 @@ export interface Interface {
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
+  readonly fork: (input: {
+    sessionID: SessionSchema.ID
+    messageID?: SessionMessage.ID
+  }) => Effect.Effect<SessionSchema.Info, NotFoundError | SessionBusyError>
+  readonly removeMessage: (input: {
+    sessionID: SessionSchema.ID
+    messageID: SessionMessage.ID
+  }) => Effect.Effect<void, NotFoundError | SessionBusyError>
+  readonly removePart: (input: {
+    sessionID: SessionSchema.ID
+    messageID: SessionMessage.ID
+    partID: SessionV1.PartID
+  }) => Effect.Effect<void, NotFoundError | SessionBusyError>
+  readonly updatePart: (
+    part: SessionV1.Part,
+  ) => Effect.Effect<SessionV1.Part, NotFoundError | SessionBusyError>
   readonly revert: {
     readonly stage: (input: {
       sessionID: SessionSchema.ID
@@ -234,6 +255,52 @@ const layer = Layer.effect(
         ),
       )
 
+    const persistTapes = (sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        const rows = PromptTapeStore.epochs(sessionID)
+        if (rows.length === 0) {
+          yield* SessionContextEpoch.saveTape(db, sessionID, null)
+          return
+        }
+        const row = rows.at(-1)!
+        yield* SessionContextEpoch.saveTape(db, sessionID, {
+          tape: row.tape,
+          lastSeq: PromptTapeStore.getLastSeq(sessionID, row.baselineSeq),
+          messageSeqs: PromptTapeStore.getMessageSeqs(sessionID, row.baselineSeq),
+          recall: PromptTapeStore.getRecall(sessionID, row.baselineSeq) ?? "",
+        })
+      })
+    const dropTape = (sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        PromptTapeStore.clear(sessionID)
+        yield* SessionContextEpoch.saveTape(db, sessionID, null)
+      })
+
+    const shells = new Map<SessionSchema.ID, { fiber: Fiber.Fiber<unknown, unknown>; aborted: boolean }>()
+
+    const occupiedSet = Effect.gen(function* () {
+      const drain = yield* execution.active
+      return new Set<SessionSchema.ID>([...drain, ...shells.keys()])
+    })
+
+    const occupied = (sessionID: SessionSchema.ID) => occupiedSet.pipe(Effect.map((set) => set.has(sessionID)))
+
+    const publishStatus = (sessionID: SessionSchema.ID, type: "busy" | "idle") =>
+      events.publish(SessionStatusEvent.Status, { sessionID, status: { type } })
+
+    const awaitShell = (sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        const entry = shells.get(sessionID)
+        if (!entry) return false
+        const current = Fiber.getCurrent()
+        if (current === entry.fiber) return entry.aborted
+        yield* Fiber.join(entry.fiber).pipe(
+          Effect.catchCause(() => Effect.void),
+          Effect.asVoid,
+        )
+        return entry.aborted
+      })
+
     const result = Service.of({
       create: Effect.fn("V2Session.create")(function* (input) {
         const sessionID = input.id ?? SessionSchema.ID.create()
@@ -268,6 +335,7 @@ const layer = Layer.effect(
                 variant: input.model.variant,
               }
             : undefined,
+          metadata: input.metadata,
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           time: { created: now, updated: now },
@@ -455,6 +523,7 @@ const layer = Layer.effect(
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
             if (input.resume !== false) {
+              yield* awaitShell(admitted.sessionID)
               yield* execution.wake(admitted.sessionID)
             } else if (input.projectUser === true) {
               // HTTP noReply: project user message (Prompted) without waking the agent/LLM.
@@ -467,8 +536,13 @@ const layer = Layer.effect(
       shell: Effect.fn("V2Session.shell")((input) =>
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
-            const active = yield* execution.active
-            if (active.has(input.sessionID)) return yield* new SessionBusyError({ sessionID: input.sessionID })
+            if (yield* occupied(input.sessionID)) return yield* new SessionBusyError({ sessionID: input.sessionID })
+            const fiber = Fiber.getCurrent()
+            if (!fiber) return yield* Effect.die("V2Session.shell: no current fiber")
+            const entry = { fiber, aborted: false }
+            shells.set(input.sessionID, entry)
+            yield* publishStatus(input.sessionID, "busy")
+            return yield* Effect.gen(function* () {
             const session = yield* result.get(input.sessionID)
             if (session.revert) {
               yield* SessionRevert.commit(session).pipe(
@@ -493,7 +567,7 @@ const layer = Layer.effect(
             // Run the command synchronously, streaming output like v1 shellImpl
             // (prompt.ts shellImpl); publish Shell.Ended even on interrupt so the
             // durable projection records a completed shell message.
-            const sh = Shell.preferred() ?? "/bin/sh"
+            const sh = Shell.preferred(input.shell) ?? "/bin/sh"
             const cwd = session.location.directory
             const args = Shell.args(sh, input.command, cwd)
             let output = ""
@@ -553,7 +627,10 @@ const layer = Layer.effect(
                 }),
               ).pipe(Effect.orDie, Effect.exit),
             )
-            if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) aborted = true
+            if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) {
+              aborted = true
+              entry.aborted = true
+            }
             const completed = yield* finish
             if (Exit.isFailure(exit) && !aborted && !Cause.hasInterruptsOnly(exit.cause))
               return yield* Effect.failCause(exit.cause)
@@ -566,14 +643,28 @@ const layer = Layer.effect(
               ...(exitCode === undefined ? {} : { exit: exitCode }),
               time: { created: started, completed },
             })
-          }),
-        ),
+          }).pipe(
+            Effect.ensuring(
+              Effect.gen(function* () {
+                shells.delete(input.sessionID)
+                if (!(yield* execution.active).has(input.sessionID)) {
+                  yield* publishStatus(input.sessionID, "idle")
+                }
+              }),
+            ),
+          )
+        }),
+      ),
       ),
       skill: Effect.fn("V2Session.skill")(function* () {
         return yield* new OperationUnavailableError({ operation: "skill" })
       }),
       switchAgent: Effect.fn("V2Session.switchAgent")(function* (input) {
         yield* result.get(input.sessionID)
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        yield* dropTape(input.sessionID)
         yield* events.publish(SessionEvent.AgentSwitched, {
           sessionID: input.sessionID,
           messageID: SessionMessage.ID.create(),
@@ -589,6 +680,10 @@ const layer = Layer.effect(
           (session.model.variant ?? "default") === (input.model.variant ?? "default")
         )
           return
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        yield* dropTape(input.sessionID)
         yield* events.publish(SessionEvent.ModelSwitched, {
           sessionID: input.sessionID,
           messageID: SessionMessage.ID.create(),
@@ -598,7 +693,7 @@ const layer = Layer.effect(
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
         const session = yield* result.get(input.sessionID)
-        if ((yield* execution.active).has(input.sessionID)) {
+        if (yield* occupied(input.sessionID)) {
           return yield* new SessionBusyError({ sessionID: input.sessionID })
         }
         // One flush cycle per compact so auto+manual cannot double-write.
@@ -618,25 +713,121 @@ const layer = Layer.effect(
         yield* result.get(sessionID)
         return yield* store.wait(sessionID, undefined, after)
       }),
-      active: execution.active,
+      active: occupiedSet,
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
         yield* result.get(sessionID)
+        const shellAborted = yield* awaitShell(sessionID)
+        if (shellAborted) return
         yield* execution.resume(sessionID)
       }),
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
-        Effect.uninterruptible(execution.interrupt(sessionID)),
+        Effect.uninterruptible(
+          Effect.gen(function* () {
+            const entry = shells.get(sessionID)
+            if (entry) {
+              entry.aborted = true
+              yield* Fiber.interrupt(entry.fiber).pipe(Effect.catchCause(() => Effect.void))
+            }
+            yield* execution.interrupt(sessionID)
+          }),
+        ),
       ),
+      fork: Effect.fn("V2Session.fork")(function* (input) {
+        const original = yield* result.get(input.sessionID)
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        const row = yield* db
+          .select()
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.sessionID))
+          .get()
+          .pipe(Effect.orDie)
+        const child = yield* result.create({
+          location: original.location,
+          title: getForkedTitle(original.title),
+          agent: original.agent,
+          model: original.model,
+          metadata: row?.metadata ?? undefined,
+        })
+        yield* copyPrefix({
+          db,
+          events,
+          from: input.sessionID,
+          to: child.id,
+          messageID: input.messageID,
+          location: original.location,
+        })
+        return child
+      }),
+      removeMessage: Effect.fn("V2Session.removeMessage")(function* (input) {
+        yield* result.get(input.sessionID)
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        const target = yield* db
+          .select({ seq: SessionMessageTable.seq })
+          .from(SessionMessageTable)
+          .where(and(eq(SessionMessageTable.session_id, input.sessionID), eq(SessionMessageTable.id, input.messageID)))
+          .get()
+          .pipe(Effect.orDie)
+        const last = yield* db
+          .select({ seq: SessionMessageTable.seq })
+          .from(SessionMessageTable)
+          .where(eq(SessionMessageTable.session_id, input.sessionID))
+          .orderBy(desc(SessionMessageTable.seq))
+          .limit(1)
+          .get()
+          .pipe(Effect.orDie)
+        yield* events.publish(SessionV1.Event.MessageRemoved, {
+          sessionID: input.sessionID,
+          messageID: SessionV1.MessageID.make(String(input.messageID)),
+        })
+        if (!target || !last || target.seq < last.seq) {
+          yield* dropTape(input.sessionID)
+          return
+        }
+        PromptTapeStore.truncateToSeq(input.sessionID, target.seq - 1)
+        yield* persistTapes(input.sessionID)
+      }),
+      removePart: Effect.fn("V2Session.removePart")(function* (input) {
+        yield* result.get(input.sessionID)
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        yield* events.publish(SessionV1.Event.PartRemoved, {
+          sessionID: input.sessionID,
+          messageID: SessionV1.MessageID.make(String(input.messageID)),
+          partID: input.partID,
+        })
+        yield* dropTape(input.sessionID)
+      }),
+      updatePart: Effect.fn("V2Session.updatePart")(function* (part) {
+        const session = yield* result.get(part.sessionID)
+        if (yield* occupied(part.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: part.sessionID })
+        }
+        yield* events.publish(
+          SessionV1.Event.PartUpdated,
+          { sessionID: part.sessionID, part: structuredClone(part), time: Date.now() },
+          { location: session.location },
+        )
+        yield* dropTape(part.sessionID)
+        return part
+      }),
       revert: {
         stage: Effect.fn("V2Session.revert.stage")(function* (input) {
           const session = yield* result.get(input.sessionID)
-          if ((yield* execution.active).has(input.sessionID)) {
+          if (yield* occupied(input.sessionID)) {
             return yield* new SessionBusyError({ sessionID: input.sessionID })
           }
-          return yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
+          const staged = yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
             Effect.provideService(Database.Service, database),
             Effect.provideService(EventV2.Service, events),
             Effect.provide(locations.get(session.location)),
           )
+          PromptTapeStore.snapshotRevert(input.sessionID)
+          return staged
         }),
         clear: Effect.fn("V2Session.revert.clear")(function* (sessionID) {
           const session = yield* result.get(sessionID)
@@ -644,14 +835,25 @@ const layer = Layer.effect(
             Effect.provideService(EventV2.Service, events),
             Effect.provide(locations.get(session.location)),
           )
-          PromptTapeStore.clear(sessionID)
-          yield* SessionContextEpoch.saveTape(db, sessionID, null)
+          if (PromptTapeStore.restoreRevert(sessionID)) yield* persistTapes(sessionID)
         }),
         commit: Effect.fn("V2Session.revert.commit")(function* (sessionID) {
           const session = yield* result.get(sessionID)
+          const boundaryID = session.revert?.messageID
           yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
-          PromptTapeStore.clear(sessionID)
-          yield* SessionContextEpoch.saveTape(db, sessionID, null)
+          if (!boundaryID) {
+            yield* dropTape(sessionID)
+            return
+          }
+          const row = yield* db
+            .select({ seq: SessionMessageTable.seq })
+            .from(SessionMessageTable)
+            .where(and(eq(SessionMessageTable.session_id, sessionID), eq(SessionMessageTable.id, boundaryID)))
+            .get()
+            .pipe(Effect.orDie)
+          if (row) PromptTapeStore.truncateToSeq(sessionID, row.seq)
+          else PromptTapeStore.clear(sessionID)
+          yield* persistTapes(sessionID)
         }),
       },
     })

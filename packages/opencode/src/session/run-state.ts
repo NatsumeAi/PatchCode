@@ -69,6 +69,10 @@ const layer = Layer.effect(
     })
 
     const assertNotBusy = Effect.fn("SessionRunState.assertNotBusy")(function* (sessionID: SessionID) {
+      const current = yield* status.get(sessionID)
+      if (current.type === "busy" || current.type === "retry") {
+        return yield* busyError(sessionID)
+      }
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (existing?.busy) yield* busyError(sessionID)

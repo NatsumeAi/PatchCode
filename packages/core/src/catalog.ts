@@ -70,7 +70,10 @@ const layer = Layer.effect(
 
     const available = (provider: ProviderV2.Info, integration: Integration.Info | undefined) => {
       if (provider.disabled) return false
+      // V1 Provider.getModel treated options.apiKey as enough. openai-compatible
+      // migrate puts that key on api.settings, not request.body.
       if (typeof provider.request.body.apiKey === "string") return true
+      if (typeof provider.api.settings?.apiKey === "string") return true
       if (integration?.connections.length) return true
       return provider.integrationID === undefined && !integration
     }

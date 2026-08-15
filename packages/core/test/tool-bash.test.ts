@@ -2,7 +2,7 @@ import fs from "fs/promises"
 import { realpathSync } from "node:fs"
 import path from "path"
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Config } from "@opencode-ai/core/config"
@@ -494,6 +494,32 @@ describe("BashTool", () => {
               expect(settled.output?.structured).toMatchObject({ timeout: true })
             }),
           ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.live("converts interrupt into a truncated settlement with captured output", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        spawnHang = true
+        spawnResult = { ...spawnResult, output: Buffer.from("partial before cancel\n") }
+        return withTool(tmp.path, (registry) =>
+          Effect.gen(function* () {
+            const fiber = yield* settleTool(registry, call({ command: "sleep 60", timeout: 30_000 })).pipe(
+              Effect.forkChild,
+            )
+            yield* Effect.sleep("200 millis")
+            yield* Fiber.interrupt(fiber)
+            const exit = yield* Fiber.await(fiber)
+            expect(Exit.isFailure(exit)).toBe(true)
+            const success = published.filter((event) => event.type === SessionEvent.Tool.Success.type)
+            expect(success.length).toBeGreaterThan(0)
+            expect(JSON.stringify(success.at(-1))).toContain("partial before cancel")
+          }),
         )
       },
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),

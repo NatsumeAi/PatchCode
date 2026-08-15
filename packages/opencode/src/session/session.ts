@@ -20,7 +20,6 @@ import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
 import { like, or, sql } from "drizzle-orm"
-import { asc } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { like } from "drizzle-orm"
 import { sql } from "drizzle-orm"
@@ -28,7 +27,9 @@ import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
-import { PartTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { PartTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { copyPrefix, getForkedTitle } from "@opencode-ai/core/session/clone-prefix"
+import { Location } from "@opencode-ai/core/location"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { MessageV2 } from "./message-v2"
 import type { InstanceContext } from "../project/instance-context"
@@ -41,7 +42,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import type { Provider } from "@/provider/provider"
 import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
-import { NonNegativeInt, optional } from "@opencode-ai/core/schema"
+import { AbsolutePath, NonNegativeInt, optional } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -158,16 +159,6 @@ export function toRow(info: Info) {
     time_compacting: info.time.compacting,
     time_archived: info.time.archived,
   }
-}
-
-function getForkedTitle(title: string): string {
-  const match = title.match(/^(.+) \(fork #(\d+)\)$/)
-  if (match) {
-    const base = match[1]
-    const num = parseInt(match[2], 10)
-    return `${base} (fork #${num + 1})`
-  }
-  return `${title} (fork #1)`
 }
 
 function sessionPath(worktree: string, cwd: string) {
@@ -731,69 +722,17 @@ const layer: Layer.Layer<
         model: original.model,
         metadata: structuredClone(original.metadata),
       })
-      const msgs = yield* messages({ sessionID: input.sessionID })
-      const idMap = new Map<string, MessageID>()
-
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
-        const newID = MessageID.ascending()
-        idMap.set(msg.info.id, newID)
-
-        const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
-        const cloned = yield* updateMessage({
-          ...msg.info,
-          sessionID: session.id,
-          id: newID,
-          ...(parentID && { parentID }),
-        })
-
-        for (const part of msg.parts) {
-          const p: SessionV1.Part = {
-            ...part,
-            id: PartID.ascending(),
-            messageID: cloned.id,
-            sessionID: session.id,
-          }
-          if (p.type === "compaction" && p.tail_start_id) {
-            p.tail_start_id = idMap.get(p.tail_start_id)
-          }
-          yield* updatePart(p)
-        }
-      }
-
-      // V2 runner context reads SessionMessageTable only (SessionHistory.load).
-      // The loop above only projects MessageTable/PartTable, so without this
-      // clone the forked session shows history in TUI but the model has no memory.
-      const v2Rows = yield* db
-        .select()
-        .from(SessionMessageTable)
-        .where(eq(SessionMessageTable.session_id, input.sessionID))
-        .orderBy(asc(SessionMessageTable.seq))
-        .all()
-        .pipe(Effect.orDie)
-
-      let seq = 0
-      for (const row of v2Rows) {
-        if (input.messageID && String(row.id) >= String(input.messageID)) break
-        const mapped = idMap.get(String(row.id))
-        const newID = mapped ?? MessageID.ascending()
-        if (!mapped) idMap.set(String(row.id), newID)
-
-        // data is the JSON body without id/type columns (those are table columns).
-        yield* db
-          .insert(SessionMessageTable)
-          .values({
-            id: SessionMessage.ID.make(String(newID)),
-            session_id: session.id,
-            type: row.type,
-            seq: seq++,
-            time_created: row.time_created,
-            data: row.data,
-          })
-          .run()
-          .pipe(Effect.orDie)
-      }
-
+      yield* copyPrefix({
+        db,
+        events,
+        from: original.id,
+        to: session.id,
+        messageID: input.messageID ? SessionMessage.ID.make(String(input.messageID)) : undefined,
+        location: Location.Ref.make({
+          directory: AbsolutePath.make(original.directory),
+          ...(original.workspaceID ? { workspaceID: original.workspaceID } : {}),
+        }),
+      })
       return session
     })
 

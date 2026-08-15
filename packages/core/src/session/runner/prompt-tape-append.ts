@@ -60,9 +60,22 @@ export const lowerShell = (input: { readonly command: string; readonly output: s
 const toolArguments = (input: unknown) => (typeof input === "string" ? input : JSON.stringify(input ?? {}))
 
 const toolResultContent = (tool: {
-  readonly state: { readonly status: string; readonly content?: unknown; readonly structured?: unknown; readonly error?: string; readonly input?: unknown }
+  readonly state: {
+    readonly status: string
+    readonly content?: unknown
+    readonly structured?: unknown
+    readonly error?: unknown
+    readonly input?: unknown
+  }
 }) => {
-  if (tool.state.status === "error") return tool.state.error ?? JSON.stringify(tool.state.content ?? "")
+  if (tool.state.status === "error") {
+    const error = tool.state.error
+    if (typeof error === "string") return error
+    if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+      return error.message
+    }
+    return JSON.stringify(error ?? tool.state.content ?? "")
+  }
   if (tool.state.status === "completed") return JSON.stringify(tool.state.content ?? tool.state.structured ?? "")
   return ""
 }

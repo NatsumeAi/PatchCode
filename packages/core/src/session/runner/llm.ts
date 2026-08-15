@@ -42,7 +42,6 @@ import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
-import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { PromptTape } from "./prompt-tape"
 import { PromptTapeStore } from "./prompt-tape-store"
@@ -245,6 +244,8 @@ const layer = Layer.effect(
         yield* SessionContextEpoch.saveTape(db, sessionID, {
           tape,
           lastSeq: PromptTapeStore.getLastSeq(sessionID, baselineSeq),
+          messageSeqs: PromptTapeStore.getMessageSeqs(sessionID, baselineSeq),
+          recall: PromptTapeStore.getRecall(sessionID, baselineSeq) ?? "",
         })
       })
     const dropTape = (sessionID: SessionSchema.ID) =>
@@ -514,24 +515,8 @@ const layer = Layer.effect(
     // Epoch-only relevance recall: appended as a static source once per context
     // epoch (initialize/prepare), preserving the prefix-cache invariant for
     // recall. Empty when the memory system is absent or yields nothing.
-    const loadSystemContextAndRecall = (agent: AgentV2.Selection, sessionID: SessionSchema.ID) =>
-      Effect.gen(function* () {
-        const context = yield* loadSystemContext(agent)
-        const recallOption = yield* Effect.serviceOption(MemoryRecall.Service)
-        if (Option.isNone(recallOption)) return context
-        const recall = yield* recallOption.value.recall(sessionID).pipe(Effect.catch(() => Effect.succeed("")))
-        if (recall === "") return context
-        return SystemContext.combine([
-          context,
-          SystemContext.make({
-            key: SystemContext.Key.make("core/memory-recall"),
-            codec: Schema.toCodecJson(Schema.String),
-            load: Effect.succeed(recall),
-            baseline: (text) => text,
-            update: (_previous, text) => text,
-          }),
-        ])
-      })
+    const loadSystemContextAndRecall = (agent: AgentV2.Selection, _sessionID: SessionSchema.ID) =>
+      loadSystemContext(agent)
 
     /**
      * Per-drain loop-control context. Built once at the start of each `run`
@@ -654,6 +639,20 @@ const layer = Layer.effect(
       }
     })
 
+    const isSystemUpdateMessage = (message: PromptTape.ChatMessage) =>
+      message.role === "user" &&
+      typeof message.content === "string" &&
+      message.content.startsWith("<system-update>")
+
+    // ContextUpdated can be published after a queued user is already in
+    // history. V1 last-message was the user prompt; keep system-updates in
+    // front of that user so they do not steal the compiled tail.
+    const preferPromptLast = (messages: PromptTape.ChatMessage[]) => {
+      const updates = messages.filter(isSystemUpdateMessage)
+      const rest = messages.filter((message) => !isSystemUpdateMessage(message))
+      return updates.length > 0 && rest.length > 0 ? [...updates, ...rest] : messages
+    }
+
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
@@ -662,8 +661,7 @@ const layer = Layer.effect(
       recoverOverflow?: typeof compaction.compactAfterOverflow,
     ) {
       const session = yield* getSession(sessionID)
-      if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
-        return yield* Effect.interrupt
+      if (session.location.directory !== location.directory) return yield* Effect.interrupt
       // D1: auto-seed goal once at drain start is done in buildDrainContext (step-independent).
       yield* drain.hooks.onTurnStart({
         sessionID: session.id,
@@ -718,19 +716,26 @@ const layer = Layer.effect(
       )
       if (admission === "exhausted") return { needsContinuation: false, step: currentStep }
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
-      const context = yield* materializeMedia(entries.map((entry) => entry.message)).pipe(
-        Effect.provideService(FSUtil.Service, fs),
-      )
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
-      const toolMaterialization = yield* tools.materialize(agent.info)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
-      const personaSystem = yield* PersonaInject.systemTextForSession(session.id).pipe(
-        Effect.catch(() => Effect.succeed(undefined as string | undefined)),
-      )
-      const systemText = [agent.info?.system, system.baseline, personaSystem]
-        .filter((part): part is string => part !== undefined && part.length > 0)
-        .join("\n")
-      const lowered = toLLMMessages(context, model)
+      const hydrateSubset = (subset: typeof entries) =>
+        Effect.gen(function* () {
+          if (subset.length === 0) {
+            return [] as Array<{
+              chunk: PromptTape.ChatMessage[]
+              seq: number
+              message: (typeof entries)[number]["message"]
+            }>
+          }
+          const context = yield* materializeMedia(subset.map((entry) => entry.message)).pipe(
+            Effect.provideService(FSUtil.Service, fs),
+          )
+          const mediaById = new Map(context.map((message) => [message.id, message]))
+          return subset.map((entry) => {
+            const message = mediaById.get(entry.message.id) ?? entry.message
+            return { chunk: PromptTapeAppend.hydrateFromSession([message]), seq: entry.seq, message }
+          })
+        })
       let tape = PromptTapeStore.get(session.id, system.baselineSeq)
       if (!tape) {
         const restored = yield* SessionContextEpoch.loadTape(db, session.id)
@@ -738,91 +743,123 @@ const layer = Layer.effect(
           tape = restored.tape
           PromptTapeStore.set(session.id, system.baselineSeq, tape)
           PromptTapeStore.setLastSeq(session.id, system.baselineSeq, restored.lastSeq)
+          PromptTapeStore.setMessageSeqs(session.id, system.baselineSeq, restored.messageSeqs)
+          PromptTapeStore.setRecall(session.id, system.baselineSeq, restored.recall)
         }
       }
+      const storedSettle = PromptTapeStore.getSettle(session.id, system.baselineSeq)
+      let toolMaterialization: ToolRegistry.Materialization | undefined = storedSettle
+        ? { definitions: [], settle: storedSettle }
+        : undefined
       if (!tape) {
+        const personaSystem = yield* PersonaInject.systemTextForSession(session.id).pipe(
+          Effect.catch(() => Effect.succeed(undefined as string | undefined)),
+        )
+        const materialized = yield* tools.materialize(agent.info)
+        toolMaterialization = materialized
+        const systemText = [agent.info?.system, system.baseline, personaSystem]
+          .filter((part): part is string => part !== undefined && part.length > 0)
+          .join("\n")
         const originPrepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
           LLM.request({
             model,
             system: systemText,
-            tools: toolMaterialization.definitions,
+            tools: materialized.definitions,
             messages: [],
           }),
         )
+        const toolName = (tool: { function?: { name?: string }; name?: string }) =>
+          tool.function?.name ?? tool.name ?? ""
         const chatTools = originPrepared.body.tools
-          ? [...originPrepared.body.tools].sort((a, b) => a.function.name.localeCompare(b.function.name))
+          ? [...originPrepared.body.tools].sort((a, b) => toolName(a).localeCompare(toolName(b)))
           : undefined
         tape = PromptTape.origin({ system: systemText, tools: chatTools })
-        if (context.length > 0) {
-          tape = PromptTape.append(tape, PromptTapeAppend.hydrateFromSession(context))
+        const seqs: number[] = []
+        const extras: PromptTape.ChatMessage[] = []
+        for (const hydrated of yield* hydrateSubset(entries)) {
+          extras.push(...hydrated.chunk)
+          for (const _ of hydrated.chunk) seqs.push(hydrated.seq)
         }
+        if (extras.length > 0) tape = PromptTape.append(tape, preferPromptLast(extras))
         const maxSeq = entries.reduce((seq, entry) => Math.max(seq, entry.seq), 0)
         PromptTapeStore.setLastSeq(session.id, system.baselineSeq, maxSeq)
+        PromptTapeStore.setMessageSeqs(session.id, system.baselineSeq, seqs)
+        PromptTapeStore.setSettle(session.id, system.baselineSeq, materialized.settle)
         yield* persistTape(session.id, system.baselineSeq, tape)
         yield* prewarmIfAllowed(llm, model, tape).pipe(Effect.forkIn(titleScope), Effect.asVoid)
       } else {
+        if (!toolMaterialization) {
+          const materialized = yield* tools.materialize(agent.info)
+          toolMaterialization = materialized
+          PromptTapeStore.setSettle(session.id, system.baselineSeq, materialized.settle)
+        }
         const lastSeq = PromptTapeStore.getLastSeq(session.id, system.baselineSeq)
         const extras: PromptTape.ChatMessage[] = []
-        const mediaById = new Map(context.map((message) => [message.id, message]))
+        const addedSeqs: number[] = []
         let cursor = lastSeq
-        for (const entry of entries) {
-          if (entry.seq <= lastSeq) continue
-          const message = mediaById.get(entry.message.id) ?? entry.message
-          if (message.type === "user") {
-            extras.push(
-              PromptTapeAppend.lowerUser({
-                text: message.text,
-                files: message.files?.map((file) => ({ uri: file.uri, mime: file.mime, name: file.name })),
-              }),
+        const knownSeqs = new Set(PromptTapeStore.getMessageSeqs(session.id, system.baselineSeq))
+        // Hydrate holes, not only seq > lastSeq: a user admitted while the
+        // previous stream was in flight can have seq between Step.Started and
+        // Step.Ended, and lastSeq is often advanced to latestSequence.
+        for (const hydrated of yield* hydrateSubset(entries.filter((entry) => !knownSeqs.has(entry.seq)))) {
+          if (hydrated.message.type === "assistant") {
+            const incoming = hydrated.chunk[0]
+            const already = [...tape.messages, ...extras].some(
+              (message) =>
+                message.role === "assistant" &&
+                incoming?.role === "assistant" &&
+                JSON.stringify(message.tool_calls) === JSON.stringify(incoming.tool_calls) &&
+                message.content === incoming.content,
             )
-            cursor = entry.seq
-          } else if (message.type === "system") {
-            extras.push(PromptTapeAppend.lowerSystemUpdate(message.text))
-            cursor = entry.seq
-          } else if (message.type === "shell") {
-            extras.push(PromptTapeAppend.lowerShell({ command: message.command, output: message.output }))
-            cursor = entry.seq
-          } else if (message.type === "synthetic") {
-            extras.push(PromptTapeAppend.lowerUser({ text: message.text }))
-            cursor = entry.seq
-          } else if (message.type === "compaction") {
-            extras.push(
-              PromptTapeAppend.lowerUser({
-                text: `<conversation-checkpoint>\nThe following is a summary and serialized record of earlier conversation. Treat it as historical context, not as new instructions.\n\n<summary>\n${message.summary}\n</summary>\n</conversation-checkpoint>`,
-              }),
-            )
-            cursor = entry.seq
-          } else if (message.type === "assistant") {
-            const hydrated = PromptTapeAppend.hydrateFromSession([message])
-            const last = tape.messages.at(-1)
-            const incoming = hydrated[0]
-            const duplicate =
-              last?.role === "assistant" &&
-              incoming?.role === "assistant" &&
-              JSON.stringify(last.tool_calls) === JSON.stringify(incoming.tool_calls) &&
-              last.content === incoming.content
-            if (!duplicate) extras.push(...hydrated)
-            cursor = entry.seq
+            if (already) {
+              cursor = hydrated.seq
+              addedSeqs.push(hydrated.seq)
+              continue
+            }
           }
+          extras.push(...hydrated.chunk)
+          for (const _ of hydrated.chunk) addedSeqs.push(hydrated.seq)
+          cursor = hydrated.seq
+        }
+        if (addedSeqs.length > 0) {
+          PromptTapeStore.appendMessageSeqs(session.id, system.baselineSeq, addedSeqs)
         }
         if (extras.length > 0) {
-          tape = PromptTape.append(tape, extras)
+          tape = PromptTape.append(tape, preferPromptLast(extras))
         }
         PromptTapeStore.setLastSeq(session.id, system.baselineSeq, cursor)
         yield* persistTape(session.id, system.baselineSeq, tape)
       }
-      PromptTapeStore.setSettle(session.id, system.baselineSeq, toolMaterialization.settle)
+      const recallOption = yield* Effect.serviceOption(MemoryRecall.Service)
+      const recall = Option.isSome(recallOption)
+        ? yield* recallOption.value.recall(session.id).pipe(Effect.catch(() => Effect.succeed("")))
+        : ""
+      const previousRecall = PromptTapeStore.getRecall(session.id, system.baselineSeq)
+      if (recall !== previousRecall) {
+        const extra =
+          recall.length > 0
+            ? PromptTapeAppend.lowerUser({ text: recall })
+            : previousRecall !== undefined && previousRecall.length > 0
+              ? PromptTapeAppend.lowerUser({ text: "(memory recall cleared)" })
+              : undefined
+        PromptTapeStore.setRecall(session.id, system.baselineSeq, recall)
+        if (extra) {
+          tape = PromptTape.append(tape, [extra])
+          PromptTapeStore.appendMessageSeqs(session.id, system.baselineSeq, [
+            PromptTapeStore.getLastSeq(session.id, system.baselineSeq),
+          ])
+          yield* persistTape(session.id, system.baselineSeq, tape)
+        }
+      }
       const ephemeral: PromptTape.ChatMessage[] = []
       if (verifierFeedback.length > 0) ephemeral.push({ role: "user", content: verifierFeedback })
       if (isLastStep) ephemeral.push({ role: "assistant", content: MAX_STEPS_PROMPT })
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline, personaSystem]
-          .filter((part): part is string => part !== undefined && part.length > 0)
-          .map(SystemPart.make),
-        messages: [...lowered, ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
-        tools: toolMaterialization.definitions,
+        system: tape.system,
+        messages: [],
+        tools: [],
         toolChoice: isLastStep ? "none" : undefined,
         compiled: PromptTape.compiled(tape, ephemeral),
       })
@@ -875,6 +912,10 @@ const layer = Layer.effect(
             const withPublication = Semaphore.makeUnsafe(1).withPermit
             const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
               withPublication(publisher.publish(event, outputPaths))
+            // V1 processor opened the assistant at turn start (before the first
+            // token). Parent the step to the current last user so a later queued
+            // user is not treated as already answered.
+            yield* withPublication(publisher.startAssistant())
             let overflowFailure: ProviderErrorEvent | undefined
             // Abort hung provider pulls: no chunk for STREAM_IDLE_TIMEOUT ends the turn so
             // child drains settle instead of sitting forever in execution.active.
@@ -883,6 +924,7 @@ const layer = Layer.effect(
             const toolOrder: string[] = []
             const hostedTools = new Set<string>()
             const toolResults = new Map<string, string>()
+            const toolSettlements = new Map<string, ToolRegistry.Settlement>()
             let assistantText = ""
             let reasoningText = ""
             const providerStream = llm.stream(request).pipe(
@@ -949,30 +991,44 @@ const layer = Layer.effect(
                   })
                   needsContinuation = true
                   const assistantMessageID = yield* publisher.assistantMessageID(event.id)
-                  yield* Effect.uninterruptibleMask((inner) =>
-                    inner(
-                      toolMaterialization.settle({
-                        sessionID: session.id,
-                        agent: agent.id,
-                        assistantMessageID,
-                        call: event,
-                      }),
-                    ).pipe(
-                      Effect.flatMap((settlement) =>
-                        Effect.gen(function* () {
-                          toolResults.set(event.id, JSON.stringify(settlement.output ?? settlement.result))
-                          yield* publish(
-                            LLMEvent.toolResult({
-                              id: event.id,
-                              name: event.name,
-                              result: settlement.result,
-                              output: settlement.output,
-                            }),
-                            settlement.outputPaths ?? [],
-                          )
+                  yield* Effect.uninterruptibleMask((restore) =>
+                    Effect.gen(function* () {
+                      // restore(settle) so bash collect / task host Effect.never can
+                      // stop. bound() and the settlement value live outside that
+                      // restore so a sticky cancel cannot drop Success.
+                      let settlement: ToolRegistry.Settlement | undefined
+                      const exit = yield* restore(
+                        toolMaterialization.settle({
+                          sessionID: session.id,
+                          agent: agent.id,
+                          assistantMessageID,
+                          call: event,
                         }),
-                      ),
-                    ),
+                      ).pipe(
+                        Effect.exit,
+                        Effect.tap((ex) =>
+                          Effect.sync(() => {
+                            if (ex._tag === "Success") settlement = ex.value
+                          }),
+                        ),
+                      )
+                      const done = settlement ?? (exit._tag === "Success" ? exit.value : undefined)
+                      if (!done) {
+                        if (exit._tag === "Failure") return yield* Effect.failCause(exit.cause)
+                        return
+                      }
+                      toolSettlements.set(event.id, done)
+                      toolResults.set(event.id, JSON.stringify(done.output ?? done.result))
+                      yield* publish(
+                        LLMEvent.toolResult({
+                          id: event.id,
+                          name: event.name,
+                          result: done.result,
+                          output: done.output,
+                        }),
+                        done.outputPaths ?? [],
+                      )
+                    }),
                   ).pipe(FiberSet.run(toolFibers))
                 }),
               ),
@@ -995,14 +1051,16 @@ const layer = Layer.effect(
               yield* dropTape(session.id)
               return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
             }
-            // Post-compaction attempt (no further recoverOverflow): surface a clear
-            // Step.Failed so the TUI is not left with a silent die/drain failure.
-            if (!recoverOverflow && isContextOverflowFailure(overflowFailure ?? failure)) {
-              yield* withPublication(
-                publisher.failAssistant(
-                  "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually.",
-                ),
-              )
+            // V1 processor: overflow with auto-compact disabled (or compact
+            // declined) writes ContextOverflowError onto the assistant and
+            // returns — it does not fail the drain.
+            if (isContextOverflowFailure(overflowFailure ?? failure)) {
+              const message = !recoverOverflow
+                ? "Context still overflows after compaction. Try a smaller request, a larger-context model, or run /compact manually."
+                : (overflowFailure?.message ??
+                  (failure instanceof LLMError ? failure.reason.message : "Context overflow"))
+              yield* withPublication(publisher.failAssistant(message))
+              return { needsContinuation: false, step: currentStep }
             }
             if (overflowFailure) yield* publish(overflowFailure)
 
@@ -1010,10 +1068,25 @@ const layer = Layer.effect(
             if (stream._tag === "Failure") {
               // User/runtime interrupt: durable-close partials (W1 must not skip this).
               if (Cause.hasInterrupts(stream.cause)) {
+                // Interrupt in-flight tools (bash inner restore stops the process)
+                // then wait for uninterruptible Success + bound() before failing
+                // the assistant, so cancel snapshots completed truncated output.
                 yield* FiberSet.clear(toolFibers)
+                for (const [id, settlement] of toolSettlements) {
+                  const name = toolNames.get(id)
+                  if (!name) continue
+                  yield* publish(
+                    LLMEvent.toolResult({
+                      id,
+                      name,
+                      result: settlement.result,
+                      output: settlement.output,
+                    }),
+                    settlement.outputPaths ?? [],
+                  ).pipe(Effect.catchCause(() => Effect.void))
+                }
                 yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-                if (publisher.hasActiveAssistant())
-                  yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
+                yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
                 return yield* Effect.failCause(stream.cause)
               }
               const err = failure instanceof LLMError ? failure : undefined
@@ -1067,9 +1140,20 @@ const layer = Layer.effect(
             }
             if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
               yield* FiberSet.clear(toolFibers)
-              yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-              if (publisher.hasActiveAssistant())
-                yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
+              for (const [id, settlement] of toolSettlements) {
+                const name = toolNames.get(id)
+                if (!name) continue
+                yield* publish(
+                  LLMEvent.toolResult({
+                    id,
+                    name,
+                    result: settlement.result,
+                    output: settlement.output,
+                  }),
+                  settlement.outputPaths ?? [],
+                ).pipe(Effect.catchCause(() => Effect.void))
+              }
+              yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
             }
             if (settled._tag === "Failure" && !Cause.hasInterrupts(settled.cause)) {
               const toolFailure = Cause.squash(settled.cause)
@@ -1078,6 +1162,7 @@ const layer = Layer.effect(
             }
             const stepSettlement = publisher.stepSettlement()
             let pendingTape: PromptTape.Tape | undefined
+            let pendingAdded = 0
             if (
               stream._tag === "Success" &&
               settled._tag === "Success" &&
@@ -1106,6 +1191,7 @@ const layer = Layer.effect(
                   tail.push(PromptTapeAppend.lowerToolResult({ toolCallId: call.id, content }))
                 }
                 pendingTape = PromptTape.append(current, tail)
+                pendingAdded = tail.length
               }
             }
             const endSnapshot = yield* snapshots.capture()
@@ -1116,22 +1202,35 @@ const layer = Layer.effect(
                     .pipe(Effect.catch(() => Effect.succeed(undefined)))
                 : undefined
             // Verifier audit only runs on a genuinely successful stream; a failed
-            // provider stream must not audit a partial or empty claim.
-            if (stream._tag === "Success" && !publisher.hasProviderError()) {
-              yield* drain.hooks.onStreamComplete({
-                sessionID: session.id,
-                finishReason: stepSettlement?.finish ?? "stop",
-                workerClaim: publisher.assistantText(),
-                workerDiffPath: files?.join("\n") ?? "",
-                model,
-              })
+            // provider stream must not audit a partial or empty claim. Skip when
+            // a later user (or pending steer/queue) is still unanswered — V1
+            // runLoop kept going, and the sidecar must not consume the next
+            // worker mock / approve-stop before that user is answered.
+            if (stream._tag === "Success" && !publisher.hasProviderError() && settled._tag === "Success") {
+              const pendingSteer = yield* SessionInput.hasPending(db, session.id, "steer")
+              const pendingQueue = yield* SessionInput.hasPending(db, session.id, "queue")
+              const history = yield* store.context(session.id).pipe(
+                Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])),
+              )
+              const lastUserIdx = history.findLastIndex((message) => message.type === "user")
+              const lastAssistantIdx = history.findLastIndex((message) => message.type === "assistant")
+              if (!pendingSteer && !pendingQueue && lastUserIdx <= lastAssistantIdx) {
+                yield* drain.hooks.onStreamComplete({
+                  sessionID: session.id,
+                  finishReason: stepSettlement?.finish ?? "stop",
+                  workerClaim: publisher.assistantText(),
+                  workerDiffPath: files?.join("\n") ?? "",
+                  model,
+                })
+              }
             }
             // onStreamComplete may request a terminal state (verifier approval,
             // verifier failure, hard abort). When it does, no further provider
             // continuation should be offered even if the stream produced tool calls.
+            // Still publish Step.Ended first: V1 processor wrote finish onto the
+            // assistant before runLoop decided to break.
             if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
               needsContinuation = false
-              return { needsContinuation: false, step: currentStep }
             }
             if (stepSettlement && !publisher.hasProviderError()) {
               // FULL tree token budget: debit input+output+reasoning; stop when exhausted.
@@ -1171,11 +1270,15 @@ const layer = Layer.effect(
             if (stream._tag === "Success" && !publisher.hasProviderError())
               yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
             if (pendingTape) {
-              PromptTapeStore.setLastSeq(
-                session.id,
-                system.baselineSeq,
-                yield* EventV2.latestSequence(db, session.id),
-              )
+              const seq = yield* EventV2.latestSequence(db, session.id)
+              PromptTapeStore.setLastSeq(session.id, system.baselineSeq, seq)
+              if (pendingAdded > 0) {
+                PromptTapeStore.appendMessageSeqs(
+                  session.id,
+                  system.baselineSeq,
+                  Array.from({ length: pendingAdded }, () => seq),
+                )
+              }
               yield* persistTape(session.id, system.baselineSeq, pendingTape)
             }
             if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
@@ -1276,6 +1379,7 @@ const layer = Layer.effect(
         const drain = yield* buildDrainContext(input.sessionID)
         let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
         let shouldRun = input.force || hasSteer || hasQueue
+        let extra = 0
         while (shouldRun) {
           let needsContinuation = true
           let step = 1
@@ -1286,12 +1390,25 @@ const layer = Layer.effect(
             promotion = "steer"
             if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
           }
-          // Turn boundary: a terminal request (verifier approval, abort, timeout,
-          // budget exhaustion, unrecoverable failure) is authoritative — stop
-          // promoting queued inputs once the controller is no longer continuing.
-          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
           shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
           promotion = shouldRun ? "queue" : undefined
+          if (!shouldRun && extra < 4) {
+            const msgs = yield* store.context(input.sessionID).pipe(
+              Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])),
+            )
+            const last = msgs.at(-1)
+            const lastUser = msgs.findLastIndex((message) => message.type === "user")
+            const lastAssistant = msgs.findLastIndex((message) => message.type === "assistant")
+            // V1 runLoop kept going after shellImpl (no finish on that assistant).
+            // A trailing shell message is unanswered work, same as lastUser > lastAssistant.
+            if (lastUser > lastAssistant || last?.type === "shell") {
+              extra += 1
+              shouldRun = true
+              promotion = undefined
+            }
+          }
+          if (shouldRun) continue
+          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
         }
       }).pipe(
         Effect.ensuring(
