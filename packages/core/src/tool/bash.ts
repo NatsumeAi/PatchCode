@@ -59,8 +59,10 @@ const modelOutput = (output: Output) => {
   const warnings = output.warnings?.length
     ? `\n\nWarnings:\n${output.warnings.map((warning) => `- ${warning}`).join("\n")}`
     : ""
-  if (output.timeout) return `${warnings.trimStart()}${warnings ? "\n\n" : ""}Command timed out before completion.`
-  return `${warnings.trimStart()}${warnings ? "\n\n" : ""}Command exited with code ${output.exit}.`
+  const prefix = `${warnings.trimStart()}${warnings ? "\n\n" : ""}`
+  if (output.timeout) return `${prefix}Command timed out before completion.`
+  if (output.exit === undefined) return `${prefix}Command interrupted.`
+  return `${prefix}Command exited with code ${output.exit}.`
 }
 
 /**

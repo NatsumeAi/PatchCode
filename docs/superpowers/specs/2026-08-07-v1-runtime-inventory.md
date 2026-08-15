@@ -61,7 +61,7 @@ If a later delete would make any row unprovable on the live path, **stop**.
 | **src callers of `SessionPrompt.prompt(` / `runLoop(`** | `runLoop` has no callers (deleted). `SessionPrompt.Service` is still constructed by `prompt.test.ts` as the V1-shaped façade over the live drain. |
 | **Still registered** | **No.** `SessionPrompt.node` / Processor / Compaction / Revert unregistered from `httpapi/server.ts` and `app-runtime.ts` (2026-08-14). Tests still construct `SessionPrompt`. |
 | **Keep-list** | All tape + loop-control features live **only** on SessionRunner. Adapter join/cancel uses `SessionRunState` (same occupancy as V1 `ensureRunning` / `startShell`), work is `v2.resume` not `runLoop`. |
-| **Behavior only on adapter** | `handlePendingSubtasks`, file-part resolution, agent variant, slash-command expand — V1 façade over live drain. Proof: `packages/opencode` `bun test test/session/prompt.test.ts` (2026-08-15: 59 pass / 1 skip / 0 fail). |
+| **Behavior only on adapter** | `handlePendingSubtasks`, file-part resolution, agent variant, slash-command expand — V1 façade over live drain. Proof: `cd packages/opencode && bun test test/session/prompt.test.ts` (2026-08-15: 59 pass / 1 skip / 0 fail). |
 | **Conclusion** | Duplicate compile (`runLoop`) is **already-safe-to-unreg / deleted**. Live drain covers loop occupancy, shell follow-up, subtask/task metadata, prompt-during-run, and interrupt-bash truncation via `ToolOutputStore.bound`. Do **not** port PromptTape onto a leftover V1 loop. |
 
 ### 2. Task spawn — Host only (shim collapsed 2026-08-14)

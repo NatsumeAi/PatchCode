@@ -45,6 +45,7 @@ import { createLLMEventPublisher } from "./publish-llm-event"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { PromptTape } from "./prompt-tape"
 import { PromptTapeStore } from "./prompt-tape-store"
+import { PromptSubtask } from "../prompt-subtask"
 import * as PromptTapeAppend from "./prompt-tape-append"
 import { prewarmIfAllowed } from "./prewarm"
 import { Snapshot } from "../../snapshot"
@@ -360,14 +361,17 @@ const layer = Layer.effect(
     })
 
     const resolveTitleModel = Effect.fn("SessionRunner.resolveTitleModel")(function* (session: SessionSchema.Info) {
+      const providerID = session.model?.providerID
+      if (!providerID) return yield* models.resolve(session)
       const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
-      if (titleAgent?.model) {
+      if (titleAgent?.model && titleAgent.model.providerID === providerID) {
         return yield* models.resolve({ ...session, model: titleAgent.model }).pipe(
           Effect.catch(() => models.resolve(session)),
         )
       }
-      const providerID = session.model?.providerID ?? (yield* catalog.model.default())?.providerID
-      const small = providerID ? yield* catalog.model.small(providerID) : undefined
+      // Stay on the session provider. catalog.default() / a title agent on
+      // another provider (zen) 502s isolated tests.
+      const small = yield* catalog.model.small(providerID)
       if (!small) return yield* models.resolve(session)
       return yield* models
         .resolve({
@@ -644,6 +648,14 @@ const layer = Layer.effect(
       typeof message.content === "string" &&
       message.content.startsWith("<system-update>")
 
+    const isVerifierFeedback = (message: PromptTape.ChatMessage) =>
+      message.role === "user" &&
+      typeof message.content === "string" &&
+      message.content.startsWith("<verifier-feedback")
+
+    const isRealUser = (message: PromptTape.ChatMessage) =>
+      message.role === "user" && !isSystemUpdateMessage(message) && !isVerifierFeedback(message)
+
     // ContextUpdated can be published after a queued user is already in
     // history. V1 last-message was the user prompt; keep system-updates in
     // front of that user so they do not steal the compiled tail.
@@ -651,6 +663,15 @@ const layer = Layer.effect(
       const updates = messages.filter(isSystemUpdateMessage)
       const rest = messages.filter((message) => !isSystemUpdateMessage(message))
       return updates.length > 0 && rest.length > 0 ? [...updates, ...rest] : messages
+    }
+
+    const keepLastRealUser = (messages: PromptTape.ChatMessage[]) => {
+      const last = messages.at(-1)
+      if (!last || (!isSystemUpdateMessage(last) && !isVerifierFeedback(last))) return messages
+      if (messages.filter(isRealUser).length < 2) return messages
+      const lastReal = messages.findLastIndex(isRealUser)
+      if (lastReal < 0) return messages
+      return [...messages.slice(0, lastReal), last, ...messages.slice(lastReal, -1)]
     }
 
     const runTurnAttempt = Effect.fn("SessionRunner.runTurn")(function* (
@@ -684,6 +705,11 @@ const layer = Layer.effect(
         }
         if (promoted > 0) currentStep = 1
       }
+      yield* PromptSubtask.spawnPending({ sessionID: session.id }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("PromptSubtask.spawnPending failed", cause).pipe(Effect.as(0)),
+        ),
+      )
       // After Prompted projection: first user message is visible to ensureTitle.
       yield* scheduleTitle(session.id)
       const system =
@@ -854,6 +880,8 @@ const layer = Layer.effect(
       const ephemeral: PromptTape.ChatMessage[] = []
       if (verifierFeedback.length > 0) ephemeral.push({ role: "user", content: verifierFeedback })
       if (isLastStep) ephemeral.push({ role: "assistant", content: MAX_STEPS_PROMPT })
+      const compiled = PromptTape.compiled(tape, ephemeral)
+      const compiledSystem = compiled.messages[0]
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
@@ -861,7 +889,12 @@ const layer = Layer.effect(
         messages: [],
         tools: [],
         toolChoice: isLastStep ? "none" : undefined,
-        compiled: PromptTape.compiled(tape, ephemeral),
+        compiled: {
+          ...compiled,
+          messages: compiledSystem
+            ? [compiledSystem, ...keepLastRealUser(compiled.messages.slice(1))]
+            : compiled.messages,
+        },
       })
       // Token compact path + ContextEngine step-budget proactive path (FULL).
       // When the engine wants a proactive compact, still use compactIfNeeded as the
@@ -912,10 +945,9 @@ const layer = Layer.effect(
             const withPublication = Semaphore.makeUnsafe(1).withPermit
             const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
               withPublication(publisher.publish(event, outputPaths))
-            // V1 processor opened the assistant at turn start (before the first
-            // token). Parent the step to the current last user so a later queued
-            // user is not treated as already answered.
-            yield* withPublication(publisher.startAssistant())
+            // Open the assistant on the first token/tool (publisher.startAssistant).
+            // Opening before the stream left an empty assistant row when the
+            // provider returned no events (tool-follow-up with an empty body).
             let overflowFailure: ProviderErrorEvent | undefined
             // Abort hung provider pulls: no chunk for STREAM_IDLE_TIMEOUT ends the turn so
             // child drains settle instead of sitting forever in execution.active.
@@ -945,7 +977,7 @@ const layer = Layer.effect(
                 Effect.gen(function* () {
                   if (overflowFailure || publisher.hasProviderError()) return
                   if (LLMEvent.is.providerError(event)) {
-                    if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
+                    if (isContextOverflowFailure(event) && !publisher.hasAssistantOutput()) {
                       overflowFailure = event
                       return
                     }
@@ -1040,7 +1072,7 @@ const layer = Layer.effect(
               stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
             if (
               recoverOverflow &&
-              !publisher.hasAssistantStarted() &&
+              !publisher.hasAssistantOutput() &&
               isContextOverflowFailure(overflowFailure ?? failure) &&
               (yield* restore(recoverOverflow({ sessionID: session.id, entries, model, request })))
             ) {
@@ -1090,7 +1122,8 @@ const layer = Layer.effect(
                 return yield* Effect.failCause(stream.cause)
               }
               const err = failure instanceof LLMError ? failure : undefined
-              const canClassify = err !== undefined && !publisher.hasProviderError() && !publisher.hasAssistantStarted()
+              const canClassify =
+                err !== undefined && !publisher.hasProviderError() && !publisher.hasAssistantOutput()
               if (canClassify && streamAttempt < MAX_STREAM_ATTEMPTS) {
                 const failover = yield* drain.hooks.onFailover(err)
                 if (failover.recovered) {
@@ -1381,9 +1414,14 @@ const layer = Layer.effect(
         let shouldRun = input.force || hasSteer || hasQueue
         let extra = 0
         while (shouldRun) {
+          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
           let needsContinuation = true
           let step = 1
           while (needsContinuation) {
+            if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) {
+              needsContinuation = false
+              break
+            }
             const result = yield* runTurn(input.sessionID, promotion, step, drain)
             needsContinuation = result.needsContinuation
             step = result.step + 1
@@ -1397,11 +1435,11 @@ const layer = Layer.effect(
               Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])),
             )
             const last = msgs.at(-1)
-            const lastUser = msgs.findLastIndex((message) => message.type === "user")
-            const lastAssistant = msgs.findLastIndex((message) => message.type === "assistant")
             // V1 runLoop kept going after shellImpl (no finish on that assistant).
-            // A trailing shell message is unanswered work, same as lastUser > lastAssistant.
-            if (lastUser > lastAssistant || last?.type === "shell") {
+            // A trailing shell message is unanswered work. Do not treat a user
+            // without an assistant row as unanswered after an empty provider
+            // body — that would re-issue the same turn up to `extra` times.
+            if (last?.type === "shell") {
               extra += 1
               shouldRun = true
               promotion = undefined

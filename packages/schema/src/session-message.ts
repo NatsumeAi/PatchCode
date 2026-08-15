@@ -47,6 +47,7 @@ export const User = Schema.Struct({
   text: Prompt.fields.text,
   files: Prompt.fields.files,
   agents: Prompt.fields.agents,
+  parts: Prompt.fields.parts,
   type: Schema.Literal("user"),
 }).annotate({ identifier: "Session.Message.User" })
 
@@ -186,6 +187,8 @@ export const Assistant = Schema.Struct({
   error: UnknownError.pipe(optional),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
+    /** First model output (text, reasoning, or tool call) after the step started. */
+    first: DateTimeUtcFromMillis.pipe(optional),
     completed: DateTimeUtcFromMillis.pipe(optional),
   }),
 }).annotate({ identifier: "Session.Message.Assistant" })

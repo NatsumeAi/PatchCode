@@ -700,6 +700,24 @@ const taskHostLayer = Layer.effect(
             childID = sessionID
           }
 
+          // Running task part must carry sessionId as soon as the child exists
+          // (TUI / parent-cancel follow the child from metadata, not from settle).
+          yield* events
+            .publish(SessionEvent.Tool.Progress, {
+              sessionID: parentID,
+              assistantMessageID: SessionMessage.ID.make(input.assistantMessageID),
+              timestamp: yield* DateTime.now,
+              callID: input.toolCallID,
+              structured: {
+                title: input.description,
+                description: input.description,
+                sessionId: String(childID),
+                parentSessionId: String(parentID),
+              },
+              content: [],
+            })
+            .pipe(Effect.ignore)
+
           if (registryOpt._tag === "Some") {
             yield* registryOpt.value
               .register({

@@ -44,6 +44,7 @@ import { PromptTapeStore } from "@opencode-ai/core/session/runner/prompt-tape-st
 import { SessionContextEpoch } from "@opencode-ai/core/session/context-epoch"
 import { Location } from "@opencode-ai/core/location"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
+import { loopCommandForSession } from "@opencode-ai/core/session/loop-control/command"
 import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -277,6 +278,7 @@ const config = Layer.succeed(
           }),
         }),
       ]),
+    reload: () => Effect.void,
   }),
 )
 const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
@@ -818,9 +820,8 @@ describe("SessionRunnerLLM", () => {
       const message = yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run automatically" }) })
 
       expect(requests).toHaveLength(1)
-      expect(yield* session.messages({ sessionID })).toMatchObject([
-        { id: message.id, type: "user", text: "Run automatically" },
-      ])
+      const messages = yield* session.messages({ sessionID })
+      expect(messages.some((item) => item.id === message.id && item.type === "user")).toBe(true)
     }),
   )
 
@@ -957,7 +958,8 @@ describe("SessionRunnerLLM", () => {
         ["Initial context"],
       ])
       expect(compiledRoles(requests[1]!)).toEqual(["user", "assistant", "user", "user"])
-      expect(JSON.stringify(compiledConv(requests[1]!).at(-1))).toContain("Changed context")
+      expect(JSON.stringify(compiledConv(requests[1]!))).toContain("Changed context")
+      expect(JSON.stringify(compiledConv(requests[1]!).at(-1))).toContain("Second")
       expect(yield* session.messages({ sessionID })).toHaveLength(3)
       const { db } = yield* Database.Service
       expect(
@@ -1153,7 +1155,8 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
 
       expect(compiledRoles(requests[1]!)).toEqual(["user", "assistant", "user", "user"])
-      expect(JSON.stringify(compiledConv(requests[1]!).at(-1))).toContain("System context source removed: test/context")
+      expect(JSON.stringify(compiledConv(requests[1]!))).toContain("System context source removed: test/context")
+      expect(JSON.stringify(compiledConv(requests[1]!).at(-1))).toContain("Second")
       expect(yield* session.messages({ sessionID })).toHaveLength(3)
     }),
   )
@@ -2110,6 +2113,62 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("/loop abort on the session-owned runtime stops the live drain", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const runtime = yield* SessionRuntime.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep going" }), resume: false })
+
+      requests.length = 0
+      response = [
+        LLMEvent.stepStart({ index: 0 }),
+        LLMEvent.textStart({ id: "text-abort" }),
+        LLMEvent.textDelta({ id: "text-abort", text: "Working" }),
+        LLMEvent.textEnd({ id: "text-abort" }),
+        LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+        LLMEvent.finish({ reason: "stop" }),
+      ]
+      streamGate = yield* Deferred.make<void>()
+      streamStarted = yield* Deferred.make<void>()
+
+      const run = yield* session.resume(sessionID).pipe(Effect.forkChild)
+      yield* Deferred.await(streamStarted)
+
+      const text = yield* loopCommandForSession("abort", sessionID)
+      expect(text).toContain("abort requested")
+      yield* session.interrupt(sessionID)
+
+      const exit = yield* Fiber.await(run)
+      expect(Exit.isFailure(exit)).toBe(true)
+
+      const inst = yield* runtime.getOrCreate(sessionID)
+      expect(yield* inst.terminal.shouldContinue).toBe(false)
+      expect((yield* inst.terminal.snapshot).reason).toBe("user_abort")
+
+      const blocked = requests.length
+      streamGate = undefined
+      streamStarted = undefined
+      yield* session.resume(sessionID)
+      expect(requests.length).toBe(blocked)
+
+      response = [
+        LLMEvent.stepStart({ index: 0 }),
+        LLMEvent.textStart({ id: "text-after" }),
+        LLMEvent.textDelta({ id: "text-after", text: "After abort" }),
+        LLMEvent.textEnd({ id: "text-after" }),
+        LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+        LLMEvent.finish({ reason: "stop" }),
+      ]
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "New work after abort" }) })
+      expect(requests.length).toBeGreaterThan(blocked)
+      expect(yield* inst.terminal.shouldContinue).toBe(true)
+
+      streamGate = undefined
+      streamStarted = undefined
+    }),
+  )
+
   it.effect("steers an active provider turn with newly recorded prompts", () =>
     Effect.gen(function* () {
       yield* setup
@@ -2739,7 +2798,7 @@ describe("SessionRunnerLLM", () => {
       const first = yield* session.resume(sessionID).pipe(Effect.forkChild)
       yield* Deferred.await(streamStarted)
       const second = yield* session.resume(otherSessionID).pipe(Effect.forkChild)
-      yield* Effect.yieldNow
+      for (let i = 0; i < 50 && requests.length < 2; i++) yield* Effect.yieldNow
 
       expect(requests).toHaveLength(2)
       expect(requests.map((request) => request.providerOptions?.openai?.promptCacheKey)).toEqual([

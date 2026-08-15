@@ -22,7 +22,19 @@ it("dispatches loop status from the core loop-control package", async () => {
 
   expect(output).toContain("Worker")
   expect(output).toContain("Budget")
+  expect(output).toContain("Verifier")
+  expect(output).toContain("Fresh (no audits yet)")
+  expect(output).toContain("Timer")
+  expect(output).toContain("loopTimer 24h")
   expect(output).not.toContain("turn 0/60")
   expect(output).not.toContain("24h00m")
   expect(output).not.toContain("last audit")
+})
+
+it("sets the goal from /loop goal <text> without requiring --set", async () => {
+  const program = loopCommand("goal ship the loop module").pipe(
+    Effect.provide(GoalStore.layerForTest),
+  ) as Effect.Effect<string>
+  const output = await Effect.runPromise(program)
+  expect(output).toBe("goal: ship the loop module")
 })

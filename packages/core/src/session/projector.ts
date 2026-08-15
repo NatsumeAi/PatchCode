@@ -281,6 +281,107 @@ function legacyMirror(
   const path = { cwd: session.directory, root: session.directory }
 
   if (message.type === "user") {
+    const fallbackParts = (): Array<{
+      id: string
+      message_id: string
+      session_id: string
+      data: Record<string, unknown>
+    }> => {
+      const out: Array<{
+        id: string
+        message_id: string
+        session_id: string
+        data: Record<string, unknown>
+      }> = []
+      let index = 0
+      const push = (data: Record<string, unknown>) => {
+        out.push({
+          id: `prt_${messageID}_${index++}`,
+          message_id: messageID,
+          session_id: sessionID,
+          data,
+        })
+      }
+      if (message.parts && message.parts.length > 0) {
+        for (const part of message.parts) {
+          if (part.type === "text") {
+            push({
+              type: "text",
+              text: part.text,
+              ...(part.synthetic === undefined ? {} : { synthetic: part.synthetic }),
+            })
+            continue
+          }
+          if (part.type === "file") {
+            push({
+              type: "file",
+              mime: part.mime ?? "application/octet-stream",
+              url: part.uri,
+              ...(part.name === undefined ? {} : { filename: part.name }),
+              ...(part.source === undefined ? {} : { source: part.source }),
+            })
+            continue
+          }
+          if (part.type === "agent") {
+            const source = part.source
+            const mapped =
+              source && typeof source === "object"
+                ? "value" in source
+                  ? source
+                  : "text" in source && "start" in source && "end" in source
+                    ? {
+                        value: String((source as { text: unknown }).text),
+                        start: Number((source as { start: unknown }).start),
+                        end: Number((source as { end: unknown }).end),
+                      }
+                    : undefined
+                : undefined
+            push({
+              type: "agent",
+              name: part.name,
+              ...(mapped === undefined ? {} : { source: mapped }),
+            })
+            continue
+          }
+          push({
+            type: "subtask",
+            prompt: part.prompt,
+            description: part.description,
+            agent: part.agent,
+            ...(part.command === undefined ? {} : { command: part.command }),
+            ...(part.model === undefined ? {} : { model: part.model }),
+          })
+        }
+        return out
+      }
+      if (message.text) push({ type: "text", text: message.text })
+      for (const file of message.files ?? []) {
+        push({
+          type: "file",
+          mime: file.mime,
+          url: file.uri,
+          ...(file.name === undefined ? {} : { filename: file.name }),
+          ...(file.source === undefined ? {} : { source: file.source }),
+        })
+      }
+      for (const agent of message.agents ?? []) {
+        push({
+          type: "agent",
+          name: agent.name,
+          ...(agent.source === undefined
+            ? {}
+            : {
+                source: {
+                  value: agent.source.text,
+                  start: agent.source.start,
+                  end: agent.source.end,
+                },
+              }),
+        })
+      }
+      if (out.length === 0) push({ type: "text", text: message.text ?? "" })
+      return out
+    }
     return {
       message: {
         id: messageID,
@@ -294,14 +395,7 @@ function legacyMirror(
           summary: { diffs: [] },
         },
       },
-      parts: [
-        {
-          id: `prt_${messageID}_text`,
-          message_id: messageID,
-          session_id: sessionID,
-          data: { type: "text" as const, text: message.text },
-        },
-      ],
+      parts: fallbackParts(),
     }
   }
 
@@ -378,6 +472,7 @@ function legacyMirror(
   if (message.type === "assistant") {
     const completed =
       message.time.completed === undefined ? undefined : DateTime.toEpochMillis(message.time.completed)
+    const first = message.time.first === undefined ? undefined : DateTime.toEpochMillis(message.time.first)
     const tokens = message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
     return {
       message: {
@@ -403,6 +498,7 @@ function legacyMirror(
           },
           time: {
             created: timeCreated,
+            ...(first === undefined ? {} : { first }),
             ...(completed === undefined ? {} : { completed }),
           },
           ...(message.finish === undefined ? {} : { finish: message.finish }),
@@ -482,7 +578,15 @@ function legacyMirror(
             ? structured.description
             : undefined) ??
           tool.name
-        const taskMeta = tool.name === "task" ? { parentSessionId: sessionID } : {}
+        const childSession =
+          (typeof structured.sessionId === "string" && structured.sessionId) ||
+          (typeof structured.sessionID === "string" && structured.sessionID) ||
+          (typeof structured.task_id === "string" && structured.task_id) ||
+          undefined
+        const taskMeta =
+          tool.name === "task"
+            ? { parentSessionId: sessionID, ...(childSession ? { sessionId: childSession } : {}) }
+            : {}
         const outputPaths =
           "outputPaths" in state && Array.isArray(state.outputPaths)
             ? state.outputPaths.filter((item): item is string => typeof item === "string")
@@ -559,7 +663,7 @@ function legacyMirror(
           data: {
             type: "text" as const,
             text: message.text,
-            ...(message.type === "synthetic" ? { synthetic: true } : {}),
+            synthetic: true,
           },
         },
       ],
@@ -634,21 +738,48 @@ function dualWriteLegacy(
       if (recorded) {
         parentID = recorded
       } else {
-        const parent = yield* db
-          .select({ id: SessionMessageTable.id, type: SessionMessageTable.type })
-          .from(SessionMessageTable)
-          .where(eq(SessionMessageTable.session_id, sessionID))
-          .orderBy(desc(SessionMessageTable.seq))
-          .limit(50)
+        const legacyUsers = yield* db
+          .select({ id: MessageTable.id, data: MessageTable.data })
+          .from(MessageTable)
+          .where(eq(MessageTable.session_id, sessionID))
+          .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+          .limit(20)
           .all()
           .pipe(Effect.orDie)
-        // Latest prior user by durable seq at first projection. Keep that
-        // parent on later dual-writes so a queued user cannot steal turn 1.
-        for (const row of parent) {
-          if (String(row.id) === String(message.id)) continue
-          if (row.type === "user") {
-            parentID = String(row.id)
-            break
+        for (const row of legacyUsers) {
+          const data = row.data as { role?: string }
+          if (data.role !== "user") continue
+          const partRows = yield* db
+            .select({ data: PartTable.data })
+            .from(PartTable)
+            .where(eq(PartTable.message_id, row.id))
+            .all()
+            .pipe(Effect.orDie)
+          const syntheticOnly =
+            partRows.length > 0 &&
+            partRows.every((part) => {
+              const partData = part.data as { type?: string; synthetic?: boolean }
+              return partData.type === "text" && partData.synthetic === true
+            })
+          if (syntheticOnly) continue
+          parentID = String(row.id)
+          break
+        }
+        if (!parentID) {
+          const parent = yield* db
+            .select({ id: SessionMessageTable.id, type: SessionMessageTable.type })
+            .from(SessionMessageTable)
+            .where(eq(SessionMessageTable.session_id, sessionID))
+            .orderBy(desc(SessionMessageTable.seq))
+            .limit(50)
+            .all()
+            .pipe(Effect.orDie)
+          for (const row of parent) {
+            if (String(row.id) === String(message.id)) continue
+            if (row.type === "user") {
+              parentID = String(row.id)
+              break
+            }
           }
         }
       }

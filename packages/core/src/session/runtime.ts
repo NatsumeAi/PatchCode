@@ -69,9 +69,12 @@ export interface Interface {
    */
   readonly current: (sessionID: string) => Effect.Effect<Instance, SessionNotFound>
   /**
-   * Resets the mutable per-session state (terminal, budget, retry, worker)
-   * for `sessionID` without touching any other session. Idempotent if no
-   * bundle exists yet.
+   * Resets the mutable per-session state (budget, retry, worker, breaker)
+   * for `sessionID` without touching any other session. `user_abort` and
+   * `hard_timeout` survive so extra/wake/resume cannot restart a stopped
+   * drain; a new user `SessionV2.prompt` clears them. Other terminal reasons
+   * are cleared so a post-fail drain can pick up steers.
+   * Idempotent if no bundle exists yet.
    */
   readonly resetForDrain: (sessionID: string) => Effect.Effect<void>
   /**
@@ -114,7 +117,10 @@ const makeInstance = (sessionID: string): Effect.Effect<Instance> =>
     const budget = yield* IterationBudget.make(IterationBudget.defaultParentCap)
     const retry = yield* TurnRetryState.make
     const goalStore = yield* GoalStore.make
-    const circuitBreaker = yield* CircuitBreaker.make()
+    // Production breaker is armed: /loop breaker and Open-state shouldContinue
+    // actually stop the drain. Tests that want a no-op construct CircuitBreaker.make()
+    // without { enabled: true }.
+    const circuitBreaker = yield* CircuitBreaker.make(5, { enabled: true })
     const treeBudget = yield* TreeBudget.make()
 
     const verifierBiDirectional = yield* VerifierBiDirectional.make.pipe(
@@ -149,7 +155,12 @@ const makeInstance = (sessionID: string): Effect.Effect<Instance> =>
 
 const resetInstance = (instance: Instance): Effect.Effect<void> =>
   Effect.gen(function* () {
-    yield* instance.terminal.reset
+    const snap = yield* instance.terminal.snapshot
+    // User abort and the 24h ceiling must survive extra/wake/resume. Provider
+    // unrecoverable_failure is cleared so a post-fail drain can pick up steers.
+    if (snap.reason !== "user_abort" && snap.reason !== "hard_timeout") {
+      yield* instance.terminal.reset
+    }
     yield* instance.budget.reset()
     yield* instance.retry.reset
     yield* instance.circuitBreaker.reset

@@ -121,7 +121,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
 /** Effectful scoped tmpdir. Cleaned up when the scope closes. Make sure these stay in sync */
 export function tmpdirScoped<E = never, R = never>(options?: {
   git?: boolean
-  config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>)
+  config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
   init?: (directory: string) => Effect.Effect<void, E, R>
 }) {
   return Effect.gen(function* () {
@@ -149,14 +149,58 @@ export function tmpdirScoped<E = never, R = never>(options?: {
       yield* git("commit", "--allow-empty", "-m", `root commit ${dir}`)
     }
 
-    if (options?.config) {
-      const resolved = typeof options.config === "function" ? options.config() : options.config
-      yield* Effect.promise(() =>
-        fs.writeFile(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({ $schema: "https://opencode.ai/config.json", ...resolved }),
-        ),
-      )
+    {
+      const llm = yield* Effect.serviceOption(TestLLMServer)
+      const raw = options?.config
+      const resolved =
+        typeof raw === "function"
+          ? raw.length >= 1
+            ? (raw as (url: string) => Partial<ConfigV1.Info>)(
+                llm._tag === "Some" ? llm.value.url : "http://localhost:1/v1",
+              )
+            : (raw as () => Partial<ConfigV1.Info>)()
+          : raw
+      // Live drain reads Catalog at location open. Write the TestLLMServer URL
+      // before provideInstance so SessionRunnerModel does not hit localhost:1.
+      const mockProvider =
+        llm._tag === "Some"
+          ? {
+              test: {
+                name: "Test",
+                id: "test",
+                env: [] as string[],
+                npm: "@ai-sdk/openai-compatible",
+                models: {
+                  "test-model": {
+                    id: "test-model",
+                    name: "Test Model",
+                    tool_call: true,
+                    limit: { context: 100000, output: 10000 },
+                    cost: { input: 0, output: 0 },
+                  },
+                },
+                options: { apiKey: "test-key", baseURL: llm.value.url },
+              },
+            }
+          : undefined
+      const merged =
+        resolved || mockProvider
+          ? {
+              ...(mockProvider && !resolved?.model ? { model: "test/test-model" } : {}),
+              ...(resolved ?? {}),
+              ...(mockProvider
+                ? { provider: { ...(resolved?.provider ?? {}), ...mockProvider } }
+                : {}),
+            }
+          : undefined
+      if (merged) {
+        yield* Effect.promise(() =>
+          fs.writeFile(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({ $schema: "https://opencode.ai/config.json", ...merged }),
+          ),
+        )
+      }
     }
 
     if (options?.init) yield* options.init(dir)
@@ -201,7 +245,7 @@ export const requireInstance = Effect.gen(function* () {
 export const withTmpdirInstance =
   <E2 = never, R2 = never>(options?: {
     git?: boolean
-    config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>)
+    config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
     init?: (directory: string) => Effect.Effect<void, E2, R2>
   }) =>
   <A, E, R>(self: Effect.Effect<A, E, R>) =>

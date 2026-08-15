@@ -19,10 +19,11 @@ export type LoopCommandRequirements =
 
 type StatusInput = {
   worker: { _tag: "Active" | "Waiting" | "Dead" }
-  verifier: { available: boolean }
+  verifier: { available: boolean; detail: string }
   budget: { consumed: number; cap: number }
   timer: {
     stopReminderActive: boolean
+    paused: boolean
   }
   terminal: { state: string; reason: string | null }
   breaker: string
@@ -33,14 +34,26 @@ type StatusInput = {
 
 const emptyStatus: StatusInput = {
   worker: { _tag: "Active" as const },
-  verifier: { available: false },
+  verifier: { available: false, detail: "unavailable" },
   budget: { consumed: 0, cap: 90 },
-  timer: { stopReminderActive: false },
+  timer: { stopReminderActive: false, paused: false },
   terminal: { state: "running", reason: null },
   breaker: "Closed",
   edges: 0,
   goal: "",
   lastEvents: [],
+}
+
+const renderVerifier = (events: Array<{ _tag: string; reason?: string }>) => {
+  const rejects = events.filter((event) => event._tag === "VerifierRejectInjected")
+  const completions = events.filter((event) => event._tag === "SubagentCompleted")
+  if (rejects.length === 0 && completions.length === 0) {
+    return { available: true, detail: "Fresh (no audits yet)" }
+  }
+  if (rejects.length > 0) {
+    return { available: true, detail: `Reused (reject ${rejects.length})` }
+  }
+  return { available: true, detail: "Fresh" }
 }
 
 const renderStatus = (input: StatusInput) => {
@@ -54,14 +67,16 @@ const renderStatus = (input: StatusInput) => {
           : event._tag,
     )
     .join(" -> ")
+  const reminder = input.timer.stopReminderActive ? "active" : "idle"
+  const clock = input.timer.paused ? "paused" : "running"
   return [
     `Goal       : ${input.goal ? input.goal.slice(0, 120) : "(empty)"}`,
     `Worker     : ${input.worker._tag.toLowerCase()}`,
-    `Verifier   : ${input.verifier.available ? "available" : "unavailable"}`,
+    `Verifier   : ${input.verifier.available ? input.verifier.detail : "unavailable"}`,
     `Budget     : consumed ${input.budget.consumed} / cap ${input.budget.cap}  (${percentage}%)`,
     `Breaker    : ${input.breaker}`,
     `SpawnEdges : ${input.edges} open`,
-    `Timer      : stopReminder ${input.timer.stopReminderActive ? "active" : "idle"}; durations unavailable`,
+    `Timer      : loopTimer 24h; stopReminder 5m ${reminder}; ${clock}`,
     `Terminal   : ${input.terminal.state}${input.terminal.reason ? ` (reason: ${input.terminal.reason})` : ""}`,
     `Last events: ${events}`,
   ].join("\n")
@@ -77,8 +92,18 @@ const status = Effect.gen(function* () {
     const cap = yield* budget.value.currentCap
     input = { ...input, budget: { consumed: cap - remaining, cap } }
   }
+  const bus = yield* Effect.serviceOption(EventBus.Service)
+  const busEvents = Option.isSome(bus) ? yield* bus.value.snapshotBuffer(50) : []
   const timer = yield* Effect.serviceOption(TimerDaemon.Service)
-  if (Option.isSome(timer)) input = { ...input, timer: { stopReminderActive: !(yield* timer.value.isPaused) } }
+  if (Option.isSome(timer)) {
+    input = {
+      ...input,
+      timer: {
+        stopReminderActive: busEvents.some((event) => event._tag === "StopReminder"),
+        paused: yield* timer.value.isPaused,
+      },
+    }
+  }
   const terminal = yield* Effect.serviceOption(TerminalController.Service)
   if (Option.isSome(terminal)) {
     const snap = yield* terminal.value.snapshot
@@ -88,12 +113,17 @@ const status = Effect.gen(function* () {
   if (Option.isSome(breaker)) input = { ...input, breaker: yield* breaker.value.state }
   const goal = yield* Effect.serviceOption(GoalStore.Service)
   if (Option.isSome(goal)) input = { ...input, goal: yield* goal.value.get }
-  const bus = yield* Effect.serviceOption(EventBus.Service)
-  if (Option.isSome(bus)) input = { ...input, lastEvents: (yield* bus.value.snapshotBuffer(3)).map((event) => ({ _tag: event._tag })) }
+  if (Option.isSome(bus)) {
+    input = {
+      ...input,
+      verifier: renderVerifier(busEvents),
+      lastEvents: busEvents.slice(-3).map((event) => ({ _tag: event._tag })),
+    }
+  }
   return renderStatus(input)
 })
 
-export const loopCommand = (raw: string): Effect.Effect<string, Error, LoopCommandRequirements> =>
+export const loopCommand = (raw: string): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
     const [name] = raw.trim().split(/\s+/)
     if (name === "status") return yield* status
@@ -164,7 +194,7 @@ export const loopCommand = (raw: string): Effect.Effect<string, Error, LoopComma
       if (Option.isSome(terminal)) yield* terminal.value.request("user_abort")
       if (Option.isNone(bus)) return "abort requested; loop-control bus unavailable"
       yield* bus.value.publish({ _tag: "AbortRequested", source: "user-cli", at: yield* Effect.clockWith((clock) => clock.currentTimeMillis) })
-      return "abort requested; harness loop will break on next turn boundary"
+      return "abort requested; in-flight drain interrupted; will not resume until a new user prompt"
     }
     if (name === "breaker" || name === "circuit") {
       const breaker = yield* Effect.serviceOption(CircuitBreaker.Service)
@@ -178,13 +208,14 @@ export const loopCommand = (raw: string): Effect.Effect<string, Error, LoopComma
     if (name === "goal") {
       const goal = yield* Effect.serviceOption(GoalStore.Service)
       if (Option.isNone(goal)) return "no goal set"
-      if (rest[0] === "--set") {
-        const value = rest.slice(1).join(" ").replace(/^"|"$/g, "")
+      const setFlag = rest[0] === "--set"
+      const value = (setFlag ? rest.slice(1) : rest).join(" ").replace(/^"|"$/g, "")
+      if (value.length > 0) {
         yield* goal.value.set(value)
         return `goal: ${value}`
       }
-      const value = yield* goal.value.get
-      return value ? `goal: ${value}` : "no goal set"
+      const current = yield* goal.value.get
+      return current ? `goal: ${current}` : "no goal set"
     }
     if (name === "history") {
       const bus = yield* Effect.serviceOption(EventBus.Service)
@@ -208,7 +239,7 @@ export const loopCommand = (raw: string): Effect.Effect<string, Error, LoopComma
 export const loopCommandForSession = (
   raw: string,
   sessionID: string,
-): Effect.Effect<string, Error, LoopCommandRequirements> =>
+): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
     const maybe = yield* Effect.serviceOption(SessionRuntime.Service)
     if (Option.isNone(maybe)) return yield* loopCommand(raw)

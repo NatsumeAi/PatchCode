@@ -317,6 +317,20 @@ export const {
       }
     }
 
+    const stampFirstToken = (sessionID: string, messageID: string, timestamp: unknown) => {
+      const first = epochMs(timestamp)
+      const messages = store.message[sessionID] ?? []
+      const match = search(messages, messageID, (m) => m.id)
+      if (!match.found) return
+      const current = messages[match.index]
+      if (current.role !== "assistant") return
+      if ((current.time as { first?: number }).first != null) return
+      applyMessage({
+        ...current,
+        time: { ...current.time, first } as typeof current.time,
+      })
+    }
+
     /** Upsert a V1 part into the sync store (same shape as message.part.updated). */
     const applyPart = (part: Part) => {
       touchPart(part.sessionID, part.id)
@@ -962,6 +976,7 @@ export const {
         }
         case "session.next.text.started": {
           const p = event.properties
+          stampFirstToken(p.sessionID, p.assistantMessageID, p.timestamp)
           applyPart(
             emptyTextPart({
               sessionID: p.sessionID,
@@ -1021,6 +1036,7 @@ export const {
             reasoningID: string
             timestamp: unknown
           }
+          stampFirstToken(p.sessionID, p.assistantMessageID, p.timestamp)
           applyPart(
             emptyReasoningPart({
               sessionID: p.sessionID,
@@ -1092,6 +1108,7 @@ export const {
         }
         case "session.next.tool.input.started": {
           const p = event.properties
+          stampFirstToken(p.sessionID, p.assistantMessageID, p.timestamp)
           applyPart(
             toolPartPending({
               sessionID: p.sessionID,

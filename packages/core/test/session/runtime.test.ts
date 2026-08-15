@@ -43,7 +43,7 @@ describe("SessionRuntime", () => {
       }).pipe(Effect.provide(SessionRuntime.layerForTest)),
     ))
 
-  test("resetForDrain recovers a Dead worker and clears terminal/budget/retry", () =>
+  test("resetForDrain recovers a Dead worker and budget/retry but keeps a hard terminal", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const runtime = yield* SessionRuntime.Service
@@ -60,12 +60,28 @@ describe("SessionRuntime", () => {
 
         yield* runtime.resetForDrain("s1")
 
-        expect(yield* inst.terminal.shouldContinue).toBe(true)
-        expect((yield* inst.terminal.snapshot).state).toBe("running")
+        expect(yield* inst.terminal.shouldContinue).toBe(false)
+        expect((yield* inst.terminal.snapshot).reason).toBe("user_abort")
         expect(yield* inst.budget.remaining).toBe(inst.budget.cap)
         expect(yield* inst.retry.consume("rate_limited")).toBe(true)
         expect((yield* inst.workerState.current)._tag).toBe("Active")
         expect(yield* inst.workerState.currentHarness).toBe("Busy")
+
+        yield* inst.terminal.reset
+        expect(yield* inst.terminal.shouldContinue).toBe(true)
+        expect((yield* inst.terminal.snapshot).state).toBe("running")
+      }).pipe(Effect.provide(SessionRuntime.layerForTest)),
+    ))
+
+  test("production breaker on a session instance opens after consecutive failures", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = yield* SessionRuntime.Service
+        const inst = yield* runtime.getOrCreate("breaker")
+        expect(yield* inst.circuitBreaker.state).toBe("Closed")
+        for (let i = 0; i < 5; i++) yield* inst.circuitBreaker.recordFailure
+        expect(yield* inst.circuitBreaker.state).toBe("Open")
+        expect(yield* inst.circuitBreaker.allowRequest()).toBe(false)
       }).pipe(Effect.provide(SessionRuntime.layerForTest)),
     ))
 
@@ -79,7 +95,7 @@ describe("SessionRuntime", () => {
         yield* a.terminal.request("user_abort")
         yield* runtime.resetForDrain("a")
 
-        expect(yield* a.terminal.shouldContinue).toBe(true)
+        expect(yield* a.terminal.shouldContinue).toBe(false)
         expect(yield* b.terminal.shouldContinue).toBe(true)
       }).pipe(Effect.provide(SessionRuntime.layerForTest)),
     ))

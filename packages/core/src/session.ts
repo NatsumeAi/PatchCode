@@ -1,7 +1,7 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { Cause, DateTime, Effect, Exit, Fiber, Layer, Schema, Context, Stream } from "effect"
+import { Cause, DateTime, Effect, Exit, Fiber, Layer, Option, Schema, Context, Stream } from "effect"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, like, lt, or, sql, type SQL } from "drizzle-orm"
@@ -11,6 +11,7 @@ import { ModelV2 } from "./model"
 import { Location } from "./location"
 import { SessionMessage } from "./session/message"
 import { Prompt } from "./session/prompt"
+import { PromptResolve } from "./session/prompt-resolve"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2 } from "./event"
 import { Database } from "./database/database"
@@ -34,6 +35,7 @@ import { fromRow } from "./session/info"
 import { SessionRunner } from "./session/runner/index"
 import { SessionStore } from "./session/store"
 import { SessionExecution } from "./session/execution"
+import { SessionRuntime } from "./session/runtime"
 import { makeGlobalNode } from "./effect/app-node"
 import { LocationServiceMap } from "./location-service-map"
 import { MessageDecodeError } from "./session/error"
@@ -45,7 +47,6 @@ import { SessionContextEpoch } from "./session/context-epoch"
 import { PromptTapeStore } from "./session/runner/prompt-tape-store"
 import { copyPrefix, getForkedTitle } from "./session/clone-prefix"
 import { Revert } from "@opencode-ai/schema/revert"
-import { FSUtil } from "./fs-util"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
 
 export const RevertState = Revert.State
@@ -201,6 +202,7 @@ export interface Interface {
   ) => Effect.Effect<SessionMessage.Message[] | undefined, NotFoundError | MessageDecodeError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | SessionRunner.RunError>
+  readonly wake: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   readonly fork: (input: {
     sessionID: SessionSchema.ID
@@ -488,50 +490,80 @@ const layer = Layer.effect(
         })
       }),
       prompt: Effect.fn("V2Session.prompt")((input) =>
-        Effect.uninterruptible(
-          Effect.gen(function* () {
-            const session = yield* result.get(input.sessionID)
-            // V1 SessionPrompt cleanup parity: hard-delete staged undo tail before a new turn.
-            // Commit failures must not fail the turn (see Follow-up F2); log + continue.
-            if (session.revert) {
-              yield* SessionRevert.commit(session)
-                .pipe(
-                  Effect.provideService(EventV2.Service, events),
-                  Effect.catchCause((cause) =>
-                    Cause.hasInterruptsOnly(cause)
-                      ? Effect.failCause(cause)
-                      : Effect.logWarning("staged revert commit failed (prompt)", { cause }).pipe(Effect.asVoid),
-                  ),
-                )
+        Effect.gen(function* () {
+          const admitted = yield* Effect.uninterruptible(
+            Effect.gen(function* () {
+              const session = yield* result.get(input.sessionID)
+              // V1 SessionPrompt cleanup parity: hard-delete staged undo tail before a new turn.
+              // Commit failures must not fail the turn (see Follow-up F2); log + continue.
+              if (session.revert) {
+                yield* SessionRevert.commit(session)
+                  .pipe(
+                    Effect.provideService(EventV2.Service, events),
+                    Effect.catchCause((cause) =>
+                      Cause.hasInterruptsOnly(cause)
+                        ? Effect.failCause(cause)
+                        : Effect.logWarning("staged revert commit failed (prompt)", { cause }).pipe(Effect.asVoid),
+                    ),
+                  )
+              }
+              const resolved = yield* PromptResolve.resolve(input.prompt).pipe(
+                PromptResolve.needsFilesystem(input.prompt)
+                  ? Effect.provide(locations.get(session.location))
+                  : (effect) => effect,
+              )
+              const extraParts = resolved.parts.some(
+                (part) => part.type !== "text" || part.synthetic === true || resolved.parts.length > 1,
+              )
+              const prompt = Prompt.make({
+                text: resolved.text,
+                files: resolved.files,
+                agents: resolved.agents,
+                ...(extraParts ? { parts: resolved.parts } : {}),
+              })
+              const messageID = input.id ?? SessionMessage.ID.create()
+              const delivery = input.delivery ?? "steer"
+              const expected = { sessionID: input.sessionID, messageID, prompt, delivery }
+              const recorded = yield* SessionInput.admit(db, events, {
+                id: messageID,
+                sessionID: input.sessionID,
+                prompt,
+                delivery,
+              }).pipe(
+                Effect.catchDefect((defect) =>
+                  defect instanceof SessionInput.LifecycleConflict
+                    ? new PromptConflictError({ sessionID: input.sessionID, messageID })
+                    : Effect.die(defect),
+                ),
+              )
+              if (!SessionInput.equivalent(recorded, expected))
+                return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
+              return recorded
+            }),
+          )
+          if (input.resume !== false) {
+            // A real user prompt may restart work after /loop abort (or timeout /
+            // budget). Slash /loop itself uses resume: false, so abort sticks.
+            const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+            if (Option.isSome(maybeRuntime)) {
+              const inst = yield* maybeRuntime.value.getOrCreate(admitted.sessionID)
+              yield* inst.terminal.reset
             }
-            const prompt = resolvePrompt(input.prompt)
-            const messageID = input.id ?? SessionMessage.ID.create()
-            const delivery = input.delivery ?? "steer"
-            const expected = { sessionID: input.sessionID, messageID, prompt, delivery }
-            const admitted = yield* SessionInput.admit(db, events, {
-              id: messageID,
-              sessionID: input.sessionID,
-              prompt,
-              delivery,
-            }).pipe(
-              Effect.catchDefect((defect) =>
-                defect instanceof SessionInput.LifecycleConflict
-                  ? new PromptConflictError({ sessionID: input.sessionID, messageID })
-                  : Effect.die(defect),
-              ),
-            )
-            if (!SessionInput.equivalent(admitted, expected))
-              return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) {
-              yield* awaitShell(admitted.sessionID)
+            yield* awaitShell(admitted.sessionID)
+            const running = yield* execution.active
+            if (running.has(admitted.sessionID)) {
+              // Busy: coalesce a follow-up without joining (steer/queue tests).
               yield* execution.wake(admitted.sessionID)
-            } else if (input.projectUser === true) {
-              // HTTP noReply: project user message (Prompted) without waking the agent/LLM.
-              yield* SessionInput.promoteSteers(db, events, admitted.sessionID, Number.MAX_SAFE_INTEGER)
+            } else {
+              // Idle: wait until the live drain issues the provider turn.
+              yield* execution.resume(admitted.sessionID)
             }
-            return admitted
-          }),
-        ),
+          } else if (input.projectUser === true) {
+            // HTTP noReply: project user message (Prompted) without waking the agent/LLM.
+            yield* SessionInput.promoteSteers(db, events, admitted.sessionID, Number.MAX_SAFE_INTEGER)
+          }
+          return admitted
+        }),
       ),
       shell: Effect.fn("V2Session.shell")((input) =>
         Effect.uninterruptibleMask((restore) =>
@@ -720,6 +752,10 @@ const layer = Layer.effect(
         if (shellAborted) return
         yield* execution.resume(sessionID)
       }),
+      wake: Effect.fn("V2Session.wake")(function* (sessionID) {
+        yield* result.get(sessionID)
+        yield* execution.wake(sessionID)
+      }),
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
         Effect.uninterruptible(
           Effect.gen(function* () {
@@ -861,20 +897,6 @@ const layer = Layer.effect(
     return result
   }),
 )
-
-const resolvePrompt = (input: PromptInput.Prompt) =>
-  Prompt.make({
-    text: input.text,
-    agents: input.agents,
-    files: input.files?.map((file) => {
-      const dataMime = file.uri.match(/^data:([^;,]+)[;,]/i)?.[1]
-      const target = URL.canParse(file.uri) ? new URL(file.uri).pathname : (file.name ?? file.uri)
-      return {
-        ...file,
-        mime: dataMime ?? (target.endsWith("/") ? "application/x-directory" : FSUtil.mimeType(target)),
-      }
-    }),
-  })
 
 export const node = makeGlobalNode({
   service: Service,

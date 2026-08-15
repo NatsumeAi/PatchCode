@@ -602,7 +602,11 @@ describe("SessionProjector", () => {
           agent: "build",
           model,
           content: [SessionMessage.AssistantText.make({ type: "text", id: "text-stale", text: "" })],
-          time: { created: DateTime.makeUnsafe(1), completed: DateTime.makeUnsafe(2) },
+          time: {
+            created: DateTime.makeUnsafe(1),
+            first: DateTime.makeUnsafe(3),
+            completed: DateTime.makeUnsafe(2),
+          },
         }),
         SessionMessage.Assistant.make({
           id: SessionMessage.ID.make("msg_assistant_stale"),

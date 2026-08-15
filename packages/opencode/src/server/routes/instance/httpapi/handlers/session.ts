@@ -2,7 +2,6 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
-import { TaskTool } from "@opencode-ai/core/tool/task"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
@@ -24,14 +23,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { loopCommand } from "@opencode-ai/core/session/loop-control/command"
-import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
-import { GoalStore } from "@opencode-ai/core/session/loop-control/goal-store"
-import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
-import { TimerDaemon } from "@opencode-ai/core/session/loop-control/timer-daemon"
-import { WorkerState } from "@opencode-ai/core/session/loop-control/worker-state"
-import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
-import { CircuitBreaker } from "@opencode-ai/core/session/loop-control/circuit-breaker"
+import { loopCommandForSession } from "@opencode-ai/core/session/loop-control/command"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -57,23 +49,6 @@ const tryParseJson = (text: string) =>
     try: () => JSON.parse(text) as unknown,
     catch: () => new HttpApiError.BadRequest({}),
   })
-
-const loopCommandForInstance = (raw: string, instance: SessionRuntime.Instance) =>
-  loopCommand(raw).pipe(
-    Effect.provideService(EventBus.Service, instance.eventBus),
-    Effect.provideService(GoalStore.Service, instance.goalStore),
-    Effect.provideService(IterationBudget.Service, instance.budget),
-    Effect.provideService(TimerDaemon.Service, instance.timerDaemon),
-    Effect.provideService(WorkerState.Service, instance.workerState),
-    Effect.provideService(TerminalController.Service, instance.terminal),
-    Effect.provideService(CircuitBreaker.Service, instance.circuitBreaker),
-    Effect.map((text) => {
-      if (raw.trim().split(/\s+/)[0] === "status") {
-        return text.replace(/SpawnEdges : \d+ open/, `SpawnEdges : ${instance.spawnEdges.size} open`)
-      }
-      return text
-    }),
-  )
 
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -412,43 +387,30 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
             : [],
         )
         const agentParts = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
-        // FULL: honor subtask parts (do not drop). Map agent + embed prompt/description
-        // into the V2 prompt; optional auto-spawn is handled after admit when Task host
-        // is available (see prompt handler).
-        const subtasks = parts.filter((part): part is Extract<(typeof parts)[number], { type: "subtask" }> =>
-          part.type === "subtask",
-        )
-        const subtaskBlocks = subtasks.map(
-          (s) =>
-            `<subtask agent=${JSON.stringify(s.agent)} description=${JSON.stringify(s.description)}>${s.prompt}</subtask>`,
-        )
-        const agents = [
-          ...agentParts,
-          ...subtasks.map((s) => ({ name: s.agent })),
-        ]
-        const text = [...textParts, ...subtaskBlocks].filter(Boolean).join("\n")
-        if (subtasks.length > 0) {
-          yield* Effect.logInfo("subtask parts honored on v2 prompt", { count: subtasks.length })
-        }
+        const mapped = parts.flatMap((part) => {
+          if (part.type === "text") return [{ type: "text" as const, text: part.text }]
+          if (part.type === "file") {
+            return [{ type: "file" as const, uri: part.url, mime: part.mime, name: part.filename, source: part.source }]
+          }
+          if (part.type === "agent") return [{ type: "agent" as const, name: part.name, source: part.source }]
+          if (part.type === "subtask") {
+            return [{
+              type: "subtask" as const,
+              prompt: part.prompt,
+              description: part.description,
+              agent: part.agent,
+              command: part.command,
+              model: part.model,
+            }]
+          }
+          return []
+        })
         return {
-          text,
+          text: textParts.filter(Boolean).join("\n"),
           ...(files.length > 0 ? { files } : {}),
-          ...(agents.length > 0 ? { agents } : {}),
-          // Carry raw subtasks for post-admit spawn
-          _subtasks: subtasks.map((s) => ({
-            prompt: s.prompt,
-            description: s.description,
-            agent: s.agent,
-            command: s.command,
-          })),
-        } as PromptInput.Prompt & {
-          _subtasks?: ReadonlyArray<{
-            prompt: string
-            description: string
-            agent: string
-            command?: string
-          }>
-        }
+          ...(agentParts.length > 0 ? { agents: agentParts } : {}),
+          ...(mapped.length > 0 ? { parts: mapped } : {}),
+        } as PromptInput.Prompt
       })
 
     const switchTo = (sessionID: SessionID, payload: typeof PromptPayload.Type) =>
@@ -513,19 +475,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         const active = yield* v2Svc.active
         const delivery = noReply ? "steer" : active.has(sessionID) ? "queue" : "steer"
         const built = yield* toV2Prompt(payload)
-        const { _subtasks, ...prompt } = built as typeof built & {
-          _subtasks?: ReadonlyArray<{
-            prompt: string
-            description: string
-            agent: string
-            command?: string
-          }>
-        }
         const message = yield* v2Svc
           .prompt({
             sessionID,
             ...(id ? { id } : {}),
-            prompt,
+            prompt: built,
             delivery,
             // noReply: admit + project user message, do not wake agent / run LLM
             ...(noReply ? { resume: false, projectUser: true } : {}),
@@ -537,54 +491,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
                 : new HttpApiError.BadRequest({}),
             ),
           )
-        // FULL subtask parity: auto-spawn via Task host (permission+concurrency gated inside host).
-        if (_subtasks && _subtasks.length > 0 && !noReply) {
-          const taskHostOpt = yield* Effect.serviceOption(TaskTool.HostService)
-          if (Option.isSome(taskHostOpt)) {
-            for (const st of _subtasks) {
-              const spawn = yield* taskHostOpt.value
-                .run({
-                  parentSessionID: SessionSchema.ID.make(String(sessionID)),
-                  description: st.description || st.agent,
-                  prompt: st.prompt,
-                  subagentType: st.agent,
-                  command: st.command,
-                  background: true,
-                  agent: st.agent,
-                  assistantMessageID: String(SessionMessage.ID.create()),
-                  toolCallID: `subtask-${st.agent}`,
-                })
-                .pipe(Effect.exit)
-              if (spawn._tag === "Failure") {
-                const errText = String(spawn.cause).slice(0, 500)
-                yield* Effect.logWarning("subtask auto-spawn failed", { agent: st.agent, err: errText })
-                // Model-visible explicit error (no silent drop).
-                yield* v2Svc
-                  .prompt({
-                    sessionID,
-                    prompt: {
-                      text: `<subtask_error agent=${JSON.stringify(st.agent)}>${errText}</subtask_error>`,
-                    },
-                    resume: false,
-                    projectUser: true,
-                  })
-                  .pipe(Effect.ignore)
-              }
-            }
-          } else {
-            yield* Effect.logWarning("subtask parts present but Task host unavailable; prompt embeds subtask XML only")
-            yield* v2Svc
-              .prompt({
-                sessionID,
-                prompt: {
-                  text: `<subtask_error>Task host unavailable; subtask parts were embedded in prompt XML only (not spawned).</subtask_error>`,
-                },
-                resume: false,
-                projectUser: true,
-              })
-              .pipe(Effect.ignore)
-          }
-        }
         return message
       })
 
@@ -630,27 +536,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       yield* requireSession(ctx.params.sessionID)
       // /loop is its own single path (loop-control + synthetic messages), not the agent drain.
       if (ctx.payload.command === "loop") {
-        // Resolve the session-owned runtime bundle the V2 runner uses for this
-        // session so /loop commands observe and control the same mutable
-        // services. Precedence: ambient SessionRuntime → location layer.
+        // One path: session-owned runtime via loopCommandForSession (ambient
+        // SessionRuntime, or the location layer that provides it).
         const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
         const maybeLocations = yield* Effect.serviceOption(LocationServiceMap.Service)
-        let dispatch: Effect.Effect<string, Error, never>
+        let dispatch: Effect.Effect<string, Error>
         if (Option.isSome(maybeRuntime)) {
-          const instance = yield* maybeRuntime.value.getOrCreate(ctx.params.sessionID)
-          dispatch = loopCommandForInstance(ctx.payload.arguments, instance)
+          dispatch = loopCommandForSession(ctx.payload.arguments, ctx.params.sessionID)
         } else if (Option.isSome(maybeLocations)) {
           const current = yield* session.get(ctx.params.sessionID).pipe(Effect.orDie)
           const locationLayer = maybeLocations.value.get({
             directory: AbsolutePath.make(current.directory),
             workspaceID: current.workspaceID,
           })
-          dispatch = Effect.gen(function* () {
-            const maybe = yield* Effect.serviceOption(SessionRuntime.Service)
-            if (Option.isNone(maybe)) return yield* Effect.fail(new Error("session runtime unavailable"))
-            const instance = yield* maybe.value.getOrCreate(ctx.params.sessionID)
-            return yield* loopCommandForInstance(ctx.payload.arguments, instance)
-          }).pipe(
+          dispatch = loopCommandForSession(ctx.payload.arguments, ctx.params.sessionID).pipe(
             Effect.provide(locationLayer),
             Effect.provideService(LocationServiceMap.Service, maybeLocations.value),
           )
@@ -658,6 +557,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           return yield* new HttpApiError.BadRequest({})
         }
         const text = yield* dispatch.pipe(Effect.orDie)
+        const verb = ctx.payload.arguments.trim().split(/\s+/)[0]
+        if (verb === "abort") {
+          yield* v2Svc.interrupt(ctx.params.sessionID).pipe(Effect.catchCause(() => Effect.void))
+        }
         // Project the user message without waking the agent (legacy noReply semantics).
         const user = yield* v2Svc
           .prompt({

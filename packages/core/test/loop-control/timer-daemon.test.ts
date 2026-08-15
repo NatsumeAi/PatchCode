@@ -141,7 +141,7 @@ describe("TimerDaemon", () => {
     }),
   )
 
-  it.effect("pause masks only the stopReminder timer, not heartbeat or loopTimer", () =>
+  it.effect("pause masks stopReminder and freezes the 24h loop timer; heartbeat still fires", () =>
     Effect.gen(function* () {
       const received: LoopControlEvent[] = []
       yield* EventBus.subscribe((e) =>
@@ -156,9 +156,17 @@ describe("TimerDaemon", () => {
       yield* WorkerState.transition({ _tag: "Waiting", reason: "OnChild" })
       yield* TestClock.adjust(Duration.seconds(15))
       yield* TestClock.adjust(Duration.minutes(6))
+      yield* TestClock.adjust(Duration.hours(24))
 
       expect(received.filter((e) => e._tag === "HeartbeatTick").length).toBeGreaterThanOrEqual(1)
       expect(received.filter((e) => e._tag === "StopReminder")).toHaveLength(0)
+      expect(received.filter((e) => e._tag === "LoopTerminated")).toHaveLength(0)
+      expect((yield* TerminalController.snapshot).reason).not.toBe("hard_timeout")
+
+      yield* timers.resume
+      yield* TestClock.adjust(Duration.hours(24))
+      expect(received.filter((e) => e._tag === "LoopTerminated").length).toBeGreaterThanOrEqual(1)
+      expect((yield* TerminalController.snapshot).reason).toBe("hard_timeout")
     }),
   )
 

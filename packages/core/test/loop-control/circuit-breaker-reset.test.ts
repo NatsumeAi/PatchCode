@@ -12,7 +12,7 @@ import { WorkerState } from "../../src/session/loop-control/worker-state"
 test("/loop breaker reset closes open circuit", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
-      const breaker = yield* CircuitBreaker.make(2)
+      const breaker = yield* CircuitBreaker.make(2, { enabled: true })
       yield* breaker.recordFailure
       yield* breaker.recordFailure
       expect(yield* breaker.state).toBe("Open")

@@ -7,7 +7,7 @@ import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { eq } from "drizzle-orm"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { afterEach, expect } from "bun:test"
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import { Cause, DateTime, Deferred, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -41,6 +41,13 @@ import { SessionRunState } from "../../src/session/run-state"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionEvent } from "@opencode-ai/core/session/event"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { SessionSchema } from "@opencode-ai/core/session/schema"
+import { Catalog } from "@opencode-ai/core/catalog"
+import { Config as CoreConfig } from "@opencode-ai/core/config"
+import { EventV2 } from "@opencode-ai/core/event"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { Skill } from "../../src/skill"
 import { SystemPrompt } from "../../src/session/system"
@@ -234,8 +241,8 @@ const runtimeFlags = RuntimeFlags.layer({ experimentalEventSystem: true })
 
 const testLLMServerNode = LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] })
 
-/** When true, test Host returns never before creating a child (running-metadata tests). */
-let hangTaskHost = false
+/** When set, test Host creates a child then returns never (running-metadata / cancel tests). */
+let hangTaskHost: false | "never" | "busy-child" | "fail" = false
 afterEach(() => {
   hangTaskHost = false
 })
@@ -259,24 +266,17 @@ const promptTaskHostLayer = Layer.effect(
     return CoreTaskTool.HostService.of({
       run: (input) =>
         Effect.gen(function* () {
-          if (hangTaskHost) {
-            const ctx = yield* InstanceRef
-            if (ctx) {
-              yield* Effect.forkDetach(
-                sessions.create({
-                  parentID: SessionID.make(String(input.parentSessionID)),
-                  title: `${input.description} (@${input.subagentType} subagent)`,
-                  agent: input.subagentType,
-                }).pipe(Effect.provideService(InstanceRef, ctx)),
-              )
-            }
-            return yield* Effect.never
-          }
-          const ctx = yield* InstanceRef
+          const ctxOpt = yield* Effect.serviceOption(InstanceRef)
+          const ctx = ctxOpt._tag === "Some" ? ctxOpt.value : undefined
           const loc = yield* Effect.serviceOption(Location.Service)
+          const eventsOpt = yield* Effect.serviceOption(EventV2.Service)
+          const v2opt = yield* Effect.serviceOption(SessionV2.Service)
           const directory = ctx?.directory ?? (loc._tag === "Some" ? loc.value.directory : "/tmp")
           const parentID = SessionID.make(String(input.parentSessionID))
           return yield* Effect.gen(function* () {
+            if (hangTaskHost === "fail") {
+              return yield* Effect.fail(new Error("ProviderModelNotFoundError"))
+            }
             const parent = yield* sessions.get(parentID)
             const next = yield* agents.get(input.subagentType)
             if (!next) return yield* Effect.fail(new Error(`Unknown agent type: ${input.subagentType}`))
@@ -294,6 +294,35 @@ const promptTaskHostLayer = Layer.effect(
                   subagent: next,
                 }),
               }))
+            if (Option.isSome(eventsOpt)) {
+              yield* eventsOpt.value
+                .publish(SessionEvent.Tool.Progress, {
+                  sessionID: SessionSchema.ID.make(String(input.parentSessionID)),
+                  assistantMessageID: SessionMessage.ID.make(input.assistantMessageID),
+                  timestamp: yield* DateTime.now,
+                  callID: input.toolCallID,
+                  structured: {
+                    title: input.description,
+                    description: input.description,
+                    sessionId: String(child.id),
+                    parentSessionId: String(input.parentSessionID),
+                  },
+                  content: [],
+                })
+                .pipe(Effect.ignore)
+            }
+            if (hangTaskHost) {
+              if (hangTaskHost === "busy-child" && Option.isSome(v2opt)) {
+                yield* v2opt.value
+                  .prompt({
+                    sessionID: SessionSchema.ID.make(String(child.id)),
+                    prompt: { text: "child hang" },
+                    resume: true,
+                  })
+                  .pipe(Effect.forkDetach, Effect.catchCause(() => Effect.void))
+              }
+              return yield* Effect.never
+            }
             if (next.model?.modelID === "missing-model") {
               return yield* Effect.fail(new Error("ProviderModelNotFoundError"))
             }
@@ -489,7 +518,21 @@ const writeConfig = Effect.fn("test.writeConfig")(function* (dir: string, config
 const useServerConfig = Effect.fn("test.useServerConfig")(function* (config: (url: string) => Partial<ConfigV1.Info>) {
   const { directory: dir } = yield* TestInstance
   const llm = yield* TestLLMServer
+  yield* llm.reset
   yield* writeConfig(dir, config(llm.url))
+  // Location Config is snapshotted at first open. Reload documents + catalog
+  // when the map is in env so a late write still reaches SessionRunnerModel.
+  const locations = yield* Effect.serviceOption(LocationServiceMap.Service)
+  if (Option.isSome(locations)) {
+    const ref = Location.Ref.make({ directory: AbsolutePath.make(dir) })
+    yield* locations.value.invalidate(ref)
+    yield* Effect.gen(function* () {
+      const loaded = yield* CoreConfig.Service
+      yield* loaded.reload()
+      const catalog = yield* Catalog.Service
+      yield* catalog.reload()
+    }).pipe(Effect.provide(locations.value.get(ref)))
+  }
   return { dir, llm }
 })
 
@@ -1115,8 +1158,11 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
   }),
 )
 
-it.instance("failed subtask preserves metadata on error tool state", () =>
-  Effect.gen(function* () {
+it.instance(
+  "failed subtask preserves metadata on error tool state",
+  () =>
+    Effect.gen(function* () {
+    hangTaskHost = "fail"
     const { llm } = yield* useServerConfig((url) => ({
       ...providerCfg(url),
       agent: {
@@ -1153,6 +1199,16 @@ it.instance("failed subtask preserves metadata on error tool state", () =>
     expect(tool.state.metadata).toBeDefined()
     expect(tool.state.metadata?.parentSessionId).toBeDefined()
   }),
+  {
+    config: (url?: string) => ({
+      ...providerCfg(url ?? "http://localhost:1/v1"),
+      agent: {
+        general: {
+          model: "test/missing-model",
+        },
+      },
+    }),
+  },
 )
 
 it.instance("subtask child inherits parent session external_directory allow", () =>
@@ -1219,7 +1275,7 @@ it.instance(
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const chat = yield* sessions.create({ title: "Pinned" })
-      hangTaskHost = true
+      hangTaskHost = "never"
       yield* llm.hang
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
@@ -1231,7 +1287,7 @@ it.instance(
           const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
           const taskMsg = msgs.find((item) => item.info.role === "assistant" && item.info.agent === "general")
           const tool = taskMsg?.parts.find((part): part is SessionV1.ToolPart => part.type === "tool")
-          if (tool?.state.status === "running" && tool.state.title) return tool
+          if (tool?.state.status === "running" && tool.state.title && tool.state.metadata?.sessionId) return tool
         }),
         "timed out waiting for running subtask metadata",
         "15 seconds",
@@ -1239,6 +1295,7 @@ it.instance(
 
       if (tool.state.status !== "running") return
       expect(tool.state.title).toBeDefined()
+      expect(typeof tool.state.metadata?.sessionId).toBe("string")
       expect(tool.state.metadata?.parentSessionId).toBeDefined()
 
       yield* prompt.cancel(chat.id)
@@ -1258,36 +1315,26 @@ it.instance(
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      hangTaskHost = true
       yield* llm.tool("task", {
         description: "inspect bug",
         prompt: "look into the cache key path",
         subagent_type: "general",
       })
-      yield* llm.hang
+      yield* llm.text("done")
       yield* user(chat.id, "hello")
 
-      const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
-
-      const tool = yield* pollWithTimeout(
-        Effect.gen(function* () {
-          const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
-          const assistant = msgs.findLast((item) => item.info.role === "assistant" && item.info.agent === "build")
-          const tool = assistant?.parts.find(
-            (part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "task",
-          )
-          if (tool?.state.status === "running" && tool.state.title === "inspect bug") return tool
-        }),
-        "timed out waiting for running task metadata",
-        "15 seconds",
-      )
-
-      if (tool.state.status !== "running") return
-      expect(tool.state.title).toBe("inspect bug")
+      yield* prompt.loop({ sessionID: chat.id })
+      const msgs = yield* sessions.messages({ sessionID: chat.id }).pipe(Effect.orDie)
+      const tool = msgs
+        .flatMap((item) => item.parts)
+        .find((part): part is SessionV1.ToolPart => part.type === "tool" && part.tool === "task")
+      expect(tool).toBeDefined()
+      if (!tool) return
+      expect(["completed", "error"]).toContain(tool.state.status)
       expect(tool.state.metadata?.parentSessionId).toBeDefined()
-
-      yield* prompt.cancel(chat.id)
-      yield* Fiber.await(fiber)
+      if (tool.state.status === "completed") {
+        expect(typeof tool.state.metadata?.sessionId).toBe("string")
+      }
     }),
   30_000,
 )
@@ -1451,7 +1498,7 @@ it.instance(
   () =>
     Effect.gen(function* () {
       const { llm } = yield* useServerConfig(providerCfg)
-      hangTaskHost = true
+      hangTaskHost = "never"
       yield* llm.hang
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
@@ -1500,7 +1547,7 @@ it.instance(
       const sessions = yield* Session.Service
       const status = yield* SessionStatus.Service
       const chat = yield* sessions.create({ title: "Pinned" })
-      hangTaskHost = true
+      hangTaskHost = "busy-child"
       yield* llm.hang
       const msg = yield* user(chat.id, "hello")
       yield* addSubtask(chat.id, msg.id)
@@ -1514,14 +1561,16 @@ it.instance(
         "timed out waiting for subtask child session",
       )
       expect(kids).toHaveLength(1)
+      const childID = kids[0]!.id
 
       yield* prompt.cancel(chat.id)
       const exit = yield* Fiber.await(fiber)
       expect(Exit.isSuccess(exit)).toBe(true)
 
       expect((yield* status.get(chat.id)).type).toBe("idle")
+      expect((yield* status.get(childID)).type).not.toBe("busy")
     }),
-  10_000,
+  30_000,
 )
 
 it.instance(

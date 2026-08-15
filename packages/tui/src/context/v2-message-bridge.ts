@@ -341,6 +341,8 @@ export function sessionMessageToLegacy(
   if (message.type === "assistant") {
     const tokens = message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
     const completed = message.time.completed === undefined ? undefined : ts(message.time.completed)
+    const firstRaw = (message.time as { first?: unknown }).first
+    const first = firstRaw === undefined ? undefined : ts(firstRaw)
     const info: AssistantMessage = {
       id: message.id,
       sessionID,
@@ -361,8 +363,9 @@ export function sessionMessageToLegacy(
       },
       time: {
         created,
+        ...(first === undefined || first <= created ? {} : { first }),
         ...(completed === undefined ? {} : { completed }),
-      },
+      } as AssistantMessage["time"],
       ...(message.finish === undefined ? {} : { finish: message.finish }),
       ...(message.model.variant === undefined ? {} : { variant: message.model.variant }),
       ...(message.error === undefined

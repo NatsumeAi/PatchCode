@@ -5,6 +5,7 @@ import { useTheme } from "../../context/theme"
 import { SplitBorder } from "../../ui/border"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
+import { formatSessionUsageLine, firstTokenAt } from "../../util/session-usage"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useCommandShortcut, useOpencodeKeymap } from "../../keymap"
 
@@ -35,23 +36,15 @@ export function SubagentFooter() {
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return
 
-    const tokens =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
-    if (tokens <= 0) return
-
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
-    const cost = session()?.cost ?? 0
-
-    const money = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
+    return formatSessionUsageLine({
+      tokens: last.tokens,
+      contextLimit: model?.limit.context,
+      cost: session()?.cost ?? 0,
+      created: last.time.created,
+      completed: last.time.completed,
+      firstTokenAt: firstTokenAt(last, sync.data.part[last.id] ?? []),
     })
-
-    return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
-      cost: cost > 0 ? money.format(cost) : undefined,
-    }
   })
 
   const { theme } = useTheme()
@@ -86,9 +79,9 @@ export function SubagentFooter() {
               </text>
             </Show>
             <Show when={usage()}>
-              {(item) => (
+              {(line) => (
                 <text fg={theme.textMuted} wrapMode="none">
-                  {[item().context, item().cost].filter(Boolean).join(" · ")}
+                  {line()}
                 </text>
               )}
             </Show>

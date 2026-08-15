@@ -52,8 +52,8 @@ export const make = (
   options?: { windowMs?: number; cooldownMs?: number; enabled?: boolean },
 ): Effect.Effect<Interface> =>
   Effect.gen(function* () {
-    // Default off: production construction stays a no-op unless explicitly enabled
-    // (plan: do not change existing drain behavior). Tests pass { enabled: true }.
+    // Default off for bare `make()` / `CircuitBreaker.node` (legacy ambient).
+    // Production SessionRuntime.makeInstance passes `{ enabled: true }`.
     const enabled = options?.enabled === true
     const windowMs = options?.windowMs ?? DEFAULT_WINDOW_MS
     const cooldownMs = options?.cooldownMs ?? DEFAULT_COOLDOWN_MS

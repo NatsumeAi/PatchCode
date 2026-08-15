@@ -12,7 +12,7 @@ import { InstanceStore } from "@/project/instance-store"
 type Body<A, E, R> = Effect.Effect<A, E, R> | (() => Effect.Effect<A, E, R>)
 type InstanceOptions<E, R> = {
   git?: boolean
-  config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>)
+  config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
   init?: (directory: string) => Effect.Effect<void, E, R>
 }
 

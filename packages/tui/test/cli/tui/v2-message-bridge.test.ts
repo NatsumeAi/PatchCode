@@ -43,12 +43,12 @@ test("assistant step maps parent + model", () => {
 })
 
 test("sessionMessageToLegacy converts assistant content parts", () => {
-  const message: SessionMessage = {
+  const message = {
     id: "msg_a",
     type: "assistant",
     agent: "build",
     model: { id: "m", providerID: "p" },
-    time: { created: 1, completed: 2 },
+    time: { created: 1, first: 250, completed: 2 },
     finish: "stop",
     cost: 0,
     tokens: { input: 1, output: 2, reasoning: 3, cache: { read: 0, write: 0 } },
@@ -56,13 +56,14 @@ test("sessionMessageToLegacy converts assistant content parts", () => {
       { type: "reasoning", id: "r0", text: "think" },
       { type: "text", id: "t0", text: "DSV4-OK" },
     ],
-  }
+  } as SessionMessage
   const legacy = sessionMessageToLegacy("ses_1", message, sessionMeta(undefined), "msg_u")
   expect(legacy).toBeDefined()
   expect(legacy!.info.role).toBe("assistant")
   if (legacy!.info.role === "assistant") {
     expect(legacy!.info.parentID).toBe("msg_u")
     expect(legacy!.info.time.completed).toBe(2)
+    expect((legacy!.info.time as { first?: number }).first).toBe(250)
   }
   expect(legacy!.parts.map((p) => p.type)).toEqual(["reasoning", "text"])
   expect(legacy!.parts.find((p) => p.type === "text")?.text).toBe("DSV4-OK")

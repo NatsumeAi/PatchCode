@@ -639,10 +639,45 @@ namespace TestLLMServer {
   }
 }
 
+function bypassProxyForLocalhost() {
+  const extra = ["127.0.0.1", "localhost", "::1", "[::1]"]
+  for (const key of ["NO_PROXY", "no_proxy"] as const) {
+    const current = process.env[key]
+    const parts = current ? current.split(",").map((item) => item.trim()).filter(Boolean) : []
+    const next = [...parts]
+    for (const host of extra) {
+      if (!next.includes(host)) next.push(host)
+    }
+    process.env[key] = next.join(",")
+  }
+  const original = globalThis.fetch as typeof fetch & { __opencodeLoopback?: boolean }
+  if (original.__opencodeLoopback) return
+  const loopback = /^(https?:\/\/)(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i
+  const wrapped = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const href =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input instanceof Request
+            ? input.url
+            : ""
+    if (href && loopback.test(href)) {
+      return original(input, { ...(init ?? {}), proxy: "" } as RequestInit)
+    }
+    return original(input, init)
+  }) as typeof fetch & { __opencodeLoopback?: boolean }
+  wrapped.__opencodeLoopback = true
+  globalThis.fetch = wrapped
+}
+
+bypassProxyForLocalhost()
+
 export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.Service>()("@test/LLMServer") {
   static readonly layer = Layer.effect(
     TestLLMServer,
     Effect.gen(function* () {
+      bypassProxyForLocalhost()
       const server = yield* HttpServer.HttpServer
       const router = yield* HttpRouter.HttpRouter
 

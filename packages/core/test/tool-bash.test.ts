@@ -99,6 +99,7 @@ const config = Layer.succeed(
   Config.Service,
   Config.Service.of({
     entries: () => Effect.succeed([]),
+    reload: () => Effect.void,
   }),
 )
 

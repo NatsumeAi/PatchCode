@@ -1,6 +1,6 @@
 export * as TimerDaemon from "./timer-daemon"
 
-import { Context, Duration, Effect, Layer, Schedule, SynchronizedRef } from "effect"
+import { Context, Deferred, Duration, Effect, Layer, Schedule, SynchronizedRef } from "effect"
 import { makeGlobalNode } from "../../effect/app-node"
 import { EventBus } from "./event-bus"
 import { WorkerState } from "./worker-state"
@@ -61,12 +61,54 @@ const waitIdleBackupTick = (
     }
   }).pipe(Effect.delay(WAIT_IDLE_BACKUP_INTERVAL), Effect.repeat(spacedSchedule(WAIT_IDLE_BACKUP_INTERVAL)))
 
+const signal = (waiters: SynchronizedRef.SynchronizedRef<Array<Deferred.Deferred<void>>>) =>
+  SynchronizedRef.modify(waiters, (ws) => [ws, [] as Array<Deferred.Deferred<void>>] as const).pipe(
+    Effect.flatMap((pending) =>
+      Effect.forEach(pending, (d) => Deferred.succeed(d, undefined).pipe(Effect.ignore), { discard: true }),
+    ),
+  )
+
+/**
+ * 24h boss ceiling. `/loop timer pause` freezes remaining time (does not merely
+ * delay the fire until unpaused). Resume continues the leftover duration.
+ */
 const loopTimerDuration = (
   eventBus: EventBus.Interface,
   terminal: TerminalController.Interface,
+  paused: SynchronizedRef.SynchronizedRef<boolean>,
+  pauseWaiters: SynchronizedRef.SynchronizedRef<Array<Deferred.Deferred<void>>>,
+  resumeWaiters: SynchronizedRef.SynchronizedRef<Array<Deferred.Deferred<void>>>,
 ) =>
   Effect.gen(function* () {
-    yield* Effect.sleep(LOOP_TIMER_DURATION)
+    let remaining = Duration.toMillis(LOOP_TIMER_DURATION)
+    while (remaining > 0) {
+      if (yield* SynchronizedRef.get(paused)) {
+        const d = yield* Deferred.make<void>()
+        yield* SynchronizedRef.update(resumeWaiters, (ws) => [...ws, d])
+        if (!(yield* SynchronizedRef.get(paused))) {
+          yield* Deferred.succeed(d, undefined).pipe(Effect.ignore)
+        }
+        yield* Deferred.await(d)
+        continue
+      }
+      const t0 = yield* Effect.clockWith((c) => c.currentTimeMillis)
+      const pauseGate = yield* Deferred.make<void>()
+      yield* SynchronizedRef.update(pauseWaiters, (ws) => [...ws, pauseGate])
+      if (yield* SynchronizedRef.get(paused)) {
+        yield* Deferred.succeed(pauseGate, undefined).pipe(Effect.ignore)
+      }
+      const pauseHit = yield* Effect.sleep(Duration.millis(remaining)).pipe(
+        Effect.as("elapsed" as const),
+        Effect.raceFirst(Deferred.await(pauseGate).pipe(Effect.as("paused" as const))),
+      )
+      const t1 = yield* Effect.clockWith((c) => c.currentTimeMillis)
+      const elapsed = Math.max(0, t1 - t0)
+      if (pauseHit === "paused" || (yield* SynchronizedRef.get(paused))) {
+        remaining = Math.max(0, remaining - elapsed)
+        continue
+      }
+      remaining = 0
+    }
     yield* terminal.request("hard_timeout")
     yield* eventBus.publish({ _tag: "LoopTerminated", reason: "loop_timer_reached_24h" })
   })
@@ -85,14 +127,22 @@ export const make = Effect.gen(function* () {
   const eventBus = yield* EventBus.Service
   const terminal = yield* TerminalController.Service
   const paused = yield* SynchronizedRef.make(false)
+  const pauseWaiters = yield* SynchronizedRef.make<Array<Deferred.Deferred<void>>>([])
+  const resumeWaiters = yield* SynchronizedRef.make<Array<Deferred.Deferred<void>>>([])
   const start: Interface["start"] = Effect.gen(function* () {
     yield* heartbeatTick(workerState, eventBus).pipe(Effect.forkScoped)
     yield* stopReminderTick(workerState, eventBus, paused).pipe(Effect.forkScoped)
     yield* waitIdleBackupTick(workerState, eventBus, paused).pipe(Effect.forkScoped)
-    yield* loopTimerDuration(eventBus, terminal).pipe(Effect.forkScoped)
+    yield* loopTimerDuration(eventBus, terminal, paused, pauseWaiters, resumeWaiters).pipe(Effect.forkScoped)
   })
-  const pause: Interface["pause"] = SynchronizedRef.update(paused, () => true)
-  const resume: Interface["resume"] = SynchronizedRef.update(paused, () => false)
+  const pause: Interface["pause"] = Effect.gen(function* () {
+    yield* SynchronizedRef.set(paused, true)
+    yield* signal(pauseWaiters)
+  })
+  const resume: Interface["resume"] = Effect.gen(function* () {
+    yield* SynchronizedRef.set(paused, false)
+    yield* signal(resumeWaiters)
+  })
   const isPaused: Interface["isPaused"] = SynchronizedRef.get(paused)
   return { start, pause, resume, isPaused }
 })

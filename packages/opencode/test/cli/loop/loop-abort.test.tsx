@@ -2,7 +2,7 @@ import { it, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { TerminalController } from "@opencode-ai/core/session/loop-control/terminal-controller"
-import { loopAbortCommand } from "@/cli/cmd/run/loop/loop-abort"
+import { loopCommand } from "@/cli/cmd/run/loop/loop-cmd"
 
 const testLayer = Layer.mergeAll(EventBus.layerForTest, TerminalController.layerForTest)
 
@@ -14,7 +14,7 @@ it("/loop abort 发 AbortRequested event 到 EventBus 并请求 TerminalControll
         if (e._tag === "AbortRequested") received.push(e.source)
       }),
     )
-    const out = yield* loopAbortCommand("")
+    const out = yield* loopCommand("abort")
     expect(out).toContain("abort requested")
     expect(received).toEqual(["user-cli"])
     const snap = yield* TerminalController.snapshot
