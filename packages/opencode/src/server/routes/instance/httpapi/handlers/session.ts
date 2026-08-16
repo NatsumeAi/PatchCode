@@ -1,17 +1,19 @@
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
+import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
 import { BackgroundJob } from "@/background/job"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
-import { MessageV2 } from "@/session/message-v2"
+import { MessageV2 } from "@/session/session-message-wire"
+import { McpAttachments } from "@/session/mcp-attachments"
+import { MCP } from "@/mcp"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
@@ -30,6 +32,15 @@ import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Hooks } from "@opencode-ai/core/hooks"
+import { ConfigMarkdown } from "@opencode-ai/core/config/markdown"
+import { Shell } from "@opencode-ai/core/shell"
+import { PluginHooks } from "@opencode-ai/core/plugin-hooks"
+import { Process } from "@/util/process"
+import { Agent } from "@/agent/agent"
+import { homedir } from "os"
+import { existsSync } from "fs"
+import path from "path"
+import { pathToFileURL } from "url"
 import {
   CommandPayload,
   DiffQuery,
@@ -327,6 +338,17 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
         template = template + "\n\n" + input.arguments
       }
+      const shellMatches = ConfigMarkdown.shell(template)
+      if (shellMatches.length > 0) {
+        const sh = Shell.preferred()
+        const results = yield* Effect.promise(() =>
+          Promise.all(
+            shellMatches.map(async ([, cmd]) => (await Process.text([cmd ?? ""], { shell: sh, nothrow: true })).text),
+          ),
+        )
+        let index = 0
+        template = template.replace(ConfigMarkdown.SHELL_REGEX, () => results[index++] ?? "")
+      }
       return template.trim()
     })
 
@@ -452,32 +474,55 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const toV2Prompt = (payload: typeof PromptPayload.Type) =>
       Effect.gen(function* () {
+        const mcp = yield* Effect.serviceOption(MCP.Service)
         const parts = payload.parts ?? []
-        const textParts = parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
-        const files = parts.flatMap((part) =>
-          part.type === "file"
-            ? [{ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }]
-            : [],
-        )
-        const agentParts = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
-        const mapped = parts.flatMap((part) => {
-          if (part.type === "text") return [{ type: "text" as const, text: part.text }]
-          if (part.type === "file") {
-            return [{ type: "file" as const, uri: part.url, mime: part.mime, name: part.filename, source: part.source }]
+        const extraText: string[] = []
+        const extraFiles: Array<{ uri: string; name?: string; mime?: string }> = []
+        const mapped: NonNullable<PromptInput.Prompt["parts"]> = []
+        for (const part of parts) {
+          if (part.type === "text") {
+            mapped.push({ type: "text", text: part.text })
+            continue
           }
-          if (part.type === "agent") return [{ type: "agent" as const, name: part.name, source: part.source }]
+          if (part.type === "file") {
+            if (part.source?.type === "resource" && mcp._tag === "Some") {
+              const uri = part.source.uri
+              const exit = yield* mcp.value.readResource(part.source.clientName, uri).pipe(Effect.exit)
+              if (exit._tag === "Success" && exit.value) {
+                const expanded = McpAttachments.expand(uri, exit.value.contents)
+                extraText.push(...expanded.text)
+                for (const file of expanded.attachments) {
+                  extraFiles.push({ uri: file.url, name: file.filename, mime: file.mime })
+                  mapped.push({ type: "file", uri: file.url, mime: file.mime, name: file.filename })
+                }
+                continue
+              }
+            }
+            extraFiles.push({ uri: part.url, ...(part.filename ? { name: part.filename } : {}), mime: part.mime })
+            mapped.push({ type: "file", uri: part.url, mime: part.mime, name: part.filename, source: part.source })
+            continue
+          }
+          if (part.type === "agent") {
+            mapped.push({ type: "agent", name: part.name, source: part.source })
+            continue
+          }
           if (part.type === "subtask") {
-            return [{
-              type: "subtask" as const,
+            mapped.push({
+              type: "subtask",
               prompt: part.prompt,
               description: part.description,
               agent: part.agent,
               command: part.command,
               model: part.model,
-            }]
+            })
           }
-          return []
-        })
+        }
+        const textParts = [
+          ...parts.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+          ...extraText,
+        ]
+        const files = extraFiles.map((file) => ({ uri: file.uri, ...(file.name ? { name: file.name } : {}) }))
+        const agentParts = parts.flatMap((part) => (part.type === "agent" ? [{ name: part.name }] : []))
         return {
           text: textParts.filter(Boolean).join("\n"),
           ...(files.length > 0 ? { files } : {}),
@@ -554,6 +599,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
             ...(id ? { id } : {}),
             prompt: built,
             delivery,
+            ...(payload.format ? { format: payload.format } : {}),
             // noReply: admit + project user message, do not wake agent / run LLM
             ...(noReply ? { resume: false, projectUser: true } : {}),
           })
@@ -677,11 +723,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         return { info, parts: [part] }
       }
       // One path for slash commands: expand template → same prompt/drain entry as chat.
-      const text = yield* expandCommandTemplate({
+      const cmd = yield* commandSvc.get(ctx.payload.command)
+      let text = yield* expandCommandTemplate({
         command: ctx.payload.command,
         arguments: ctx.payload.arguments ?? "",
       })
-      if (text === undefined) {
+      if (text === undefined || !cmd) {
         yield* events.publish(Session.Event.Error, {
           sessionID: ctx.params.sessionID,
           error: new NamedError.Unknown({
@@ -689,6 +736,53 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           }).toObject(),
         })
         return yield* new HttpApiError.BadRequest({})
+      }
+      const files = ConfigMarkdown.files(text)
+      const extraFiles: Array<{ type: "file"; uri: string; name: string; mime: string }> = []
+      const extraAgents: Array<{ type: "agent"; name: string }> = []
+      const seen = new Set<string>()
+      const agents = yield* Effect.serviceOption(Agent.Service)
+      for (const match of files) {
+        const name = match[1]
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        const filepath = name.startsWith("~/") ? path.join(homedir(), name.slice(2)) : path.resolve(name)
+        if (!existsSync(filepath)) {
+          if (Option.isSome(agents)) {
+            const found = yield* agents.value.get(name).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (found) extraAgents.push({ type: "agent", name: found.name })
+          }
+          continue
+        }
+        extraFiles.push({
+          type: "file",
+          uri: pathToFileURL(filepath).href,
+          name,
+          mime: "text/plain",
+        })
+      }
+      const agentName = ctx.payload.agent ?? cmd.agent
+      const agentInfo =
+        Option.isSome(agents) && agentName ? yield* agents.value.get(agentName).pipe(Effect.catch(() => Effect.succeed(undefined))) : undefined
+      if (agentName && !agentInfo && Option.isSome(agents)) {
+        const available = (yield* agents.value.list()).filter((item) => !item.hidden).map((item) => item.name)
+        const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+        yield* events.publish(Session.Event.Error, {
+          sessionID: ctx.params.sessionID,
+          error: new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` }).toObject(),
+        })
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const isSubtask = (agentInfo?.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
+      const commandHook = yield* Effect.serviceOption(PluginHooks.CommandService)
+      if (Option.isSome(commandHook)) {
+        const hooked = yield* commandHook.value.beforeExecute({
+          command: ctx.payload.command,
+          sessionID: ctx.params.sessionID,
+          arguments: ctx.payload.arguments ?? "",
+          text,
+        })
+        text = hooked.text
       }
       const model =
         ctx.payload.model === undefined
@@ -698,6 +792,24 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               const modelID = rest.join("/")
               return providerID && modelID ? { providerID: providerID as never, modelID: modelID as never } : undefined
             })()
+      const prompt = isSubtask
+        ? {
+            text,
+            parts: [
+              {
+                type: "subtask" as const,
+                agent: agentInfo?.name ?? agentName ?? "build",
+                description: cmd.description ?? "",
+                command: ctx.payload.command,
+                prompt: text,
+              },
+            ],
+          }
+        : {
+            text,
+            files: extraFiles.map((file) => ({ uri: file.uri, mime: file.mime, name: file.name })),
+            agents: extraAgents.map((agent) => ({ name: agent.name })),
+          }
       yield* switchTo(ctx.params.sessionID, {
         ...(ctx.payload.messageID ? { messageID: ctx.payload.messageID } : {}),
         ...(ctx.payload.agent ? { agent: ctx.payload.agent } : {}),
@@ -718,7 +830,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           .prompt({
             sessionID: ctx.params.sessionID,
             ...(id ? { id } : {}),
-            prompt: { text },
+            prompt,
             delivery,
           })
           .pipe(

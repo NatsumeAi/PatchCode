@@ -1,5 +1,6 @@
 export * as LinuxBwrap from "./linux-bwrap"
 
+import fs from "node:fs"
 import type { ResolvedProfile } from "./profile"
 
 export type SpawnClass = "workspace-child" | "integration-child"
@@ -27,6 +28,9 @@ export function buildLinuxWrap(input: LinuxWrapInput): WrappedArgv {
 
   if (input.profile.name === "strict" || !input.profile.defaultRead) {
     for (const root of input.profile.readRoots) {
+      // --dev/--proc already own these mounts; a second ro-bind makes bwrap exit 1.
+      if (root === "/dev" || root === "/proc") continue
+      if (!fs.existsSync(root)) continue
       args.push("--ro-bind", root, root)
     }
     // Fresh /tmp, then writable binds so Global.Path.tmp under /tmp stays reachable.
@@ -36,6 +40,7 @@ export function buildLinuxWrap(input: LinuxWrapInput): WrappedArgv {
   }
 
   for (const root of input.profile.writeRoots) {
+    if (!fs.existsSync(root)) continue
     args.push("--bind", root, root)
   }
   for (const file of input.deniedFiles) {

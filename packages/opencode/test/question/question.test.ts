@@ -9,7 +9,7 @@ import { disposeAllInstances, provideInstance, testInstanceStoreLayer, tmpdirSco
 import { SessionID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { EventV2Bridge } from "../../src/event-bridge"
 
 const questionLayer = LayerNode.compile(LayerNode.group([Question.node, EventV2Bridge.node, CrossSpawnSpawner.node]))
 const it = testEffect(questionLayer)

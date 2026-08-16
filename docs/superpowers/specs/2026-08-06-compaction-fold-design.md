@@ -39,7 +39,7 @@ Compaction summaries are long. After compaction, the summary text is projected a
 - No summary preview in the collapsed divider.
 - No persistent KV preference for compaction expansion.
 - No distinction between `auto` and `manual` compaction reasons; both default collapsed.
-- No changes to `packages/tui/src/context/data.tsx`, `packages/tui/src/context/sync.tsx`, or `packages/tui/src/context/v2-message-bridge.ts`.
+- No changes to `packages/tui/src/context/data.tsx`, `packages/tui/src/context/sync.tsx`, or `packages/tui/src/context/session-message-bridge.ts`.
 - No changes to session-display kernel code, SDK schemas, message storage, or execution logic.
 - No change to the existing navigation commands or their message filtering rules.
 
@@ -50,7 +50,7 @@ Relevant current implementation at review baseline `f9b76bd7c8`:
 - **Current Session route data path:** `packages/tui/src/routes/session/index.tsx` renders from `useSync()` (`sync.data.message` and `sync.data.part`). The V2 `useData()` store in `packages/tui/src/context/data.tsx` is a separate event-reducer path and is not itself the `UserMessage` render source.
 - **Current compaction projection paths:**
   - `packages/tui/src/context/sync.tsx:1386-1417` handles the live `session.next.compaction.ended` event by adding a legacy-shaped user message, text part, and compaction part, then rehydrates the transcript.
-  - `packages/tui/src/context/v2-message-bridge.ts:315-339` converts a durable V2 `SessionMessageCompaction` into the legacy-shaped user message, text part, and compaction part during rehydration.
+  - `packages/tui/src/context/session-message-bridge.ts:315-339` converts a durable V2 `SessionMessageCompaction` into the legacy-shaped user message, text part, and compaction part during rehydration.
   - `packages/tui/src/context/data.tsx:380-389` independently stores a V2 `SessionMessageCompaction`; it is related context but is not the same `UserMessage + Part` render path.
 - **Current `UserMessage` rendering** (`index.tsx:1577-1683`):
   - `text()` collects non-synthetic text parts.
@@ -177,7 +177,7 @@ The existing bridge tests remain useful for verifying that the input shape is un
 | # | Claim | Required evidence |
 |---|---|---|
 | S1 | Non-compaction user messages preserve visible and interactive behavior | The non-compaction branch is unchanged; tests cover text, file metadata, timestamps/queued state, body click, and no compaction anchor. |
-| S2 | Compaction projection and storage are untouched | No diff in `data.tsx`, `sync.tsx`, `v2-message-bridge.ts`, SDK types, or core/session code. |
+| S2 | Compaction projection and storage are untouched | No diff in `data.tsx`, `sync.tsx`, `session-message-bridge.ts`, SDK types, or core/session code. |
 | S3 | Message navigation remains valid | One stable `message.id` anchor is mounted in both states; tests cover last-user-message, next/previous, timeline, and fork navigation lookup. |
 | S4 | Message actions remain valid | The action target passes the same session/message ids to `DialogMessage`; action click and fold click are separate event boundaries, and action press-release/mouseout behavior is tested independently. |
 | S5 | Fold state cannot affect unrelated tool/reasoning grouping | Compaction uses local component state and never calls the global pin-store writers; assistant verb-group output remains unchanged in tests. |
@@ -211,7 +211,7 @@ Run from `packages/tui`:
 bun typecheck
 bun test test/display/compaction-entry.test.tsx test/routes/session/compaction-navigation.test.tsx
 bun test test/display/press-release.test.ts
-bun test test/cli/tui/v2-message-bridge.test.ts test/cli/cmd/tui/sync-v2-bridge.test.tsx
+bun test test/cli/tui/session-message-bridge.test.ts test/cli/cmd/tui/sync-v2-bridge.test.tsx
 bun test --timeout 30000
 ```
 

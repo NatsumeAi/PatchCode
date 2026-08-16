@@ -1,1 +1,1 @@
-export * from "./v1/legacy-event"
+export * from "./legacy/legacy-event"

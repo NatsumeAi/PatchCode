@@ -4,7 +4,7 @@ import { EventManifest } from "../src/event-manifest"
 import { IdeEvent } from "../src/ide-event"
 import { SessionEvent } from "../src/session-event"
 import { SessionTodo } from "../src/session-todo"
-import { SessionV1 } from "../src/session-v1"
+import { SessionV1 } from "../src/session-legacy"
 import { WorkspaceEvent } from "../src/workspace-event"
 
 describe("public event manifest", () => {

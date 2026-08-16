@@ -2,6 +2,7 @@ import { castDraft, produce, type WritableDraft } from "immer"
 import { Effect } from "effect"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
+import { StructuredOutput } from "../tool/structured-output"
 
 export type MemoryState = {
   messages: SessionMessage.Message[]
@@ -241,6 +242,11 @@ export function update(adapter: Adapter, event: SessionEvent.Event) {
               end: event.data.snapshot,
               files: event.data.files ? Array.from(event.data.files) : undefined,
             }
+          const captured = StructuredOutput.peek(event.data.sessionID)
+          if (captured !== undefined && captured !== null && typeof captured === "object" && !Array.isArray(captured)) {
+            draft.structured = captured as Record<string, unknown>
+            StructuredOutput.take(event.data.sessionID)
+          }
         })
       },
       "session.next.step.failed": (event) => {

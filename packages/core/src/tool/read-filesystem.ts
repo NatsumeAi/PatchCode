@@ -184,7 +184,7 @@ export const read = Effect.fn("ReadTool.read")(function* (
         yield* file.readAlloc(Math.min(64 * 1024, Number(info.size) || 4 * 1024)),
         () => new Uint8Array(),
       )
-      const mime = imageMime(first)
+      const mime = imageMime(first) ?? (startsWith(first, [0x25, 0x50, 0x44, 0x46]) ? "application/pdf" : undefined)
       if (mime) {
         if (info.size > MAX_MEDIA_INGEST_BYTES)
           return yield* Effect.fail(new MediaIngestLimitError({ resource, maximumBytes: MAX_MEDIA_INGEST_BYTES }))
@@ -209,7 +209,7 @@ export const read = Effect.fn("ReadTool.read")(function* (
           mime,
         }
       }
-      if (startsWith(first, [0x25, 0x50, 0x44, 0x46]) || extensions.has(path.extname(resource).toLowerCase()))
+      if (extensions.has(path.extname(resource).toLowerCase()))
         return yield* Effect.fail(new BinaryFileError({ resource }))
       const paged = info.size > MAX_READ_BYTES || page.offset !== undefined || page.limit !== undefined
       if (!paged) {

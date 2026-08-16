@@ -1,6 +1,6 @@
 /**
  * Coerce event / part timestamps (epoch ms | seconds | ISO | DateTime-like) to epoch ms.
- * Shared by sync bridge, part-order, and v2-message-bridge so ordering stays consistent.
+ * Shared by sync bridge, part-order, and session-message-bridge so ordering stays consistent.
  */
 export function toEpochMs(value: unknown): number | null {
   if (value == null) return null

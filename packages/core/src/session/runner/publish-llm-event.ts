@@ -15,6 +15,19 @@ type Input = {
 
 const safe = (value: number | undefined) => Math.max(0, Number.isFinite(value) ? (value ?? 0) : 0)
 
+/** Official leftover AI SDK copilot_usage.total_nano_aiu. */
+export const copilotTotalNanoAiu = (value: unknown) => {
+  if (!value || typeof value !== "object") return
+  const raw = value as Record<string, unknown>
+  const response =
+    raw.response && typeof raw.response === "object" ? (raw.response as Record<string, unknown>) : undefined
+  const usage = raw.copilot_usage ?? response?.copilot_usage
+  if (!usage || typeof usage !== "object") return
+  const total = (usage as Record<string, unknown>).total_nano_aiu
+  if (typeof total !== "number" || !Number.isFinite(total) || total < 0) return
+  return total
+}
+
 const tokens = (usage: Usage | undefined) => {
   const reasoning = safe(usage?.reasoningTokens)
   const read = safe(usage?.cacheReadInputTokens)
@@ -81,7 +94,14 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   let assistantFailed = false
   let providerFailed = false
   let assistantText = ""
-  let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
+  let stepSettlement:
+    | {
+        readonly finish: string
+        readonly tokens: ReturnType<typeof tokens>
+        readonly copilotNanoAiu?: number
+      }
+    | undefined
+  let copilotNanoAiu: number | undefined
   let sawOutput = false
 
   const startAssistant = Effect.fnUntraced(function* () {
@@ -119,6 +139,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         current.push(value)
         return Effect.void
       })
+    const replace = (id: string, value: string) =>
+      Effect.suspend(() => {
+        if (!chunks.has(id)) return Effect.die(`${name} replace before start: ${id}`)
+        chunks.set(id, [value])
+        return Effect.void
+      })
     const end = Effect.fnUntraced(function* (id: string, providerMetadata?: ProviderMetadata) {
       const current = chunks.get(id)
       if (!current) return yield* Effect.die(`${name} end before start: ${id}`)
@@ -128,7 +154,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     const flush = Effect.fnUntraced(function* () {
       for (const id of chunks.keys()) yield* end(id)
     })
-    return { start, append, end, flush }
+    return { start, append, replace, end, flush }
   }
 
   const text = fragments("text", (textID, value) =>
@@ -255,6 +281,9 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     event: LLMEvent,
     outputPaths: ReadonlyArray<string> = [],
   ) {
+    if ("providerMetadata" in event) {
+      copilotNanoAiu = copilotTotalNanoAiu(event.providerMetadata) ?? copilotNanoAiu
+    }
     switch (event.type) {
       case "step-start":
         return
@@ -414,7 +443,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         yield* flush()
         assistantActive = false
         if (stepSettlement) return yield* Effect.die("Duplicate step finish")
-        stepSettlement = { finish: event.reason, tokens: tokens(event.usage) }
+        copilotNanoAiu = copilotTotalNanoAiu(event.usage) ?? copilotTotalNanoAiu(event.providerMetadata) ?? copilotNanoAiu
+        stepSettlement = {
+          finish: event.reason,
+          tokens: tokens(event.usage),
+          ...(copilotNanoAiu === undefined ? {} : { copilotNanoAiu }),
+        }
         return
       case "finish":
         return
@@ -427,6 +461,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
 
   return {
     publish,
+    rewriteText: (id: string, value: string) => text.replace(id, value),
     flush,
     failAssistant,
     failUnsettledTools,

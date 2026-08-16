@@ -1,4 +1,4 @@
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import type { Agent } from "./agent"
 import { Permission } from "../permission"
 

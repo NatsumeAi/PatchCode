@@ -1,7 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionID } from "./schema"
 import { Effect, Layer, Context } from "effect"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 
 export const Info = SessionStatusEvent.Info

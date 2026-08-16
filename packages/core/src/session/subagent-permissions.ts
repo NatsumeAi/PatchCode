@@ -1,7 +1,7 @@
 export * as SubagentPermissions from "./subagent-permissions"
 
 import { Permission } from "@opencode-ai/schema/permission"
-import { PermissionV1 } from "@opencode-ai/schema/permission-v1"
+import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
 import { AgentV2 } from "../agent"
 import { Wildcard } from "../util/wildcard"
 

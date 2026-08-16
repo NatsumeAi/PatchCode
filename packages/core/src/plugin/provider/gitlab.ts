@@ -1,8 +1,9 @@
 import os from "os"
 import { InstallationVersion } from "../../installation/version"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { define } from "../internal"
 import { ProviderV2 } from "../../provider"
+import { GitLabWorkflow } from "../../session/gitlab-workflow"
 
 export const GitLabPlugin = define({
   id: "gitlab",
@@ -52,6 +53,24 @@ export const GitLabPlugin = define({
             },
           )
           if (workflowRef) language.selectedModelRef = workflowRef
+          const slotted = GitLabWorkflow.current()
+          const hosted = yield* Effect.serviceOption(GitLabWorkflow.HostService)
+          const host = slotted ?? (Option.isSome(hosted) ? hosted.value : undefined)
+          if (host) {
+            const workflow = language as typeof language & {
+              sessionID?: string
+              systemPrompt?: string
+              sessionPreapprovedTools?: string[]
+              toolExecutor?: (toolName: string, argsJson: string, requestID: string) => Promise<unknown>
+              approvalHandler?: (approvalTools: { name: string; args: string }[]) => Promise<{ approved: boolean }>
+            }
+            workflow.sessionID = host.sessionID
+            workflow.systemPrompt = host.systemPrompt
+            workflow.sessionPreapprovedTools = [...host.sessionPreapprovedTools]
+            workflow.toolExecutor = (toolName, argsJson, requestID) =>
+              host.runPromise(host.toolExecutor(toolName, argsJson, requestID))
+            workflow.approvalHandler = (approvalTools) => host.runPromise(host.approvalHandler(approvalTools))
+          }
           evt.language = language
           return
         }

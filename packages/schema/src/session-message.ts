@@ -185,6 +185,7 @@ export const Assistant = Schema.Struct({
     cache: Schema.Struct({ read: Schema.Finite, write: Schema.Finite }),
   }).pipe(optional),
   error: UnknownError.pipe(optional),
+  structured: Schema.Record(Schema.String, Schema.Unknown).pipe(optional),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
     /** First model output (text, reasoning, or tool call) after the step started. */

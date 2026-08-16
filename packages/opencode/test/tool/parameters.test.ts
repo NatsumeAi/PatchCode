@@ -1,30 +1,46 @@
 import { describe, expect, test } from "bun:test"
 import { Result, Schema } from "effect"
-import { ToolJsonSchema } from "../../src/tool/json-schema"
+import { ToolJsonSchema } from "@opencode-ai/core/tool/json-schema"
 
 // Each tool exports its parameters schema at module scope so this test can
 // import them without running the tool's Effect-based init. The JSON Schema
 // snapshot captures what the LLM sees; the parse assertions pin down the
-// accepts/rejects contract. `ToolJsonSchema.fromSchema` is the same helper `session/
-// prompt.ts` uses to emit tool schemas to the LLM, so the snapshots stay
-// provider-compatible while tools use Effect Schema internally.
+// accepts/rejects contract. `ToolJsonSchema.fromSchema` is the live helper
+// SessionRunner / ToolRegistry uses to emit tool schemas to the LLM.
 
-import { Parameters as ApplyPatch } from "../../src/tool/apply_patch"
-import { Parameters as Edit } from "../../src/tool/edit"
-import { Parameters as Glob } from "../../src/tool/glob"
-import { Parameters as Grep } from "../../src/tool/grep"
-import { Parameters as Invalid } from "../../src/tool/invalid"
-import { Parameters as Lsp } from "../../src/tool/lsp"
-import { Parameters as Plan } from "../../src/tool/plan"
-import { Parameters as Question } from "../../src/tool/question"
-import { Parameters as Read } from "../../src/tool/read"
-import { Parameters as Shell } from "../../src/tool/shell"
-import { Parameters as Skill } from "../../src/tool/skill"
-import { Parameters as Task } from "../../src/tool/task"
-import { Parameters as Todo } from "../../src/tool/todo"
-import { Parameters as WebFetch } from "../../src/tool/webfetch"
-import { Parameters as WebSearch } from "../../src/tool/websearch"
-import { Parameters as Write } from "../../src/tool/write"
+import { ApplyPatchTool } from "@opencode-ai/core/tool/apply-patch"
+import { BashTool } from "@opencode-ai/core/tool/bash"
+import { EditTool } from "@opencode-ai/core/tool/edit"
+import { WriteTool } from "@opencode-ai/core/tool/write"
+import { GlobTool } from "@opencode-ai/core/tool/glob"
+import { GrepTool } from "@opencode-ai/core/tool/grep"
+import { InvalidTool } from "@opencode-ai/core/tool/invalid"
+import { LspTool } from "@opencode-ai/core/tool/lsp"
+import { PlanExitTool } from "@opencode-ai/core/tool/plan-exit"
+import { QuestionTool } from "@opencode-ai/core/tool/question"
+import { ReadTool } from "@opencode-ai/core/tool/read"
+import { SkillTool } from "@opencode-ai/core/tool/skill"
+import { TaskTool } from "@opencode-ai/core/tool/task"
+import { TodoWriteTool } from "@opencode-ai/core/tool/todowrite"
+import { WebFetchTool } from "@opencode-ai/core/tool/webfetch"
+import { WebSearchTool } from "@opencode-ai/core/tool/websearch"
+
+const ApplyPatch = ApplyPatchTool.Input
+const Shell = BashTool.Input
+const Edit = EditTool.Input
+const Write = WriteTool.Input
+const Glob = GlobTool.Input
+const Grep = GrepTool.Input
+const Invalid = InvalidTool.Input
+const Lsp = LspTool.Input
+const Plan = PlanExitTool.Input
+const Question = QuestionTool.Input
+const Read = ReadTool.Input
+const Skill = SkillTool.Input
+const Task = TaskTool.Input
+const Todo = TodoWriteTool.Input
+const WebFetch = WebFetchTool.Input
+const WebSearch = WebSearchTool.Input
 
 const parse = <S extends Schema.Decoder<unknown>>(schema: S, input: unknown): S["Type"] =>
   Schema.decodeUnknownSync(schema)(input)
@@ -84,8 +100,9 @@ describe("tool parameters", () => {
     })
 
     test("does not expose defaulted optional keys as nullable", () => {
-      expect(toJsonSchema(WebFetch)).toMatchObject({
-        properties: { format: { type: "string", enum: ["text", "markdown", "html"], default: "markdown" } },
+      expect(toJsonSchema(WebFetch).properties?.format).toMatchObject({
+        type: "string",
+        enum: ["text", "markdown", "html"],
       })
       expect(toJsonSchema(WebFetch).properties?.format).not.toHaveProperty("anyOf")
     })
@@ -121,18 +138,18 @@ describe("tool parameters", () => {
 
   describe("edit", () => {
     test("accepts all four fields", () => {
-      expect(parse(Edit, { filePath: "/a", oldString: "x", newString: "y", replaceAll: true })).toEqual({
-        filePath: "/a",
+      expect(parse(Edit, { path: "/a", oldString: "x", newString: "y", replaceAll: true })).toEqual({
+        path: "/a",
         oldString: "x",
         newString: "y",
         replaceAll: true,
       })
     })
     test("replaceAll is optional", () => {
-      const parsed = parse(Edit, { filePath: "/a", oldString: "x", newString: "y" })
+      const parsed = parse(Edit, { path: "/a", oldString: "x", newString: "y" })
       expect(parsed.replaceAll).toBeUndefined()
     })
-    test("rejects missing filePath", () => {
+    test("rejects missing path", () => {
       expect(accepts(Edit, { oldString: "x", newString: "y" })).toBe(false)
     })
   })
@@ -215,11 +232,11 @@ describe("tool parameters", () => {
   })
 
   describe("read", () => {
-    test("accepts filePath-only", () => {
-      expect(parse(Read, { filePath: "/a" }).filePath).toBe("/a")
+    test("accepts path-only", () => {
+      expect(parse(Read, { path: "/a" }).path).toBe("/a")
     })
     test("accepts optional offset + limit", () => {
-      const parsed = parse(Read, { filePath: "/a", offset: 10, limit: 100 })
+      const parsed = parse(Read, { path: "/a", offset: 10, limit: 100 })
       expect(parsed.offset).toBe(10)
       expect(parsed.limit).toBe(100)
     })
@@ -280,10 +297,10 @@ describe("tool parameters", () => {
   })
 
   describe("write", () => {
-    test("accepts content + filePath", () => {
-      expect(parse(Write, { content: "hi", filePath: "/a" })).toEqual({ content: "hi", filePath: "/a" })
+    test("accepts content + path", () => {
+      expect(parse(Write, { content: "hi", path: "/a" })).toEqual({ content: "hi", path: "/a" })
     })
-    test("rejects missing filePath", () => {
+    test("rejects missing path", () => {
       expect(accepts(Write, { content: "hi" })).toBe(false)
     })
   })

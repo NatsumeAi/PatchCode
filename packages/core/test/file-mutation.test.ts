@@ -478,6 +478,34 @@ describe("FileMutation", () => {
       }),
     ),
   )
+
+  it.live("invokes afterCommit host and attaches diagnostics to write results", () =>
+    withTmp((directory) => {
+      const calls: FileMutation.AfterCommitInput[] = []
+      const effects = Layer.succeed(
+        FileMutation.EffectsService,
+        FileMutation.EffectsService.of({
+          afterCommit: (input) =>
+            Effect.sync(() => {
+              calls.push(input)
+              return { diagnostics: "\n\nLSP errors detected in this file, please fix:\nerr" }
+            }),
+        }),
+      )
+      return Effect.gen(function* () {
+        const target = yield* (yield* LocationMutation.Service).resolve({ path: "hosted.txt" })
+        const result = yield* (yield* FileMutation.Service).write({ target, content: "hello" })
+        expect(result).toEqual({
+          operation: "write",
+          target: target.canonical,
+          resource: "hosted.txt",
+          existed: false,
+          diagnostics: "\n\nLSP errors detected in this file, please fix:\nerr",
+        })
+        expect(calls).toEqual([{ path: target.canonical, existed: false, operation: "write" }])
+      }).pipe(provide(directory), Effect.provide(effects))
+    }),
+  )
 })
 
 function instrumentWrites(run: <E>(write: Effect.Effect<void, E>, target: string) => Effect.Effect<void, E>) {

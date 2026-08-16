@@ -1,8 +1,10 @@
 export * as PromptResolve from "./prompt-resolve"
 
 import { fileURLToPath } from "url"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { FSUtil } from "../fs-util"
+import { Image } from "../image"
+import { LspTool } from "../tool/lsp"
 import type { Prompt } from "./prompt"
 import type { PromptInput } from "@opencode-ai/schema/prompt-input"
 
@@ -15,8 +17,8 @@ const filePathFromUri = (uri: string) => {
   }
 }
 
-const calledRead = (filePath: string) =>
-  `Called the Read tool with the following input: ${JSON.stringify({ filePath })}`
+const calledRead = (input: string | Record<string, unknown>) =>
+  `Called the Read tool with the following input: ${JSON.stringify(typeof input === "string" ? { filePath: input } : input)}`
 
 const failedRead = (filePath: string, error: string) =>
   `Read tool failed to read ${filePath} with the following error: ${error}`
@@ -102,7 +104,9 @@ const expandAgents = (incoming: NonNullable<Prompt["parts"]>) => {
         type: "text",
         synthetic: true,
         text:
-          " Use the above message and context to generate a prompt and call the task tool with subagent: " + part.name,
+          " Use the above message and context to generate a prompt and call the task tool with subagent: " +
+          part.name +
+          " . Invoked by user; guaranteed to exist.",
       })
     }
   }
@@ -136,7 +140,8 @@ export const resolve = Effect.fn("PromptResolve.resolve")(function* (input: Prom
             synthetic: true,
             text:
               " Use the above message and context to generate a prompt and call the task tool with subagent: " +
-              part.name,
+              part.name +
+              " . Invoked by user; guaranteed to exist.",
           })
         }
         continue
@@ -186,11 +191,23 @@ export const resolve = Effect.fn("PromptResolve.resolve")(function* (input: Prom
         parts.push({ type: "text", synthetic: true, text: failedRead(filepath, "file not found") })
         continue
       }
-      parts.push({
-        ...part,
-        mime,
-        uri: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`,
-      })
+      const raw = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`
+      const image = yield* Effect.serviceOption(Image.Service)
+      const uri = Option.isNone(image)
+        ? raw
+        : yield* image.value
+            .normalize(filepath, {
+              uri: raw,
+              encoding: "base64",
+              mime,
+              content: Buffer.from(bytes).toString("base64"),
+            })
+            .pipe(
+              Effect.map((content) => `data:${content.mime};base64,${content.content}`),
+              Effect.catchTag("Image.ResizerUnavailableError", () => Effect.succeed(raw)),
+              Effect.catch(() => Effect.succeed(raw)),
+            )
+      parts.push({ ...part, mime, uri })
       continue
     }
 
@@ -207,7 +224,52 @@ export const resolve = Effect.fn("PromptResolve.resolve")(function* (input: Prom
       parts.push({ type: "text", synthetic: true, text: failedRead(filepath, "file not found") })
       continue
     }
-    parts.push({ type: "text", synthetic: true, text: content })
+    const parsed = (() => {
+      try {
+        return new URL(uri)
+      } catch {
+        return undefined
+      }
+    })()
+    const startParam = parsed?.searchParams.get("start")
+    const endParam = parsed?.searchParams.get("end")
+    let start = startParam == null ? undefined : parseInt(startParam, 10)
+    let end = endParam == null ? undefined : parseInt(endParam, 10)
+    if (start !== undefined && start === end) {
+      const lsp = yield* Effect.serviceOption(LspTool.HostService)
+      if (Option.isSome(lsp)) {
+        const filePathURI = uri.split("?")[0] ?? uri
+        const symbols = yield* lsp.value.documentSymbol(filePathURI).pipe(Effect.catch(() => Effect.succeed([])))
+        for (const symbol of symbols) {
+          const rec = symbol as { range?: { start?: { line?: number }; end?: { line?: number } }; location?: { range?: { start?: { line?: number }; end?: { line?: number } } } }
+          const r = rec.range ?? rec.location?.range
+          if (r?.start?.line !== undefined && r.start.line === start) {
+            start = r.start.line
+            end = r.end?.line ?? start
+            break
+          }
+        }
+      }
+    }
+    const sliced = (() => {
+      if (start == null) return content
+      const lines = content.split("\n")
+      let from = Math.max(start, 1)
+      let to = end ?? lines.length
+      if (!Number.isFinite(from) || from < 1) from = 1
+      if (!Number.isFinite(to) || to < from) to = lines.length
+      return lines.slice(from - 1, to).join("\n")
+    })()
+    const args =
+      start == null
+        ? { filePath: filepath }
+        : {
+            filePath: filepath,
+            offset: start,
+            ...(end ? { limit: end - start + 1 } : {}),
+          }
+    parts[parts.length - 1] = { type: "text", synthetic: true, text: calledRead(args) }
+    parts.push({ type: "text", synthetic: true, text: sliced })
     parts.push({ ...part, mime, uri })
   }
 

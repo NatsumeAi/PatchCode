@@ -13,7 +13,7 @@ import {
   TestInstance,
   tmpdirScoped,
 } from "../fixture/fixture"
-import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { EventV2Bridge } from "../../src/event-bridge"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Git } from "../../src/git"
 import { Vcs } from "@/project/vcs"

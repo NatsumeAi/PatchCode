@@ -1,5 +1,5 @@
 import { it, expect } from "bun:test"
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { deriveSubagentSessionPermission } from "../../src/agent/subagent-permissions"
 import { Permission } from "../../src/permission"
 import type { Agent } from "../../src/agent/agent"

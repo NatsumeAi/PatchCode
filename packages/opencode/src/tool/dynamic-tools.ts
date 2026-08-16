@@ -18,7 +18,7 @@ import type { JSONSchema7 } from "@ai-sdk/provider"
 import { MCP, type McpTool } from "@/mcp"
 import { Plugin } from "@/plugin"
 import { InstanceStore } from "@/project/instance-store"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { EffectBridge } from "@/effect/bridge"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -27,6 +27,7 @@ import { Config } from "@/config/config"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
 import z from "zod"
+import { ZodMetadata } from "@opencode-ai/core/tool/zod-metadata"
 
 function renderMcpInstructions(items: MCP.ServerInstructions[]) {
   const instructions = items.filter((item) => item.instructions.trim().length > 0)
@@ -47,6 +48,15 @@ const mcpInstructionsKey = SystemContext.Key.make("mcp/instructions")
 const DynamicOutput = Schema.Struct({
   title: Schema.String,
   output: Schema.String,
+  attachments: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        mime: Schema.String,
+        data: Schema.String,
+        name: Schema.optional(Schema.String),
+      }),
+    ),
+  ),
 })
 
 function normalizeJsonSchema(schema: unknown): JSONSchema7 {
@@ -66,7 +76,7 @@ function isPluginTool(value: unknown): value is ToolDefinition {
 }
 
 function isZodType(value: unknown): value is z.ZodType {
-  return !!value && typeof value === "object" && "_def" in (value as object)
+  return typeof value === "object" && value !== null && ("_zod" in value || "_def" in value)
 }
 
 function assertPermission(action: string, context: Tool.Context) {
@@ -151,7 +161,7 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
   let inputJsonSchema: JSONSchema7 = { type: "object", properties: {}, additionalProperties: false }
   if (zodParams) {
     try {
-      inputJsonSchema = normalizeJsonSchema(z.toJSONSchema(zodParams, { io: "input" }))
+      inputJsonSchema = normalizeJsonSchema(ZodMetadata.toJsonSchema(zodParams) as JSONSchema7)
     } catch {
       // keep empty object schema
     }
@@ -162,7 +172,15 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
     input: Schema.Unknown,
     inputJsonSchema: inputJsonSchema as JsonSchema.JsonSchema,
     output: DynamicOutput,
-    toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+    toModelOutput: ({ output }) => [
+      { type: "text", text: output.output },
+      ...(output.attachments ?? []).map((item) => ({
+        type: "file" as const,
+        data: item.data,
+        mime: item.mime,
+        name: item.name ?? id,
+      })),
+    ],
     execute: (input, context) =>
       Effect.gen(function* () {
         yield* assertPermission(id, context)
@@ -221,9 +239,21 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
         if (typeof result === "string") {
           return { title: id, output: result }
         }
+        const attachments = result.attachments
+          ?.map((item) => {
+            if (!item || typeof item !== "object") return undefined
+            const mime = "mime" in item && typeof item.mime === "string" ? item.mime : undefined
+            const url = "url" in item && typeof item.url === "string" ? item.url : undefined
+            if (!mime || !url) return undefined
+            const comma = url.indexOf(",")
+            const data = url.startsWith("data:") && comma >= 0 ? url.slice(comma + 1) : url
+            return { mime, data, name: id }
+          })
+          .filter((item): item is { mime: string; data: string; name: string } => item !== undefined)
         return {
           title: result.title ?? id,
           output: result.output,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }
       }),
   })
@@ -318,6 +348,7 @@ const hostLayer = Layer.effect(
               dot: true,
               symlink: true,
             })
+            if (matches.length) yield* config.waitForDependencies()
             for (const match of matches) {
               const namespace = path.basename(match, path.extname(match))
               const mod = yield* Effect.tryPromise({

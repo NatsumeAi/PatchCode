@@ -1,4 +1,4 @@
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { TuiEvent } from "@/server/tui-event"
 import { Session } from "@/session/session"
 import { Effect } from "effect"

@@ -1,4 +1,4 @@
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { GlobalBus } from "@/bus/global"
 import { EventV2 } from "@opencode-ai/core/event"

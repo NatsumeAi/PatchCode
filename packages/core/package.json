@@ -20,6 +20,10 @@
     "./effect/app-node": "./src/effect/app-node.ts",
     "./session/runner": "./src/session/runner/index.ts",
     "./system-context": "./src/system-context/index.ts",
+    "./config/legacy/*": "./src/config/legacy/*.ts",
+    "./session-legacy": "./src/session-legacy.ts",
+    "./permission-legacy": "./src/permission-legacy.ts",
+    "./tool/*": "./src/tool/*.ts",
     "./*": "./src/*.ts"
   },
   "imports": {

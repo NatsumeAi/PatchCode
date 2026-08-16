@@ -9,13 +9,16 @@ export * as ToolHostBridges from "./tool-host-bridges"
 
 import { LspTool } from "@opencode-ai/core/tool/lsp"
 import { TaskTool } from "@opencode-ai/core/tool/task"
+import { BashTool } from "@opencode-ai/core/tool/bash"
+import { ToolRegistry } from "@opencode-ai/core/tool/registry"
+import { PluginHooks } from "@opencode-ai/core/plugin-hooks"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import {
   deriveSubagentPermission,
@@ -50,12 +53,20 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { Prompt } from "@opencode-ai/core/session/prompt"
 import { BackgroundJob } from "@/background/job"
+import { FileMutation } from "@opencode-ai/core/file-mutation"
+import { FileSystem } from "@opencode-ai/core/filesystem"
+import { Watcher } from "@opencode-ai/core/filesystem/watcher"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Format } from "../format"
 import { LSP } from "@/lsp/lsp"
+import * as Bom from "@/util/bom"
+import { EventV2Bridge } from "@/event-bridge"
 import { DateTime, Duration, Effect, Layer, Option, Schedule, Scope, Stream } from "effect"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { DynamicTools } from "./dynamic-tools"
 import { BrowserHostBridge } from "./browser-host"
+import { Plugin } from "@/plugin"
 import path from "path"
 
 /** Subagents cannot spawn further subagents (flat delegation, grok-build parity). */
@@ -85,6 +96,67 @@ export function resolveChildDirectory(input: {
   }
   return resolved
 }
+
+const MAX_PROJECT_DIAGNOSTICS_FILES = 5
+
+const mutationEffectsLayer = Layer.effect(
+  FileMutation.EffectsService,
+  Effect.gen(function* () {
+    const format = yield* Format.Service
+    const events = yield* EventV2Bridge.Service
+    const lsp = yield* LSP.Service
+    const fs = yield* FSUtil.Service
+    return FileMutation.EffectsService.of({
+      afterCommit: Effect.fn("FileMutation.Effects.afterCommit")(function* (input) {
+        if (input.operation === "remove") {
+          yield* events.publish(FileSystem.Event.Edited, { file: input.path })
+          yield* events.publish(Watcher.Event.Updated, { file: input.path, event: "unlink" })
+          return { diagnostics: "" }
+        }
+        if (input.operation === "rename" && input.from) {
+          yield* events.publish(FileSystem.Event.Edited, { file: input.from })
+          yield* events.publish(Watcher.Event.Updated, { file: input.from, event: "unlink" })
+        }
+        const before = yield* fs.readFile(input.path).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        const hadBom = Boolean(
+          before && before[0] === 0xef && before[1] === 0xbb && before[2] === 0xbf,
+        )
+        if (yield* format.file(input.path)) {
+          yield* Bom.syncFile(fs, input.path, hadBom)
+        }
+        yield* events.publish(FileSystem.Event.Edited, { file: input.path })
+        yield* events.publish(Watcher.Event.Updated, {
+          file: input.path,
+          event: input.existed && input.operation !== "rename" ? "change" : "add",
+        })
+        yield* lsp.touchFile(input.path, "document")
+        const diagnostics = yield* lsp.diagnostics()
+        const normalized = FSUtil.normalizePath(input.path)
+        let output = ""
+        let projectDiagnosticsCount = 0
+        for (const [file, issues] of Object.entries(diagnostics)) {
+          const current = file === normalized
+          if (!current && projectDiagnosticsCount >= MAX_PROJECT_DIAGNOSTICS_FILES) continue
+          const block = LSP.Diagnostic.report(current ? input.path : file, issues)
+          if (!block) continue
+          if (current) {
+            output += `\n\nLSP errors detected in this file, please fix:\n${block}`
+            continue
+          }
+          projectDiagnosticsCount++
+          output += `\n\nLSP errors detected in other files:\n${block}`
+        }
+        return { diagnostics: output }
+      }),
+    })
+  }),
+)
+
+export const mutationEffectsNode = makeGlobalNode({
+  service: FileMutation.EffectsService,
+  layer: mutationEffectsLayer,
+  deps: [Format.node, EventV2Bridge.node, LSP.node, FSUtil.node],
+})
 
 const lspHostLayer = Layer.effect(
   LspTool.HostService,
@@ -1070,5 +1142,207 @@ export const taskHostNode = makeGlobalNode({
   ],
 })
 
-/** Merged host bridges for the app layer (LSP, Task, optional Browser, Dynamic MCP/plugin tools). */
-export const node = LayerNode.group([lspHostNode, taskHostNode, DynamicTools.node, ...BrowserHostBridge.nodes])
+const bashHostLayer = Layer.effect(
+  BashTool.HostService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return BashTool.HostService.of({
+      env: Effect.fn("BashTool.host.env")(function* (input) {
+        if (Option.isNone(pluginOpt)) return {}
+        const extra = yield* pluginOpt.value.trigger(
+          "shell.env",
+          { cwd: input.cwd, sessionID: input.sessionID, callID: input.callID },
+          { env: {} as Record<string, string> },
+        )
+        return extra.env
+      }),
+    })
+  }),
+)
+
+export const bashHostNode = makeGlobalNode({
+  service: BashTool.HostService,
+  layer: bashHostLayer,
+  deps: [],
+})
+
+const definitionHookLayer = Layer.effect(
+  ToolRegistry.DefinitionHookService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return ToolRegistry.DefinitionHookService.of({
+      rewrite: Effect.fn("ToolDefinitionHook.rewrite")(function* (input) {
+        const output = {
+          description: input.description,
+          parameters: input.parameters,
+        }
+        if (Option.isNone(pluginOpt)) return output
+        yield* pluginOpt.value.trigger("tool.definition", { toolID: input.toolID }, output)
+        return output
+      }),
+    })
+  }),
+)
+
+export const definitionHookNode = makeGlobalNode({
+  service: ToolRegistry.DefinitionHookService,
+  layer: definitionHookLayer,
+  deps: [],
+})
+
+const chatHookLayer = Layer.effect(
+  PluginHooks.ChatService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return PluginHooks.ChatService.of({
+      transformSystem: Effect.fn("PluginChatHook.transformSystem")(function* (input) {
+        const output = { system: [...input.system] }
+        if (Option.isNone(pluginOpt)) return output
+        yield* pluginOpt.value.trigger(
+          "experimental.chat.system.transform",
+          { sessionID: input.sessionID, model: {} as never },
+          output,
+        )
+        return output
+      }),
+      params: Effect.fn("PluginChatHook.params")(function* (input) {
+        const params = {
+          temperature: undefined as number | undefined,
+          topP: undefined as number | undefined,
+          topK: undefined as number | undefined,
+          maxOutputTokens: undefined as number | undefined,
+          options: {} as Record<string, unknown>,
+        }
+        const headersOut = { headers: {} as Record<string, string> }
+        if (Option.isNone(pluginOpt)) return { ...params, headers: headersOut.headers }
+        const stub = {
+          sessionID: input.sessionID,
+          agent: input.agent,
+          model: {} as never,
+          provider: {} as never,
+          message: {} as never,
+        }
+        yield* pluginOpt.value.trigger("chat.params", stub, params)
+        yield* pluginOpt.value.trigger("chat.headers", stub, headersOut)
+        return { ...params, headers: headersOut.headers }
+      }),
+    })
+  }),
+)
+
+export const chatHookNode = makeGlobalNode({
+  service: PluginHooks.ChatService,
+  layer: chatHookLayer,
+  deps: [],
+})
+
+const commandHookLayer = Layer.effect(
+  PluginHooks.CommandService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return PluginHooks.CommandService.of({
+      beforeExecute: Effect.fn("PluginCommandHook.beforeExecute")(function* (input) {
+        const parts: Array<{ type: string; text?: string }> = [{ type: "text", text: input.text }]
+        if (Option.isSome(pluginOpt)) {
+          yield* pluginOpt.value.trigger(
+            "command.execute.before",
+            { command: input.command, sessionID: input.sessionID, arguments: input.arguments },
+            { parts },
+          )
+        }
+        const text = parts
+          .filter((part) => part.type === "text" && typeof part.text === "string")
+          .map((part) => part.text)
+          .join("\n")
+        return { text: text.trim() || input.text }
+      }),
+    })
+  }),
+)
+
+export const commandHookNode = makeGlobalNode({
+  service: PluginHooks.CommandService,
+  layer: commandHookLayer,
+  deps: [],
+})
+
+const textCompleteHookLayer = Layer.effect(
+  PluginHooks.TextCompleteService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return PluginHooks.TextCompleteService.of({
+      complete: Effect.fn("PluginTextCompleteHook.complete")(function* (input) {
+        const output = { text: input.text }
+        if (Option.isSome(pluginOpt)) {
+          yield* pluginOpt.value.trigger(
+            "experimental.text.complete",
+            { sessionID: input.sessionID, messageID: input.messageID, partID: input.partID },
+            output,
+          )
+        }
+        return output
+      }),
+    })
+  }),
+)
+
+export const textCompleteHookNode = makeGlobalNode({
+  service: PluginHooks.TextCompleteService,
+  layer: textCompleteHookLayer,
+  deps: [],
+})
+
+const compactionHookLayer = Layer.effect(
+  PluginHooks.CompactionService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return PluginHooks.CompactionService.of({
+      compacting: Effect.fn("PluginCompactionHook.compacting")(function* (input) {
+        const output: { context: string[]; prompt?: string } = { context: [], prompt: undefined }
+        if (Option.isSome(pluginOpt)) {
+          yield* pluginOpt.value.trigger("experimental.session.compacting", { sessionID: input.sessionID }, output)
+        }
+        return output
+      }),
+      transformMessages: Effect.fn("PluginCompactionHook.transformMessages")(function* (input) {
+        const output = { messages: input.messages }
+        if (Option.isSome(pluginOpt)) {
+          yield* pluginOpt.value.trigger("experimental.chat.messages.transform", {}, output)
+        }
+        return output
+      }),
+      autocontinue: Effect.fn("PluginCompactionHook.autocontinue")(function* (input) {
+        const output = { enabled: true }
+        if (Option.isSome(pluginOpt)) {
+          yield* pluginOpt.value.trigger(
+            "experimental.compaction.autocontinue",
+            { sessionID: input.sessionID, agent: input.agent, overflow: input.overflow },
+            output,
+          )
+        }
+        return output
+      }),
+    })
+  }),
+)
+
+export const compactionHookNode = makeGlobalNode({
+  service: PluginHooks.CompactionService,
+  layer: compactionHookLayer,
+  deps: [],
+})
+
+/** Merged host bridges for the app layer (LSP, Task, bash env, optional Browser, Dynamic MCP/plugin tools). */
+export const node = LayerNode.group([
+  mutationEffectsNode,
+  lspHostNode,
+  taskHostNode,
+  bashHostNode,
+  definitionHookNode,
+  chatHookNode,
+  commandHookNode,
+  textCompleteHookNode,
+  compactionHookNode,
+  DynamicTools.node,
+  ...BrowserHostBridge.nodes,
+])

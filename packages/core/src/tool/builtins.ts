@@ -10,6 +10,7 @@ import { EditTool } from "./edit"
 import { ExecuteTool } from "./execute"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { InvalidTool } from "./invalid"
 import { ListDirTool } from "./list-dir"
 import { LspTool } from "./lsp"
 import { PlanEnterTool } from "./plan-enter"
@@ -57,6 +58,7 @@ export const node = makeLocationNode({
     ExecuteTool.node,
     GlobTool.node,
     GrepTool.node,
+    InvalidTool.node,
     ListDirTool.node,
     WorktreeTool.node,
     LspTool.node,

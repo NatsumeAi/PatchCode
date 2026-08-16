@@ -6,6 +6,7 @@ import { CommandV2 } from "./command"
 import { Config } from "./config"
 import { LayerNode } from "./effect/layer-node"
 import { Node } from "./effect/app-node"
+import { llmClient } from "./effect/app-node-platform"
 import { FileMutation } from "./file-mutation"
 import { FileSystem } from "./filesystem"
 import { FileSystemSearch } from "./filesystem/search"
@@ -44,6 +45,7 @@ import { BuiltInTools } from "./tool/builtins"
 import { DynamicTools } from "./tool/dynamic"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { TaskTool } from "./tool/task"
+import { BashTool } from "./tool/bash"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
 
@@ -94,9 +96,11 @@ export const locationServices = LayerNode.group([
   // After built-ins so dynamic MCP/plugin tools overlay cleanly.
   DynamicTools.node,
   TaskTool.hostNode,
+  BashTool.hostNode,
   SessionRunnerModel.node,
   Snapshot.node,
   SessionRunnerLLM.node,
+  llmClient,
 ])
 
 export type LocationServices = LayerNode.Output<typeof locationServices>

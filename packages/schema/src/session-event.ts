@@ -240,6 +240,7 @@ export namespace Step {
       }),
       snapshot: Schema.String.pipe(optional),
       files: Schema.Array(RelativePath).pipe(optional),
+      copilotNanoAiu: Schema.Finite.pipe(optional),
     },
   })
   export type Ended = typeof Ended.Type

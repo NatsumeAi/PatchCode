@@ -1,5 +1,5 @@
 import { Filesystem } from "@/util/filesystem"
-import { FrontmatterError } from "@opencode-ai/core/v1/config/error"
+import { FrontmatterError } from "@opencode-ai/core/config/legacy/error"
 import { ConfigMarkdown as ConfigMarkdownCore } from "@opencode-ai/core/config/markdown"
 
 export const FILE_REGEX = /(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/g

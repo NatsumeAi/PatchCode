@@ -17,6 +17,17 @@ export function parseOption(content: string) {
   }
 }
 
+export const FILE_REGEX = /(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/g
+export const SHELL_REGEX = /!`([^`]+)`/g
+
+export function files(template: string) {
+  return Array.from(template.matchAll(FILE_REGEX))
+}
+
+export function shell(template: string) {
+  return Array.from(template.matchAll(SHELL_REGEX))
+}
+
 // Other coding agents accept unquoted colons in frontmatter values. Retry
 // those values as YAML block scalars so existing config files keep working.
 export function sanitize(content: string) {

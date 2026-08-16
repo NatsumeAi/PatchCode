@@ -57,6 +57,7 @@ describe("ToolRegistry capability filter", () => {
     expect(result).toContain("edit")
     expect(result).toContain("bash")
     expect(result).toContain("read")
+    expect(result).not.toContain("invalid")
   })
 
   test("capability undefined behaves like all (backward compatible)", async () => {
@@ -65,6 +66,7 @@ describe("ToolRegistry capability filter", () => {
     )
     expect(result).toContain("edit")
     expect(result).toContain("bash")
+    expect(result).not.toContain("invalid")
   })
 })
 

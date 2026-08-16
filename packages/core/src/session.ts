@@ -26,7 +26,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { Identifier } from "./id/id"
 import { ChildProcess } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "./cross-spawn-spawner"
-import { SessionV1 } from "./v1/session"
+import { SessionV1 } from "./session-legacy"
 import { InstallationVersion } from "./installation/version"
 import { Slug } from "./util/slug"
 import { ProjectTable } from "./project/sql"
@@ -111,9 +111,7 @@ type CompactInput = {
   prompt?: Prompt
 }
 
-export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Session.NotFoundError", {
-  sessionID: SessionSchema.ID,
-}) {}
+export { ContextSnapshotDecodeError, MessageDecodeError, NotFoundError } from "./session/error"
 
 export class OperationUnavailableError extends Schema.TaggedErrorClass<OperationUnavailableError>()(
   "Session.OperationUnavailableError",
@@ -121,8 +119,6 @@ export class OperationUnavailableError extends Schema.TaggedErrorClass<Operation
     operation: Schema.Literals(["move", "shell", "skill", "switchAgent", "compact"]),
   },
 ) {}
-
-export { ContextSnapshotDecodeError, MessageDecodeError } from "./session/error"
 
 export class PromptConflictError extends Schema.TaggedErrorClass<PromptConflictError>()("Session.PromptConflictError", {
   sessionID: SessionSchema.ID,
@@ -191,6 +187,7 @@ export interface Interface {
      * projected (HTTP noReply). Default false — admit-only inbox semantics.
      */
     projectUser?: boolean
+    format?: { readonly type: string; readonly schema?: Record<string, unknown> }
   }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
   readonly shell: (input: {
     sessionID: SessionSchema.ID
@@ -555,6 +552,7 @@ const layer = Layer.effect(
           const admitted = yield* Effect.uninterruptible(
             Effect.gen(function* () {
               const session = yield* result.get(input.sessionID)
+              if (input.format) PromptTapeStore.setFormat(input.sessionID, input.format)
               // V1 SessionPrompt cleanup parity: hard-delete staged undo tail before a new turn.
               // Commit failures must not fail the turn (see Follow-up F2); log + continue.
               if (session.revert) {

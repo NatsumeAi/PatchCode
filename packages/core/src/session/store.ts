@@ -11,7 +11,7 @@ import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { SessionMessageTable, SessionTable } from "./sql"
 import { fromRow } from "./info"
-import { PermissionV1 } from "@opencode-ai/schema/permission-v1"
+import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
 
 export interface Interface {
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info | undefined>

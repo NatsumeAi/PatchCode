@@ -45,7 +45,7 @@ import {
   toolPartPending,
   userMessageFromPrompt,
   userTextPart,
-} from "./v2-message-bridge"
+} from "./session-message-bridge"
 import { findPartIndex, insertPartIndex } from "./part-order"
 import { toEpochMsOr } from "../util/epoch-ms"
 

@@ -9,7 +9,6 @@ import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { Location } from "../location"
 import { makeLocationNode } from "../effect/app-node"
-import { llmClient } from "../effect/app-node-platform"
 import { SessionRunnerModel } from "../session/runner/model"
 import { SessionV2 } from "../session"
 import { SessionSchema } from "../session/schema"
@@ -478,7 +477,6 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
-    const llm = yield* LLMClient.Service
     const models = yield* SessionRunnerModel.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
@@ -493,6 +491,8 @@ const layer = Layer.effect(
     })
     const svc = Service.of({
       consolidate: Effect.fn("Memory.consolidate")(function* () {
+        const llm = yield* Effect.serviceOption(LLMClient.Service)
+        if (llm._tag === "None") return
         const roots = resolveRoots(path.join(global.data, "memory"), location.directory)
         const model = yield* models.resolve(syntheticSession).pipe(Effect.catch(() => Effect.succeed(undefined)))
         if (!model) {
@@ -504,7 +504,7 @@ const layer = Layer.effect(
           fs,
           globalDir: path.join(global.data, "memory"),
           projectDirectory: location.directory,
-          llm,
+          llm: llm.value,
           model,
         }).pipe(Effect.catch(() => Effect.void))
       }),
@@ -523,5 +523,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   name: "memory-consolidation",
   layer,
-  deps: [llmClient, SessionRunnerModel.node, FSUtil.node, Global.node, Location.node],
+  deps: [SessionRunnerModel.node, FSUtil.node, Global.node, Location.node],
 })

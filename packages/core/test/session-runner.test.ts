@@ -27,7 +27,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { QuestionV2 } from "@opencode-ai/core/question"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import { Snapshot } from "@opencode-ai/core/snapshot"
 import { ContextSnapshotDecodeError } from "@opencode-ai/core/session/error"
 import { SessionEvent } from "@opencode-ai/core/session/event"
@@ -47,6 +47,7 @@ import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { loopCommandForSession } from "@opencode-ai/core/session/loop-control/command"
 import { EventBus } from "@opencode-ai/core/session/loop-control/event-bus"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { OverflowContinue } from "@opencode-ai/core/session/overflow-continue"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { AgentV2 } from "@opencode-ai/core/agent"
@@ -1413,6 +1414,7 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
         { type: "user", text: "Continue" },
         { type: "compaction", summary: "## Objective\n- Recover overflow" },
+        { type: "synthetic", text: OverflowContinue.continueText(true) },
         { type: "assistant", finish: "stop" },
       ])
       yield* replaySessionProjection(sessionID)
@@ -1420,6 +1422,7 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
         { type: "user", text: "Continue" },
         { type: "compaction" },
+        { type: "synthetic" },
         { type: "assistant", finish: "stop" },
       ])
     }),
@@ -1445,6 +1448,7 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
         { type: "user", text: "Continue" },
         { type: "compaction" },
+        { type: "synthetic", text: OverflowContinue.continueText(true) },
         {
           type: "assistant",
           finish: "error",
@@ -1482,6 +1486,7 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
         { type: "user", text: "Continue" },
         { type: "compaction", summary: "## Objective\n- Recover raw overflow" },
+        { type: "synthetic", text: OverflowContinue.continueText(true) },
         { type: "assistant", finish: "stop" },
       ])
     }),

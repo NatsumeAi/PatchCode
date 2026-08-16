@@ -2,10 +2,10 @@ export * as BashTool from "./bash"
 
 import path from "path"
 import { ToolFailure, type ToolOutput } from "@opencode-ai/llm"
-import { Cause, DateTime, Deferred, Duration, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Context, DateTime, Deferred, Duration, Effect, Layer, Option, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
-import { makeLocationNode } from "../effect/app-node"
+import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { FSUtil } from "../fs-util"
 import { Identifier } from "../id/id"
@@ -15,12 +15,14 @@ import { BackgroundJob } from "../background-job"
 import { ExecPolicy } from "../exec-policy/service"
 import { PermissionV2 } from "../permission"
 import { Sandbox } from "../sandbox"
+import { Shell } from "../shell"
 import { Hooks } from "../hooks"
 import { PlanGate } from "../session/plan-gate"
 import { ToolOutputStore } from "../tool-output-store"
 import { PositiveInt } from "../schema"
 import { notifyJobFinished } from "../session/job-complete"
 import { SessionEvent } from "../session/event"
+import { BashPrompt } from "./bash-prompt"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -70,7 +72,31 @@ const Output = Schema.Struct({
 
 type Output = typeof Output.Type
 
-const defaultShell = () => (process.platform === "win32" ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh")
+const defaultShell = () => Shell.acceptable() ?? (process.platform === "win32" ? (process.env.COMSPEC ?? "cmd.exe") : "/bin/sh")
+
+const spawnArgs = (shell: string, command: string, cwd: string) =>
+  Shell.ps(shell) ? ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command] : Shell.args(shell, command, cwd)
+
+export interface Host {
+  readonly env: (input: {
+    readonly cwd: string
+    readonly sessionID: string
+    readonly callID: string
+  }) => Effect.Effect<Record<string, string>>
+}
+
+export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/BashTool.Host") {}
+
+export const hostNode = makeGlobalNode({
+  service: HostService,
+  layer: Layer.succeed(
+    HostService,
+    HostService.of({
+      env: () => Effect.succeed({}),
+    }),
+  ),
+  deps: [],
+})
 
 const modelOutput = (output: Output) => {
   const warnings = output.warnings?.length
@@ -118,11 +144,16 @@ const layer = Layer.effectDiscard(
     const sandbox = yield* Sandbox.Service
     const events = yield* EventV2.Service
     const resources = yield* ToolOutputStore.Service
+    const capturedHost = yield* Effect.serviceOption(HostService)
+    const originEntries = yield* config.entries()
+    const originShell = Shell.acceptable(Config.latest(originEntries, "shell")) ?? defaultShell()
+    const limits = yield* resources.limits()
+    const description = BashPrompt.render(Shell.name(originShell), process.platform, limits, DEFAULT_TIMEOUT_MS)
 
     yield* tools
       .register({
         [name]: Tool.make({
-          description: `Execute one shell command string with the host user's filesystem, process, and network authority. The active Location is the default working directory. Relative workdir values resolve from that Location. External workdir values require external_directory approval; best-effort command-argument path warnings are advisory only. Timeout values are milliseconds (default: ${DEFAULT_TIMEOUT_MS}; maximum: ${MAX_TIMEOUT_MS}). Uses the configured shell when set; otherwise uses /bin/sh on POSIX and COMSPEC or cmd.exe on Windows.`,
+          description,
           input: Input,
           output: Output,
           structured: StructuredOutput,
@@ -197,9 +228,21 @@ const layer = Layer.effectDiscard(
               )
 
               const entries = yield* config.entries()
-              const shell =
-                Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
-                  .shell ?? defaultShell()
+              const shell = Shell.acceptable(Config.latest(entries, "shell")) ?? defaultShell()
+              const extraEnv = Option.isSome(capturedHost)
+                ? yield* capturedHost.value.env({
+                    cwd: target.canonical,
+                    sessionID: context.sessionID,
+                    callID: context.toolCallID,
+                  })
+                : {}
+              const spawnOpts = {
+                cwd: target.canonical,
+                stdin: "ignore" as const,
+                detached: process.platform !== "win32",
+                forceKillAfter: Duration.seconds(3),
+                ...(Object.keys(extraEnv).length > 0 ? { env: extraEnv, extendEnv: true as const } : {}),
+              }
               const resolved = yield* sandbox.resolve(context.sessionID)
 
               // Frozen W1–W3 execute chain (do not invent a second spawn file):
@@ -267,23 +310,15 @@ const layer = Layer.effectDiscard(
                   : yield* sandbox.wrapSpawn({
                       class: "workspace-child",
                       command: shell,
-                      args: ["-c", input.command],
+                      args: spawnArgs(shell, input.command, target.canonical),
                       cwd: target.canonical,
                       sessionID: context.sessionID,
                     })
               const command = wrapped
-                ? ChildProcess.make(wrapped.command, wrapped.args, {
-                    cwd: target.canonical,
-                    stdin: "ignore",
-                    detached: process.platform !== "win32",
-                    forceKillAfter: Duration.seconds(3),
-                  })
+                ? ChildProcess.make(wrapped.command, wrapped.args, spawnOpts)
                 : ChildProcess.make(input.command, [], {
-                    cwd: target.canonical,
+                    ...spawnOpts,
                     shell,
-                    stdin: "ignore",
-                    detached: process.platform !== "win32",
-                    forceKillAfter: Duration.seconds(3),
                   })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
               if (input.background === true) {
@@ -559,5 +594,6 @@ export const node = makeLocationNode({
     EventV2.node,
     ToolOutputStore.node,
     PlanGate.node,
+    hostNode,
   ],
 })

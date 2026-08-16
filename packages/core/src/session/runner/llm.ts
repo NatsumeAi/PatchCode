@@ -30,6 +30,9 @@ import { MemoryPreCompress } from "../../memory/pre-compress-wire"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
+import { StructuredOutput } from "../../tool/structured-output"
+import { frameToolResult } from "./tool-result-framing"
+import { RepairToolCall } from "./repair-tool-call"
 import { Hooks } from "../../hooks"
 import { ToolOutputStore } from "../../tool-output-store"
 import { SessionContextEpoch } from "../context-epoch"
@@ -39,6 +42,7 @@ import { SessionHistory } from "../history"
 import { SessionInput } from "../input"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
+import { SessionReminders } from "../reminders"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
@@ -52,7 +56,7 @@ import { prewarmIfAllowed } from "./prewarm"
 import { Snapshot } from "../../snapshot"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
-import { SessionV1 } from "../../v1/session"
+import { SessionV1 } from "../../session-legacy"
 import { FSUtil } from "../../fs-util"
 import { SessionTable } from "../sql"
 import { eq } from "drizzle-orm"
@@ -71,6 +75,12 @@ import { TreeBudget } from "../tree-budget"
 import { SubagentLifecycle } from "../subagent-lifecycle"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 import { PersonaInject } from "../persona/inject"
+import { PluginHooks } from "../../plugin-hooks"
+import { SessionRetry } from "./retry"
+import { OverflowContinue } from "../overflow-continue"
+import { GitLabWorkflow } from "../gitlab-workflow"
+import { Image } from "../../image"
+import { Prompt } from "../prompt"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -103,7 +113,7 @@ import { PersonaInject } from "../persona/inject"
  *   - [x] Authorize and execute recorded local calls through a core-owned registry hook.
  *   - [x] Persist typed success, failure, and provider-executed tool outcomes.
  *   - [x] Start each recorded local call eagerly and await all settlements before continuation.
- *   - [ ] Add scoped runtime context, progress updates, attachment normalization,
+ *   - [x] Add scoped runtime context, progress updates, attachment normalization,
  *     plugins, and cancellation settlement.
  *   - [x] Reload projected history and start the next explicit provider turn after local tool results.
  *   - [x] Continue for durable user steering accepted during an active provider turn.
@@ -490,12 +500,17 @@ const layer = Layer.effect(
       Effect.raceFirst(FiberSet.join(fibers), FiberSet.awaitEmpty(fibers))
 
     // Match V1: declining a user prompt halts the loop instead of becoming model-facing tool output.
+    // Official continue_loop_on_deny (default false) keeps the drain going after a deny.
     const isUserDeclined = (cause: Cause.Cause<unknown>) =>
       cause.reasons.some(
         (reason) =>
           Cause.isDieReason(reason) &&
           (reason.defect instanceof PermissionV2.DeclinedError || reason.defect instanceof QuestionV2.RejectedError),
       )
+    const continueLoopOnDeny = Effect.fn("SessionRunner.continueLoopOnDeny")(function* () {
+      const cfg = yield* config.entries().pipe(Effect.catch(() => Effect.succeed([] as Config.Entry[])))
+      return cfg.some((entry) => entry.type === "document" && entry.info.experimental?.continue_loop_on_deny === true)
+    })
 
     type TurnTransition =
       // Automatic compaction completed; rebuild the request from compacted history.
@@ -691,8 +706,17 @@ const layer = Layer.effect(
         step,
         providerID: session.model?.providerID,
       })
-      if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id)))
-        return { needsContinuation: false, step }
+      const abortBlocked =
+        drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))
+      if (abortBlocked && (step !== 1 || !promotion)) {
+        // /loop abort: do not start a new agent turn. Pending steer/queue still
+        // runs (user already submitted). Tool-error flush is handled below.
+        const last = (yield* store.context(session.id).pipe(Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])))).at(-1)
+        const flushTools =
+          last?.type === "assistant" &&
+          last.content.some((part) => part.type === "tool" && part.state.status !== "completed")
+        if (!flushTools) return { needsContinuation: false, step }
+      }
       const agent = yield* agents.select(session.agent)
       const initialized = yield* SessionContextEpoch.initialize(db, loadSystemContextAndRecall(agent, session.id), session.id)
       let needsContinuation = false
@@ -776,24 +800,61 @@ const layer = Layer.effect(
         }
       }
       const storedSettle = PromptTapeStore.getSettle(session.id, system.baselineSeq)
+      const storedRepair = PromptTapeStore.getRepair(session.id, system.baselineSeq)
       let toolMaterialization: ToolRegistry.Materialization | undefined = storedSettle
-        ? { definitions: [], settle: storedSettle }
+        ? {
+            definitions: [],
+            hidden: storedRepair?.hidden ?? [],
+            settle: storedSettle,
+          }
         : undefined
       if (!tape) {
         const personaSystem = yield* PersonaInject.systemTextForSession(session.id).pipe(
           Effect.catch(() => Effect.succeed(undefined as string | undefined)),
         )
-        const materialized = yield* tools.materialize(agent.info)
+        const materialized = StructuredOutput.wrap(
+          yield* tools.materialize({
+            ...(agent.info ?? {}),
+            modelID: model.id,
+          }),
+          PromptTapeStore.getFormat(session.id),
+          session.id,
+        )
         toolMaterialization = materialized
-        const systemText = [agent.info?.system, system.baseline, personaSystem]
+        PromptTapeStore.setSettle(session.id, system.baselineSeq, materialized.settle)
+        PromptTapeStore.setRepair(session.id, system.baselineSeq, {
+          advertised: materialized.definitions.map((tool) => tool.name),
+          hidden: materialized.hidden,
+        })
+        const systemTextRaw = [agent.info?.system, system.baseline, personaSystem]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .join("\n")
+        const chatHook = yield* Effect.serviceOption(PluginHooks.ChatService)
+        const systemText = Option.isSome(chatHook)
+          ? (yield* chatHook.value.transformSystem({ sessionID: String(session.id), system: [systemTextRaw] })).system.join(
+              "\n",
+            )
+          : systemTextRaw
         const originPrepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
           LLM.request({
             model,
             system: systemText,
             tools: materialized.definitions,
             messages: [],
+            ...(Option.isSome(chatHook)
+              ? yield* chatHook.value.params({ sessionID: String(session.id), agent: String(agent.id) }).pipe(
+                  Effect.map((hooked) => ({
+                    generation: {
+                      temperature: hooked.temperature,
+                      topP: hooked.topP,
+                      topK: hooked.topK,
+                      maxTokens: hooked.maxOutputTokens,
+                    },
+                    providerOptions: hooked.options,
+                    http: Object.keys(hooked.headers).length ? { headers: hooked.headers } : undefined,
+                  })),
+                )
+              : {}),
           }),
         )
         const toolName = (tool: { function?: { name?: string }; name?: string }) =>
@@ -812,14 +873,24 @@ const layer = Layer.effect(
         const maxSeq = entries.reduce((seq, entry) => Math.max(seq, entry.seq), 0)
         PromptTapeStore.setLastSeq(session.id, system.baselineSeq, maxSeq)
         PromptTapeStore.setMessageSeqs(session.id, system.baselineSeq, seqs)
-        PromptTapeStore.setSettle(session.id, system.baselineSeq, materialized.settle)
         yield* persistTape(session.id, system.baselineSeq, tape)
         yield* prewarmIfAllowed(llm, model, tape).pipe(Effect.forkIn(titleScope), Effect.asVoid)
       } else {
         if (!toolMaterialization) {
-          const materialized = yield* tools.materialize(agent.info)
+          const materialized = StructuredOutput.wrap(
+            yield* tools.materialize({
+              ...(agent.info ?? {}),
+              modelID: model.id,
+            }),
+            PromptTapeStore.getFormat(session.id),
+            session.id,
+          )
           toolMaterialization = materialized
           PromptTapeStore.setSettle(session.id, system.baselineSeq, materialized.settle)
+          PromptTapeStore.setRepair(session.id, system.baselineSeq, {
+            advertised: materialized.definitions.map((tool) => tool.name),
+            hidden: materialized.hidden,
+          })
         }
         const lastSeq = PromptTapeStore.getLastSeq(session.id, system.baselineSeq)
         const extras: PromptTape.ChatMessage[] = []
@@ -879,20 +950,95 @@ const layer = Layer.effect(
           yield* persistTape(session.id, system.baselineSeq, tape)
         }
       }
+      const reminder = yield* SessionReminders.text(session.id).pipe(Effect.catch(() => Effect.succeed("")))
+      const previousReminder = SessionReminders.get(String(session.id)) ?? ""
+      if (reminder !== previousReminder) {
+        SessionReminders.set(String(session.id), reminder)
+        if (reminder.length > 0) {
+          tape = PromptTape.append(tape, [PromptTapeAppend.lowerUser({ text: reminder })])
+          PromptTapeStore.appendMessageSeqs(session.id, system.baselineSeq, [
+            PromptTapeStore.getLastSeq(session.id, system.baselineSeq),
+          ])
+          yield* persistTape(session.id, system.baselineSeq, tape)
+        }
+      }
       const ephemeral: PromptTape.ChatMessage[] = []
       if (verifierFeedback.length > 0) ephemeral.push({ role: "user", content: verifierFeedback })
       if (isLastStep) ephemeral.push({ role: "assistant", content: MAX_STEPS_PROMPT })
       const compiled = PromptTape.compiled(tape, ephemeral)
       const compiledSystem = compiled.messages[0]
+      const chatHook = yield* Effect.serviceOption(PluginHooks.ChatService)
+      const hooked = Option.isSome(chatHook)
+        ? yield* chatHook.value.params({ sessionID: String(session.id), agent: String(agent.id) })
+        : undefined
+      const npm = modelInfo?.api?.type === "aisdk" ? modelInfo.api.package : undefined
+      const providerID = String(model.provider)
+      const isOpenaiOauth =
+        providerID === "openai" &&
+        (modelInfo?.request?.body as { authType?: string } | undefined)?.authType === "oauth"
+      const officialOptions: Record<string, unknown> = { ...(hooked?.options ?? {}) }
+      if (
+        npm === "@ai-sdk/azure" &&
+        (officialOptions.useCompletionUrls ||
+          (modelInfo?.request?.body as { useCompletionUrls?: boolean } | undefined)?.useCompletionUrls)
+      ) {
+        delete officialOptions.reasoningSummary
+        delete officialOptions.include
+      }
+      if (isOpenaiOauth && tape.system) officialOptions.instructions = tape.system
+      const officialHeaders: Record<string, string> = providerID.startsWith("opencode")
+        ? {
+            "x-opencode-session": String(session.id),
+            "x-opencode-request": String(session.id),
+            "User-Agent": `opencode/${InstallationVersion}`,
+            ...(hooked?.headers ?? {}),
+          }
+        : {
+            "x-session-affinity": String(session.id),
+            "X-Session-Id": String(session.id),
+            ...(session.parentID ? { "x-parent-session-id": String(session.parentID) } : {}),
+            "User-Agent": `opencode/${InstallationVersion}`,
+            ...(hooked?.headers ?? {}),
+          }
+      const compiledTools = [...(compiled.tools ?? [])]
+      const hasHistoryToolCalls = compiled.messages.some((message) => {
+        if (!message || typeof message !== "object") return false
+        const calls = (message as { tool_calls?: unknown }).tool_calls
+        return Array.isArray(calls) && calls.length > 0
+      })
+      if (providerID.includes("github-copilot") && compiledTools.length === 0 && hasHistoryToolCalls) {
+        compiledTools.push({
+          type: "function",
+          function: {
+            name: "_noop",
+            description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
+            parameters: { type: "object", properties: { reason: { type: "string" } } },
+          },
+        } as (typeof compiledTools)[number])
+      }
       const request = LLM.request({
         model,
-        providerOptions: { openai: { promptCacheKey } },
+        providerOptions: {
+          openai: { promptCacheKey, ...(npm === "@ai-sdk/openai" || npm === "@ai-sdk/azure" ? { strict: false } : {}) },
+          ...(npm === "@ai-sdk/amazon-bedrock/mantle" ? { bedrock: { strict: false } } : {}),
+          ...officialOptions,
+        },
         system: tape.system,
         messages: [],
         tools: [],
         toolChoice: isLastStep ? "none" : undefined,
+        generation: hooked
+          ? {
+              temperature: hooked.temperature,
+              topP: hooked.topP,
+              topK: hooked.topK,
+              maxTokens: hooked.maxOutputTokens,
+            }
+          : undefined,
+        http: { headers: officialHeaders },
         compiled: {
           ...compiled,
+          tools: compiledTools.length > 0 ? compiledTools : compiled.tools,
           messages: compiledSystem
             ? [compiledSystem, ...keepLastRealUser(compiled.messages.slice(1))]
             : compiled.messages,
@@ -972,6 +1118,51 @@ const layer = Layer.effect(
             const toolSettlements = new Map<string, ToolRegistry.Settlement>()
             let assistantText = ""
             let reasoningText = ""
+            if (String(model.provider).includes("gitlab")) {
+              const permissionOpt = yield* Effect.serviceOption(PermissionV2.Service)
+              GitLabWorkflow.install({
+                sessionID: String(session.id),
+                systemPrompt: tape.system,
+                sessionPreapprovedTools: (toolMaterialization?.definitions ?? []).map((tool) => tool.name),
+                runPromise: (effect) => Effect.runPromise(effect as Effect.Effect<unknown>),
+                toolExecutor: (toolName, argsJson, requestID) =>
+                  Effect.gen(function* () {
+                    if (!toolMaterialization) return { result: "", error: `Unknown tool: ${toolName}` }
+                    const settled = yield* toolMaterialization
+                      .settle({
+                        sessionID: session.id,
+                        agent: agent.id,
+                        assistantMessageID: SessionMessage.ID.create(),
+                        call: {
+                          type: "tool-call",
+                          id: requestID,
+                          name: toolName,
+                          input: JSON.parse(argsJson),
+                        } as never,
+                      })
+                      .pipe(Effect.catch(() => Effect.succeed(undefined)))
+                    if (!settled) return { result: "", error: `Unknown tool: ${toolName}` }
+                    const output =
+                      typeof settled.result === "object" && settled.result && "value" in settled.result
+                        ? String((settled.result as { value?: unknown }).value ?? "")
+                        : JSON.stringify(settled.output ?? settled.result)
+                    return { result: output }
+                  }),
+                approvalHandler: (approvalTools) =>
+                  Effect.gen(function* () {
+                    if (Option.isNone(permissionOpt)) return { approved: false }
+                    const unique = [...new Set(approvalTools.map((item) => item.name))]
+                    yield* permissionOpt.value.assert({
+                      sessionID: session.id,
+                      action: "workflow_tool_approval",
+                      resources: unique,
+                      save: unique,
+                      metadata: { tools: approvalTools },
+                    })
+                    return { approved: true }
+                  }).pipe(Effect.catch(() => Effect.succeed({ approved: false }))),
+              })
+            }
             const providerStream = llm.stream(request).pipe(
               Stream.timeoutOrElse({
                 duration: STREAM_IDLE_TIMEOUT,
@@ -1005,7 +1196,35 @@ const layer = Layer.effect(
                     toolNames.set(event.id, event.name)
                   }
                   if (LLMEvent.is.textDelta(event)) assistantText += event.text
+                  if (event.type === "text-end") {
+                    const textHook = yield* Effect.serviceOption(PluginHooks.TextCompleteService)
+                    if (Option.isSome(textHook)) {
+                      const partID = "id" in event && typeof event.id === "string" ? event.id : "text"
+                      const next = yield* textHook.value.complete({
+                        sessionID: String(session.id),
+                        messageID: String(session.id),
+                        partID,
+                        text: assistantText,
+                      })
+                      if (next.text !== assistantText) {
+                        yield* publisher.rewriteText(partID, next.text)
+                        assistantText = next.text
+                      }
+                    }
+                  }
                   if (LLMEvent.is.reasoningDelta(event)) reasoningText += event.text
+                  if (LLMEvent.is.toolCall(event) && !event.providerExecuted) {
+                    const stored = PromptTapeStore.getRepair(session.id, system.baselineSeq)
+                    const advertised = new Set(
+                      toolMaterialization.definitions.length > 0
+                        ? toolMaterialization.definitions.map((tool) => tool.name)
+                        : (stored?.advertised ?? []),
+                    )
+                    const hidden = new Set(
+                      toolMaterialization.hidden.length > 0 ? toolMaterialization.hidden : (stored?.hidden ?? []),
+                    )
+                    event = RepairToolCall.repair(event, advertised, hidden)
+                  }
                   if (LLMEvent.is.toolCall(event)) {
                     toolNames.set(event.id, event.name)
                     if (!toolOrder.includes(event.id)) toolOrder.push(event.id)
@@ -1062,16 +1281,42 @@ const layer = Layer.effect(
                         if (exit._tag === "Failure") return yield* Effect.failCause(exit.cause)
                         return
                       }
-                      toolSettlements.set(event.id, done)
-                      toolResults.set(event.id, JSON.stringify(done.output ?? done.result))
+                      const imageOpt = yield* Effect.serviceOption(Image.Service)
+                      let settledOut = done
+                      if (Option.isSome(imageOpt) && done.output?.content.some((part) => part.type === "file" && part.mime.startsWith("image/"))) {
+                        const normalized = yield* Effect.forEach(done.output.content, (part) => {
+                          if (part.type !== "file" || !part.mime.startsWith("image/") || !part.uri.startsWith("data:"))
+                            return Effect.succeed(part)
+                          const comma = part.uri.indexOf(",")
+                          const payload = comma >= 0 ? part.uri.slice(comma + 1) : ""
+                          return imageOpt.value
+                            .normalize(part.uri, {
+                              uri: part.uri,
+                              encoding: "base64",
+                              mime: part.mime,
+                              content: payload,
+                            })
+                            .pipe(
+                              Effect.map((content) => ({
+                                ...part,
+                                uri: `data:${content.mime};base64,${content.content}`,
+                              })),
+                              Effect.catchTag("Image.ResizerUnavailableError", () => Effect.succeed(part)),
+                              Effect.catch(() => Effect.succeed(part)),
+                            )
+                        })
+                        settledOut = { ...done, output: { ...done.output, content: normalized } }
+                      }
+                      toolSettlements.set(event.id, settledOut)
+                      toolResults.set(event.id, JSON.stringify(settledOut.output ?? settledOut.result))
                       yield* publish(
                         LLMEvent.toolResult({
                           id: event.id,
                           name: event.name,
-                          result: done.result,
-                          output: done.output,
+                          result: settledOut.result,
+                          output: settledOut.output,
                         }),
-                        done.outputPaths ?? [],
+                        settledOut.outputPaths ?? [],
                       )
                     }),
                   ).pipe(FiberSet.run(toolFibers))
@@ -1081,6 +1326,7 @@ const layer = Layer.effect(
             )
 
             const stream = yield* restore(providerStream).pipe(Effect.exit)
+            if (String(model.provider).includes("gitlab")) GitLabWorkflow.uninstall(String(session.id))
             const failure =
               stream._tag === "Failure" ? Option.getOrUndefined(Cause.findErrorOption(stream.cause)) : undefined
             if (
@@ -1094,6 +1340,33 @@ const layer = Layer.effect(
               // request terminal failure when the turn legitimately replays).
               yield* flushMemoryIfWired(session.id)
               yield* dropTape(session.id)
+              const compactionHook = yield* Effect.serviceOption(PluginHooks.CompactionService)
+              const auto =
+                Option.isNone(compactionHook) ||
+                (yield* compactionHook.value.autocontinue({
+                  sessionID: String(session.id),
+                  agent: String(agent.id),
+                  overflow: true,
+                })).enabled
+              const lastUser = entries.findLast((entry) => entry.message.type === "user")?.message
+              const replayable =
+                lastUser && lastUser.type === "user" && OverflowContinue.hasReplayableMedia(lastUser.files)
+              const overflowText =
+                replayable && lastUser.type === "user"
+                  ? OverflowContinue.replayUserText({ text: lastUser.text, files: lastUser.files })
+                  : auto
+                    ? OverflowContinue.continueText(true)
+                    : undefined
+              if (overflowText) {
+                yield* events
+                  .publish(SessionEvent.Synthetic, {
+                    sessionID: session.id,
+                    timestamp: yield* DateTime.now,
+                    messageID: SessionMessage.ID.create(),
+                    text: overflowText,
+                  })
+                  .pipe(Effect.ignore)
+              }
               return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
             }
             // V1 processor: overflow with auto-compact disabled (or compact
@@ -1145,11 +1418,28 @@ const layer = Layer.effect(
                     yield* withPublication(publisher.failAssistant(err.reason.message))
                     return yield* Effect.failCause(stream.cause)
                   }
-                  // Interruptible wall-clock backoff via restore() + Effect.callback.
-                  // Uses setTimeout (not Effect.sleep) so TestClock environments do not
-                  // hang, and Fiber.interrupt clears the timer. Cap: 500ms → 4s.
-                  // HTTP layer may also retry 429.
-                  const backoffMs = Math.min(500 * 2 ** (streamAttempt - 1), 4000)
+                  // Official leftover delay: Retry-After (ms/seconds/HTTP-date) or exponential backoff.
+                  const hinted = SessionRetry.retryAfterMsFrom(err)
+                  const backoffMs =
+                    hinted !== undefined && Number.isFinite(hinted)
+                      ? Math.min(Math.max(0, hinted), 30_000)
+                      : SessionRetry.delay(streamAttempt)
+                  const retryHint = SessionRetry.retryable(
+                    { data: { message: err.reason.message, isRetryable: true, responseBody: err.reason.message } },
+                    String(model.provider),
+                  )
+                  yield* events
+                    .publish(SessionStatusEvent.Status, {
+                      sessionID: session.id,
+                      status: {
+                        type: "retry",
+                        attempt: streamAttempt,
+                        message: retryHint?.message ?? err.reason.message,
+                        ...(retryHint?.action ? { action: retryHint.action } : {}),
+                        next: Date.now() + backoffMs,
+                      },
+                    })
+                    .pipe(Effect.catchCause(() => Effect.void))
                   yield* restore(
                     Effect.callback<void>((resume) => {
                       const handle = setTimeout(() => resume(Effect.void), backoffMs)
@@ -1180,9 +1470,14 @@ const layer = Layer.effect(
             // Stream success path (original post-stream settlement).
             const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
             if (settled._tag === "Failure" && isUserDeclined(settled.cause)) {
-              yield* FiberSet.clear(toolFibers)
-              yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
-              return yield* Effect.interrupt
+              if (yield* continueLoopOnDeny()) {
+                yield* FiberSet.clear(toolFibers)
+                yield* withPublication(publisher.failUnsettledTools("Tool execution declined"))
+              } else {
+                yield* FiberSet.clear(toolFibers)
+                yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
+                return yield* Effect.interrupt
+              }
             }
             if (settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)) {
               yield* FiberSet.clear(toolFibers)
@@ -1234,7 +1529,13 @@ const layer = Layer.effect(
                   if (hostedTools.has(call.id)) continue
                   const content = toolResults.get(call.id)
                   if (content === undefined) continue
-                  tail.push(PromptTapeAppend.lowerToolResult({ toolCallId: call.id, content }))
+                  const framed = frameToolResult(call.name, content)
+                  tail.push(
+                    PromptTapeAppend.lowerToolResult({
+                      toolCallId: call.id,
+                      content: typeof framed === "string" ? framed : JSON.stringify(framed),
+                    }),
+                  )
                 }
                 pendingTape = PromptTape.append(current, tail)
                 pendingAdded = tail.length
@@ -1299,6 +1600,9 @@ const layer = Layer.effect(
                   tokens: stepSettlement.tokens,
                   snapshot: endSnapshot,
                   files,
+                  ...(stepSettlement.copilotNanoAiu === undefined
+                    ? {}
+                    : { copilotNanoAiu: stepSettlement.copilotNanoAiu }),
                 }),
               )
               // Persist unified diffs onto session.summary for TUI diff panel (V1 parity).
@@ -1426,16 +1730,29 @@ const layer = Layer.effect(
         let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
         let shouldRun = input.force || hasSteer || hasQueue
         let extra = 0
+        // Explicit resume/steer/queue may run one turn after session.interrupt.
+        // user_abort is not reset (freeze); only automatic continuation is blocked.
+        let firstTurn = true
         while (shouldRun) {
-          if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) break
+          if (
+            !firstTurn &&
+            drain.hooks.shouldContinue &&
+            !(yield* drain.hooks.shouldContinue(input.sessionID))
+          )
+            break
           let needsContinuation = true
           let step = 1
           while (needsContinuation) {
-            if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(input.sessionID))) {
+            if (
+              !firstTurn &&
+              drain.hooks.shouldContinue &&
+              !(yield* drain.hooks.shouldContinue(input.sessionID))
+            ) {
               needsContinuation = false
               break
             }
             const result = yield* runTurn(input.sessionID, promotion, step, drain)
+            firstTurn = false
             needsContinuation = result.needsContinuation
             step = result.step + 1
             promotion = "steer"
@@ -1523,7 +1840,6 @@ export const node = makeLocationNode({
   layer,
   deps: [
     EventV2.node,
-    llmClient,
     AgentV2.node,
     ToolRegistry.node,
     SessionRunnerModel.node,
@@ -1538,5 +1854,6 @@ export const node = makeLocationNode({
     Snapshot.node,
     Database.node,
     SessionRuntime.node,
+    llmClient,
   ],
 })

@@ -38,6 +38,7 @@ export const Input = Schema.Struct({
 export const Output = Schema.Struct({
   files: Schema.Array(FileDiff.Info),
   replacements: Schema.Number,
+  diagnostics: Schema.String.pipe(Schema.optional),
 })
 export type Output = typeof Output.Type
 
@@ -80,14 +81,8 @@ export const toModelOutput = (output: Output, oldString: string, newString: stri
     ...previewLines(oldString, "-"),
     ...previewLines(newString, "+"),
     "```",
+    ...(output.diagnostics ? [output.diagnostics] : []),
   ].join("\n")
-
-/** Deferred V2 edit behavior and UX integrations remain visible at the model-facing seam. */
-// TODO: Keep V1 fuzzy strategies in edit-match.ts (line-trimmed, block-anchor, indentation, similarity-threshold); do not reintroduce them inline in edit.ts.
-// TODO: Add formatter integration after V2 formatter runtime exists.
-// TODO: Publish watcher/file-edit events after V2 watcher integration exists.
-// TODO: Add snapshots / undo after design exists.
-// TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -218,6 +213,7 @@ const layer = Layer.effectDiscard(
                     },
                   ],
                   replacements,
+                  ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
                 } satisfies Output
               })
             },

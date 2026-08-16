@@ -11,7 +11,7 @@ import { Project } from "@/project/project"
 import { GlobalBus } from "@/bus/global"
 import { Auth } from "@/auth"
 import { EventV2 } from "@opencode-ai/core/event"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { EventSequenceTable, EventTable } from "@opencode-ai/core/event/sql"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -32,7 +32,7 @@ import { WorkspaceRef } from "@/effect/instance-ref"
 import { Vcs } from "@/project/vcs"
 import { InstanceStore } from "@/project/instance-store"
 import { WorkspaceAdapterRuntime } from "./workspace-adapter-runtime"
-import { AppNodeBuilderV1 } from "@/effect/app-node-builder-v1"
+import { AppNodeBuilderInstance } from "@/effect/instance-app-node-builder"
 import { WorkspaceEvent } from "@opencode-ai/schema/workspace-event"
 
 export const Info = Schema.Struct({
@@ -601,7 +601,7 @@ const layer = Layer.effect(
                   }),
                 fallback: "",
                 response: "text",
-              }).pipe(Effect.provide(AppNodeBuilderV1.build(InstanceStore.node)))
+              }).pipe(Effect.provide(AppNodeBuilderInstance.build(InstanceStore.node)))
             : ""
 
         if (sourcePatch) {
@@ -617,7 +617,7 @@ const layer = Layer.effect(
                 body: HttpBody.jsonUnsafe({ patch: sourcePatch }),
               }),
             fallback: { applied: false },
-          }).pipe(Effect.provide(AppNodeBuilderV1.build(InstanceStore.node)))
+          }).pipe(Effect.provide(AppNodeBuilderInstance.build(InstanceStore.node)))
         }
 
         if (input.workspaceID === null) {

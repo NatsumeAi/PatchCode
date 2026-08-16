@@ -2,6 +2,7 @@ export * as ErrorClassifier from "./error-classifier"
 
 import { Effect, Schema } from "effect"
 import { LLMError } from "@opencode-ai/llm"
+import { SessionRetry } from "./retry"
 
 /**
  * L2 ErrorClassifier — classifies provider/transport errors into the 19-class
@@ -43,6 +44,8 @@ export interface ClassifyResult {
   readonly reason: FailoverReason
   readonly retryable: boolean
   readonly failoverTarget?: string
+  readonly action?: SessionRetry.RetryAction
+  readonly message?: string
 }
 
 interface CauseShape {
@@ -83,20 +86,60 @@ const classifyReason = (cause: LLMError): ClassifyResult => {
   }
 }
 
-export const classifyApiError = (cause: ClassifyInput): Effect.Effect<ClassifyResult> =>
+const withOfficialRetry = (classified: ClassifyResult, cause: ClassifyInput, provider = "unknown"): ClassifyResult => {
+  const err =
+    cause instanceof LLMError
+      ? {
+          data: {
+            message: cause.reason.message,
+            isRetryable: classified.retryable,
+            statusCode:
+              "status" in cause.reason && typeof cause.reason.status === "number" ? cause.reason.status : undefined,
+            responseBody: cause.reason.message,
+          },
+        }
+      : {
+          data: {
+            statusCode: cause.status,
+            isRetryable: classified.retryable,
+            message: cause.message,
+            responseBody: cause.message,
+          },
+        }
+  const retry = SessionRetry.retryable(err, provider)
+  if (!retry) return classified
+  return {
+    ...classified,
+    retryable: true,
+    message: retry.message,
+    ...(retry.action ? { action: retry.action } : {}),
+  }
+}
+
+export const classifyApiError = (cause: ClassifyInput, provider = "unknown"): Effect.Effect<ClassifyResult> =>
   Effect.gen(function* () {
-    if (cause instanceof LLMError) return classifyReason(cause)
+    if (cause instanceof LLMError) return withOfficialRetry(classifyReason(cause), cause, provider)
     if (cause.status === 429) {
-      return { reason: "rate_limit", retryable: true }
+      return withOfficialRetry({ reason: "rate_limit", retryable: true }, cause, provider)
+    }
+    if (cause.status !== undefined && cause.status >= 500) {
+      return withOfficialRetry({ reason: "server_unavailable", retryable: true }, cause, provider)
     }
     if (cause.status === 503) {
-      return { reason: "server_unavailable", retryable: true }
+      return withOfficialRetry({ reason: "server_unavailable", retryable: true }, cause, provider)
     }
     if (cause.type === "timeout") {
-      return { reason: "timeout", retryable: true }
+      return withOfficialRetry({ reason: "timeout", retryable: true }, cause, provider)
     }
     if (cause.type === "context_overflow") {
       return { reason: "context_overflow", retryable: false }
+    }
+    const retry = SessionRetry.retryable(
+      { data: { message: cause.message, isRetryable: false, responseBody: cause.message } },
+      provider,
+    )
+    if (retry) {
+      return { reason: "rate_limit", retryable: true, message: retry.message, ...(retry.action ? { action: retry.action } : {}) }
     }
     return { reason: "unknown", retryable: false }
   })

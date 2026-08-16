@@ -23,8 +23,8 @@ import { ConfigProvider } from "./config/provider"
 import { ConfigReference } from "./config/reference"
 import { ConfigToolOutput } from "./config/tool-output"
 import { ConfigWatcher } from "./config/watcher"
-import { ConfigV1 } from "./v1/config/config"
-import { ConfigMigrateV1 } from "./v1/config/migrate"
+import { ConfigV1 } from "./config/legacy/config"
+import { ConfigMigrateV1 } from "./config/legacy/migrate"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: Schema.optional(Schema.String).annotate({

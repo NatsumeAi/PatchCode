@@ -26,14 +26,10 @@ import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { SessionRunState } from "@/session/run-state"
 import { SessionSummary } from "@/session/summary"
-import { Instruction } from "@/session/instruction"
-import { LLM } from "@/session/llm"
 import { LSP } from "@/lsp/lsp"
 import { MCP } from "@/mcp"
 import { McpAuth } from "@/mcp/auth"
 import { Command } from "@/command"
-import { Truncate } from "@/tool/truncate"
-import { ToolRegistry } from "@/tool/registry"
 import { Format } from "@/format"
 import { InstanceStore } from "@/project/instance-store"
 import { Project } from "@/project/project"
@@ -47,22 +43,27 @@ import { Npm } from "@opencode-ai/core/npm"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { AppNodeBuilderV1 } from "./app-node-builder-v1"
+import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
+import { AppNodeBuilderInstance } from "./instance-app-node-builder"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
 import { TaskTool } from "@opencode-ai/core/tool/task"
+import { BashTool } from "@opencode-ai/core/tool/bash"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { MemoryDrainWatcher } from "@opencode-ai/core/memory/drain-watcher"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 
-const locationServiceMapV2 = buildLocationServiceMap([[TaskTool.hostNode, ToolHostBridges.taskHostNode]])
+const locationServiceMapV2 = buildLocationServiceMap([
+  [TaskTool.hostNode, ToolHostBridges.taskHostNode],
+  [BashTool.hostNode, ToolHostBridges.bashHostNode],
+])
 
-export const AppLayer = AppNodeBuilderV1.build(
+export const AppLayer = AppNodeBuilderInstance.build(
   LayerNode.group([
     Npm.node,
     FSUtil.node,
@@ -92,14 +93,12 @@ export const AppLayer = AppNodeBuilderV1.build(
     EventV2Bridge.node,
     SessionRunState.node,
     SessionSummary.node,
-    Instruction.node,
-    LLM.node,
+
     LSP.node,
     MCP.node,
     McpAuth.node,
     Command.node,
-    Truncate.node,
-    ToolRegistry.node,
+
     Format.node,
     InstanceStore.node,
     Project.node,
@@ -121,7 +120,8 @@ export const AppLayer = AppNodeBuilderV1.build(
   ],
 ).pipe(
   Layer.provide(locationServiceMapV2),
-  Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)),
+  Layer.provideMerge(AppNodeBuilderInstance.build(Ripgrep.node)),
+  Layer.provideMerge(LLMClient.layer.pipe(Layer.provide(RequestExecutor.fetchLayer))),
   Layer.provideMerge(Observability.layer),
 )
 

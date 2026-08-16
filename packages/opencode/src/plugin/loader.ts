@@ -9,7 +9,7 @@ import {
   type PluginSource,
 } from "./shared"
 import { ConfigPlugin } from "@/config/plugin"
-import { ConfigPluginV1 } from "@opencode-ai/core/v1/config/plugin"
+import { ConfigPluginV1 } from "@opencode-ai/core/config/legacy/plugin"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 export namespace PluginLoader {

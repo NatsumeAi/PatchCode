@@ -3,7 +3,6 @@ import { readdir, readFile } from "node:fs/promises"
 import path from "node:path"
 
 const coreSrc = path.join(import.meta.dir, "../../src")
-const shellTs = path.join(import.meta.dir, "../../../opencode/src/tool/shell.ts")
 
 test("bash.ts no longer asserts the raw command as the only resource", async () => {
   const bash = await readFile(path.join(coreSrc, "tool/bash.ts"), "utf8")
@@ -18,13 +17,12 @@ test("missingAgentPermissions is deny", async () => {
   expect(block).not.toContain('effect: "allow"')
 })
 
-test("V1 shell.ts does not own a bash parser", async () => {
-  const shell = await readFile(shellTs, "utf8")
-  expect(shell).not.toContain("Parser.init")
-  expect(shell).not.toContain("tree-sitter-bash")
-  expect(shell).toContain("wrapSpawn")
-  expect(shell).toContain("decide(")
-  expect(shell).toContain("classify(")
+test("live bash uses exec-policy classify/decide and wrapSpawn, not a local parser", async () => {
+  const bash = await readFile(path.join(coreSrc, "tool/bash.ts"), "utf8")
+  expect(bash).not.toContain("Parser.init")
+  expect(bash).not.toContain("tree-sitter-bash")
+  expect(bash).toContain("wrapSpawn")
+  expect(bash).toContain("decideCommand")
 })
 
 test("exec-policy does not classify with split &&", async () => {

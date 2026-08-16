@@ -13,7 +13,7 @@ import { Command } from "@/command"
 import { Config } from "@/config/config"
 import { Workspace } from "@/control-plane/workspace"
 import { Env } from "@/env"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventV2Bridge } from "@/event-bridge"
 import { Format } from "@/format"
 import { Git } from "@/git"
 import { Installation } from "@/installation"
@@ -33,8 +33,6 @@ import { SessionRunState } from "@/session/run-state"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
-import { Instruction } from "@/session/instruction"
-import { LLM } from "@/session/llm"
 import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
@@ -42,15 +40,14 @@ import { Skill } from "@/skill"
 import { Discovery } from "@/skill/discovery"
 import { Snapshot } from "@/snapshot"
 import { Storage } from "@/storage/storage"
-import { ToolRegistry } from "@/tool/registry"
-import { Truncate } from "@/tool/truncate"
 import { Worktree } from "@/worktree"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { Database } from "@opencode-ai/core/database/database"
-import { AppNodeBuilderV1 } from "@/effect/app-node-builder-v1"
+import { AppNodeBuilderInstance } from "@/effect/instance-app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
+import { httpClient, llmClient } from "@opencode-ai/core/effect/app-node-platform"
+import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
 import { EventV2 } from "@opencode-ai/core/event"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Npm } from "@opencode-ai/core/npm"
@@ -100,6 +97,7 @@ import { handlers } from "@opencode-ai/server/handlers"
 import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
 import { TaskTool } from "@opencode-ai/core/tool/task"
+import { BashTool } from "@opencode-ai/core/tool/bash"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { layer as locationLayer } from "@opencode-ai/server/location"
 import { sessionLocationLayer } from "@opencode-ai/server/middleware/session-location"
@@ -241,14 +239,12 @@ const app = LayerNode.group([
   EventV2Bridge.node,
   SessionRunState.node,
   SessionSummary.node,
-  Instruction.node,
-  LLM.node,
+
   LSP.node,
   MCP.node,
   McpAuth.node,
   Command.node,
-  Truncate.node,
-  ToolRegistry.node,
+
   Format.node,
   Project.node,
   Vcs.node,
@@ -259,6 +255,7 @@ const app = LayerNode.group([
   SessionShare.node,
   InstanceStore.node,
   httpClient,
+  llmClient,
   EventV2.node,
   ProjectV2.node,
   ProjectCopy.node,
@@ -271,7 +268,10 @@ const app = LayerNode.group([
 export function createRoutes(
   corsOptions?: CorsOptions,
 ): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
-  const locationServiceMapV2 = buildLocationServiceMap([[TaskTool.hostNode, ToolHostBridges.taskHostNode]])
+  const locationServiceMapV2 = buildLocationServiceMap([
+    [TaskTool.hostNode, ToolHostBridges.taskHostNode],
+    [BashTool.hostNode, ToolHostBridges.bashHostNode],
+  ])
 
   return Layer.mergeAll(
     rootApiRoutes,
@@ -288,7 +288,7 @@ export function createRoutes(
       corsVaryFix,
       fenceLayer,
       cors(corsOptions),
-      AppNodeBuilderV1.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
+      AppNodeBuilderInstance.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
       HttpServer.layerServices,
     ]),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
@@ -296,7 +296,7 @@ export function createRoutes(
     Layer.provide(locationLayer),
     Layer.provide(PtyEnvironment.layer),
     Layer.provide(
-      AppNodeBuilderV1.build(SessionV2.node, [
+      AppNodeBuilderInstance.build(SessionV2.node, [
         [LocationServiceMap.node, locationServiceMapV2],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
@@ -304,7 +304,7 @@ export function createRoutes(
     Layer.provide(locationServiceMapV2),
 
     Layer.provide(
-      AppNodeBuilderV1.build(app, [
+      AppNodeBuilderInstance.build(app, [
         [LocationServiceMap.node, locationServiceMapV2],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
@@ -319,8 +319,13 @@ export function createRoutes(
 
 export const routes = createRoutes()
 
+// Self-contained fetch stack for toWebHandler (tests + Server.Default).
+// Do not attach this to createRoutes()/HttpRouter.serve — a second FetchHttpClient
+// deadlocks the served graph. listen() reuses the app `httpClient` via RequestExecutor.layer.
+const llmStack = () => LLMClient.layer.pipe(Layer.provide(RequestExecutor.fetchLayer))
+
 export const webHandler = lazy(() =>
-  HttpRouter.toWebHandler(routes, {
+  HttpRouter.toWebHandler(routes.pipe(Layer.provideMerge(llmStack())), {
     disableLogger: true,
     memoMap,
     middleware: disposeMiddleware,

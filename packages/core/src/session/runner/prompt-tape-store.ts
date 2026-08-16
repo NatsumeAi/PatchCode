@@ -14,9 +14,11 @@ type RevertSnap = {
 
 const tapes = new Map<string, PromptTape.Tape>()
 const settles = new Map<string, ToolRegistry.Materialization["settle"]>()
+const repair = new Map<string, { readonly advertised: ReadonlyArray<string>; readonly hidden: ReadonlyArray<string> }>()
 const lastSeqs = new Map<string, number>()
 const messageSeqs = new Map<string, number[]>()
 const recalls = new Map<string, string>()
+const formats = new Map<string, { readonly type: string; readonly schema?: Record<string, unknown> }>()
 const revertSnaps = new Map<string, ReadonlyArray<RevertSnap>>()
 
 export const key = (sessionID: string, baselineSeq: number) => `${sessionID}:${baselineSeq}`
@@ -46,6 +48,16 @@ export const setSettle = (sessionID: string, baselineSeq: number, settle: ToolRe
   settles.set(key(sessionID, baselineSeq), settle)
 }
 
+export const getRepair = (sessionID: string, baselineSeq: number) => repair.get(key(sessionID, baselineSeq))
+
+export const setRepair = (
+  sessionID: string,
+  baselineSeq: number,
+  names: { readonly advertised: ReadonlyArray<string>; readonly hidden: ReadonlyArray<string> },
+) => {
+  repair.set(key(sessionID, baselineSeq), names)
+}
+
 export const getLastSeq = (sessionID: string, baselineSeq: number) => lastSeqs.get(key(sessionID, baselineSeq)) ?? 0
 
 export const setLastSeq = (sessionID: string, baselineSeq: number, seq: number) => {
@@ -67,6 +79,16 @@ export const getRecall = (sessionID: string, baselineSeq: number) => recalls.get
 
 export const setRecall = (sessionID: string, baselineSeq: number, recall: string) => {
   recalls.set(key(sessionID, baselineSeq), recall)
+}
+
+export const getFormat = (sessionID: string) => formats.get(sessionID)
+
+export const setFormat = (
+  sessionID: string,
+  format: { readonly type: string; readonly schema?: Record<string, unknown> } | undefined,
+) => {
+  if (!format) formats.delete(sessionID)
+  else formats.set(sessionID, format)
 }
 
 export const epochs = (sessionID: string) => {
@@ -120,6 +142,7 @@ export const truncateToSeq = (sessionID: string, seq: number) => {
       messageSeqs.delete(item)
       recalls.delete(item)
       settles.delete(item)
+      repair.delete(item)
       continue
     }
     const keep = seqs.filter((value) => value <= seq).length
@@ -134,17 +157,21 @@ export const truncateToSeq = (sessionID: string, seq: number) => {
 export const clear = (sessionID: string) => {
   deleteSessionKeys(sessionID, tapes)
   deleteSessionKeys(sessionID, settles)
+  deleteSessionKeys(sessionID, repair)
   deleteSessionKeys(sessionID, lastSeqs)
   deleteSessionKeys(sessionID, messageSeqs)
   deleteSessionKeys(sessionID, recalls)
+  formats.delete(sessionID)
   revertSnaps.delete(sessionID)
 }
 
 export const clearAll = () => {
   tapes.clear()
   settles.clear()
+  repair.clear()
   lastSeqs.clear()
   messageSeqs.clear()
   recalls.clear()
+  formats.clear()
   revertSnaps.clear()
 }

@@ -10,7 +10,7 @@ import { AgentAttachment, FileAttachment, Prompt, Source } from "@opencode-ai/sc
 import { Provider } from "@opencode-ai/schema/provider"
 import { Project } from "@opencode-ai/schema/project"
 import { ProjectDirectories } from "@opencode-ai/schema/project-directories"
-import { PermissionV1 } from "@opencode-ai/schema/permission-v1"
+import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
 import { Session } from "@opencode-ai/schema/session"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
@@ -51,7 +51,6 @@ test("Core reuses the canonical shared schemas", async () => {
     coreSessionTodo,
     corePrompt,
     coreSkill,
-    coreV2Schema,
     coreSchema,
     coreWorkspace,
   ] = await Promise.all([
@@ -63,7 +62,7 @@ test("Core reuses the canonical shared schemas", async () => {
     import("@opencode-ai/core/location"),
     import("@opencode-ai/llm"),
     import("@opencode-ai/core/permission"),
-    import("@opencode-ai/core/v1/permission"),
+    import("@opencode-ai/core/permission-legacy"),
     import("@opencode-ai/core/project/copy"),
     import("@opencode-ai/core/pty"),
     import("@opencode-ai/core/project/schema"),
@@ -73,7 +72,6 @@ test("Core reuses the canonical shared schemas", async () => {
     import("@opencode-ai/core/session/todo"),
     import("@opencode-ai/core/session/prompt"),
     import("@opencode-ai/core/skill"),
-    import("@opencode-ai/core/v2-schema"),
     import("@opencode-ai/core/schema"),
     import("@opencode-ai/core/workspace"),
   ])
@@ -173,7 +171,7 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreSkill.EmbeddedSource, Skill.EmbeddedSource],
     [coreSkill.Source, Skill.Source],
     [coreSkill.Info, Skill.Info],
-    [coreV2Schema.DateTimeUtcFromMillis, DateTimeUtcFromMillis],
+    [coreSchema.DateTimeUtcFromMillis, DateTimeUtcFromMillis],
     [coreSchema.optional, optional],
     [coreSchema.statics, statics],
     [coreWorkspace.ID, Workspace.ID],

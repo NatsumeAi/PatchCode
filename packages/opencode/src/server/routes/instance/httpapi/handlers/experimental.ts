@@ -1,5 +1,4 @@
 import { Account } from "@/account/account"
-import { Agent } from "@/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
@@ -8,8 +7,6 @@ import { MCP } from "@/mcp"
 import { Project } from "@/project/project"
 import { Session } from "@/session/session"
 import type { SessionID } from "@/session/schema"
-import { ToolJsonSchema } from "@/tool/json-schema"
-import { ToolRegistry } from "@/tool/registry"
 import { Worktree } from "@/worktree"
 import { Effect, Option } from "effect"
 import { join } from "path"
@@ -27,6 +24,10 @@ import { MAX_NOTE_CHARS, writeMemoryNote } from "@opencode-ai/core/memory/tools"
 import { allowUnauthedMemoryMutation } from "@opencode-ai/core/memory/memory-http-guard"
 import { invalidateRecallCache } from "@opencode-ai/core/memory/recall"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { Location } from "@opencode-ai/core/location"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { ToolRegistry as CoreToolRegistry } from "@opencode-ai/core/tool/registry"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { HttpServerRequest } from "effect/unstable/http"
@@ -66,11 +67,10 @@ function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
 export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "experimental", (handlers) =>
   Effect.gen(function* () {
     const account = yield* Account.Service
-    const agents = yield* Agent.Service
     const config = yield* Config.Service
     const mcp = yield* MCP.Service
     const project = yield* Project.Service
-    const registry = yield* ToolRegistry.Service
+    const locations = yield* LocationServiceMap.Service
     const worktreeSvc = yield* Worktree.Service
     const sessions = yield* Session.Service
     const background = yield* BackgroundJob.Service
@@ -131,21 +131,34 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return true
     })
 
-    const tool = Effect.fn("ExperimentalHttpApi.tool")(function* (ctx: { query: typeof ToolListQuery.Type }) {
-      const list = yield* registry.tools({
-        providerID: ctx.query.provider,
-        modelID: ctx.query.model,
-        agent: yield* agents.defaultInfo(),
+    const withLocationTools = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.gen(function* () {
+        const directory = AbsolutePath.make((yield* InstanceState.context).directory)
+        return yield* effect.pipe(Effect.provide(locations.get(Location.Ref.make({ directory }))))
       })
-      return list.map((item) => ({
-        id: item.id,
-        description: item.description,
-        parameters: ToolJsonSchema.fromTool(item),
-      }))
+
+    const tool = Effect.fn("ExperimentalHttpApi.tool")(function* (_ctx: { query: typeof ToolListQuery.Type }) {
+      return yield* withLocationTools(
+        Effect.gen(function* () {
+          const registry = yield* CoreToolRegistry.Service
+          const materialized = yield* registry.materialize()
+          return materialized.definitions.map((item) => ({
+            id: item.name,
+            description: item.description ?? "",
+            parameters: item.inputSchema,
+          }))
+        }),
+      )
     })
 
     const toolIDs = Effect.fn("ExperimentalHttpApi.toolIDs")(function* () {
-      return yield* registry.ids()
+      return yield* withLocationTools(
+        Effect.gen(function* () {
+          const registry = yield* CoreToolRegistry.Service
+          const materialized = yield* registry.materialize()
+          return materialized.definitions.map((item) => item.name)
+        }),
+      )
     })
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {

@@ -34,6 +34,7 @@ export const Applied = Schema.Struct({
 export const Output = Schema.Struct({
   applied: Schema.Array(Applied),
   files: Schema.Array(FileDiff.Info),
+  diagnostics: Schema.String.pipe(Schema.optional),
 })
 export type Output = typeof Output.Type
 
@@ -46,6 +47,7 @@ export const toModelOutput = (output: Output) =>
       if (item.type === "move") return `R ${item.from} -> ${item.to}`
       return `M ${item.resource}`
     }),
+    ...(output.diagnostics ? [output.diagnostics] : []),
   ].join("\n")
 
 type Prepared =
@@ -192,6 +194,7 @@ const layer = Layer.effectDiscard(
                 }
 
                 const patchFiles = prepared.map(patchFile)
+                const diagnostics: string[] = []
                 yield* Effect.forEach(
                   prepared,
                   (change) =>
@@ -204,6 +207,7 @@ const layer = Layer.effectDiscard(
                               ? change.contents
                               : `${change.contents}\n`,
                         })
+                        if (result.diagnostics) diagnostics.push(result.diagnostics)
                         applied.push({ type: change.type, resource: result.resource, target: result.target })
                         return
                       }
@@ -221,11 +225,12 @@ const layer = Layer.effectDiscard(
                           change.source.length === nextBytes.length &&
                           change.source.every((byte, index) => byte === nextBytes[index])
                         if (!unchanged) {
-                          yield* files.writeIfUnchanged({
+                          const written = yield* files.writeIfUnchanged({
                             target: change.target,
                             expected: change.source,
                             content: change.content,
                           })
+                          if (written.diagnostics) diagnostics.push(written.diagnostics)
                         }
                         const result = yield* files.rename({
                           from: change.target,
@@ -246,11 +251,16 @@ const layer = Layer.effectDiscard(
                         expected: change.source,
                         content: change.content,
                       })
+                      if (result.diagnostics) diagnostics.push(result.diagnostics)
                       applied.push({ type: change.type, resource: result.resource, target: result.target })
                     }).pipe(Effect.mapError(() => fail(change.path))),
                   { discard: true },
                 )
-                return { applied, files: patchFiles }
+                return {
+                  applied,
+                  files: patchFiles,
+                  ...(diagnostics.length > 0 ? { diagnostics: diagnostics.join("") } : {}),
+                }
               }).pipe(
                 Effect.mapError((error) =>
                   error instanceof ToolFailure

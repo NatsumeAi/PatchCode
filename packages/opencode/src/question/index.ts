@@ -3,8 +3,8 @@ import { Deferred, Effect, Layer, Schema, Context } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionID } from "@/session/schema"
 import { QuestionID } from "./schema"
-import { EventV2Bridge } from "@/event-v2-bridge"
-import { QuestionV1 } from "@opencode-ai/schema/question-v1"
+import { EventV2Bridge } from "@/event-bridge"
+import { QuestionV1 } from "@opencode-ai/schema/question-legacy"
 
 export const Option = QuestionV1.Option
 export type Option = typeof Option.Type

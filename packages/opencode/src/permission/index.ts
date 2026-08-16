@@ -1,11 +1,11 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ConfigPermissionV1 } from "@opencode-ai/core/v1/config/permission"
+import { ConfigPermissionV1 } from "@opencode-ai/core/config/legacy/permission"
 import { InstanceState } from "@/effect/instance-state"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
 import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
+import { EventV2Bridge } from "@/event-bridge"
 
 export const Event = PermissionV1.Event
 

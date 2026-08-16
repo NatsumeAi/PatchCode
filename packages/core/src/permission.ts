@@ -6,7 +6,8 @@ import { Permission } from "@opencode-ai/schema/permission"
 import { EventV2 } from "./event"
 import { Location } from "./location"
 import { AgentV2 } from "./agent"
-import { SessionV2 } from "./session"
+import { NotFoundError as SessionNotFoundError } from "./session/error"
+import { SessionSchema } from "./session/schema"
 import { SessionStore } from "./session/store"
 import { Wildcard } from "./util/wildcard"
 import { evaluate } from "./permission/evaluate"
@@ -79,12 +80,12 @@ export type Error = BlockedError | CorrectedError
 export { evaluate, merge } from "./permission/evaluate"
 
 export interface Interface {
-  readonly ask: (input: AssertInput) => EffectRuntime.Effect<AskResult, SessionV2.NotFoundError>
-  readonly assert: (input: AssertInput) => EffectRuntime.Effect<void, Error | SessionV2.NotFoundError>
-  readonly assertPolicyAsk: (input: AssertInput) => EffectRuntime.Effect<void, Error | SessionV2.NotFoundError>
+  readonly ask: (input: AssertInput) => EffectRuntime.Effect<AskResult, SessionNotFoundError>
+  readonly assert: (input: AssertInput) => EffectRuntime.Effect<void, Error | SessionNotFoundError>
+  readonly assertPolicyAsk: (input: AssertInput) => EffectRuntime.Effect<void, Error | SessionNotFoundError>
   readonly reply: (input: ReplyInput) => EffectRuntime.Effect<void, NotFoundError>
   readonly get: (id: ID) => EffectRuntime.Effect<Request | undefined>
-  readonly forSession: (sessionID: SessionV2.ID) => EffectRuntime.Effect<ReadonlyArray<Request>>
+  readonly forSession: (sessionID: SessionSchema.ID) => EffectRuntime.Effect<ReadonlyArray<Request>>
   readonly list: () => EffectRuntime.Effect<ReadonlyArray<Request>>
 }
 
@@ -126,11 +127,11 @@ const layer = Layer.effect(
     })
 
     const configured = EffectRuntime.fn("PermissionV2.configured")(function* (
-      sessionID: SessionV2.ID,
+      sessionID: SessionSchema.ID,
       agentID?: AgentV2.ID,
     ) {
       const session = yield* sessions.get(sessionID)
-      if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
+      if (!session) return yield* new SessionNotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
       const agentRules = agent?.permissions ?? missingAgentPermissions
       // Merge session-scoped rules (stored as V1 shape in the permission column)
@@ -343,7 +344,7 @@ const layer = Layer.effect(
       return pending.get(id)?.request
     })
 
-    const forSession = EffectRuntime.fn("PermissionV2.forSession")(function* (sessionID: SessionV2.ID) {
+    const forSession = EffectRuntime.fn("PermissionV2.forSession")(function* (sessionID: SessionSchema.ID) {
       return Array.from(pending.values(), (item) => item.request).filter((request) => request.sessionID === sessionID)
     })
 

@@ -6,7 +6,7 @@ import { Database } from "../database/database"
 import { EventV2 } from "../event"
 import { makeGlobalNode } from "../effect/app-node"
 import { SessionEvent } from "./event"
-import { SessionV1 } from "../v1/session"
+import { SessionV1 } from "../session-legacy"
 import { WorkspaceTable } from "../control-plane/workspace.sql"
 import { SessionMessage } from "./message"
 import { SessionMessageUpdater } from "./message-updater"
@@ -504,6 +504,7 @@ function legacyMirror(
           },
           ...(message.finish === undefined ? {} : { finish: message.finish }),
           ...(message.model.variant === undefined ? {} : { variant: message.model.variant }),
+          ...(message.structured === undefined ? {} : { structured: message.structured }),
           ...v1AssistantError(message),
         },
       },

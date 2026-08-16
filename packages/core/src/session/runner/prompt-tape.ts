@@ -39,14 +39,19 @@ export const append = (tape: Tape, extra: ReadonlyArray<ChatMessage>): Tape => (
 
 export const withEphemeral = (tape: Tape, extra: ReadonlyArray<ChatMessage>): Tape => append(tape, extra)
 
+const withSystem = (tape: Tape, extra: ReadonlyArray<ChatMessage> = []): ChatMessage[] =>
+  tape.system.length > 0
+    ? [{ role: "system", content: tape.system }, ...tape.messages, ...cloneMessages(extra)]
+    : [...tape.messages, ...cloneMessages(extra)]
+
 export const wire = (tape: Tape): ChatWire => ({
   tools: tape.tools,
-  messages: [{ role: "system", content: tape.system }, ...tape.messages],
+  messages: withSystem(tape),
 })
 
 export const compiled = (tape: Tape, ephemeral: ReadonlyArray<ChatMessage> = []): CompiledChat => ({
   protocol: "openai-compatible-chat",
-  messages: [{ role: "system", content: tape.system }, ...tape.messages, ...cloneMessages(ephemeral)],
+  messages: withSystem(tape, ephemeral),
   tools: tape.tools,
 })
 

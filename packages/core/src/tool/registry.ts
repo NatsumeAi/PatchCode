@@ -39,6 +39,7 @@ export interface Interface {
   readonly materialize: (agent?: {
     permissions?: PermissionV2.Ruleset
     capability?: "read-only" | "read-write" | "execute" | "all"
+    modelID?: string
   }) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
   readonly register: (
@@ -51,6 +52,8 @@ export interface Interface {
 export interface Materialization {
   readonly definitions: ReadonlyArray<ToolDefinition>
   readonly settle: (input: ExecuteInput) => Effect.Effect<Settlement, ToolOutputStore.Error>
+  /** Registered but not advertised (official `invalid` repair target). */
+  readonly hidden: ReadonlyArray<string>
 }
 
 export interface Settlement {
@@ -60,6 +63,19 @@ export interface Settlement {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/ToolRegistry") {}
+
+/** Optional host: leftover plugins rewrite advertised tool descriptions at materialize time. */
+export interface DefinitionHook {
+  readonly rewrite: (input: {
+    readonly toolID: string
+    readonly description: string
+    readonly parameters: unknown
+  }) => Effect.Effect<{ readonly description: string; readonly parameters: unknown }>
+}
+
+export class DefinitionHookService extends Context.Service<DefinitionHookService, DefinitionHook>()(
+  "@opencode/v2/ToolDefinitionHook",
+) {}
 
 const registryLayer = Layer.effect(
   Service,
@@ -75,7 +91,10 @@ const registryLayer = Layer.effect(
 
     const settleWith = Effect.fn("ToolRegistry.settle")(function* (input: ExecuteInput, advertised?: object) {
       const registration =
-        local.get(input.call.name)?.at(-1)?.registration ?? applications.entries().get(input.call.name)
+        local.get(input.call.name)?.at(-1)?.registration ??
+        applications.entries().get(input.call.name) ??
+        local.get(input.call.name.toLowerCase())?.at(-1)?.registration ??
+        applications.entries().get(input.call.name.toLowerCase())
       if (!registration)
         return {
           result: {
@@ -227,6 +246,10 @@ const registryLayer = Layer.effect(
         for (const name of Array.from(advertised.keys())) {
           const registration = advertised.get(name)
           if (!registration) continue
+          if (name === "invalid") {
+            advertised.delete(name)
+            continue
+          }
           if (name === SEARCH_TOOL || name === USE_TOOL) {
             if (!defer) advertised.delete(name)
             continue
@@ -234,6 +257,14 @@ const registryLayer = Layer.effect(
           if (registration.source === "dynamic" && defer) advertised.delete(name)
           if (name === EXECUTE_TOOL && !executeEnabled) advertised.delete(name)
           if (BROWSER_TOOLS.has(name) && (!browserEnabled || Option.isNone(browserHost))) advertised.delete(name)
+        }
+        const modelID = agent.modelID ?? ""
+        const usePatch = modelID.includes("gpt-") && !modelID.includes("oss") && !modelID.includes("gpt-4")
+        if (usePatch) {
+          advertised.delete("edit")
+          advertised.delete("write")
+        } else {
+          advertised.delete("apply_patch")
         }
         const definitions = Array.from(advertised, ([name, registration]) => definition(name, registration.tool))
         // Restore V1 describeTask: append callable subagent catalog to task tool description.
@@ -255,11 +286,50 @@ const registryLayer = Layer.effect(
             }
           }
         }
+        const hook = yield* Effect.serviceOption(DefinitionHookService)
+        if (Option.isSome(hook)) {
+          for (let i = 0; i < definitions.length; i++) {
+            const base = definitions[i]!
+            const rewritten = yield* hook.value.rewrite({
+              toolID: base.name,
+              description: base.description,
+              parameters: base.inputSchema,
+            })
+            if (rewritten.description !== base.description || rewritten.parameters !== base.inputSchema) {
+              definitions[i] = new ToolDefinition({
+                name: base.name,
+                description: rewritten.description,
+                inputSchema: rewritten.parameters as typeof base.inputSchema,
+                outputSchema: base.outputSchema,
+                cache: base.cache,
+                metadata: base.metadata,
+                native: base.native,
+              })
+            }
+          }
+        }
+        const hidden = [...registrations.keys()].filter((name) => !advertised.has(name))
         return {
           definitions,
+          hidden,
           settle: (input) => {
-            const registration = registrations.get(input.call.name)
+            const registration =
+              registrations.get(input.call.name) ?? registrations.get(input.call.name.toLowerCase())
             if (registration) return settleWith(input, registration.identity)
+            const invalid = registrations.get("invalid")
+            if (invalid) {
+              return settleWith(
+                {
+                  ...input,
+                  call: {
+                    ...input.call,
+                    name: "invalid",
+                    input: { tool: input.call.name, error: `Unknown tool: ${input.call.name}` },
+                  },
+                },
+                invalid.identity,
+              )
+            }
             return Effect.succeed({ result: { type: "error", value: `Unknown tool: ${input.call.name}` } })
           },
         }

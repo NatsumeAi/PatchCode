@@ -443,7 +443,7 @@ describe("EditTool", () => {
   )
 })
 
-test("keeps the locked edit schema, semantics docstring, and deferred TODOs visible", async () => {
+test("keeps the locked edit schema, semantics docstring, and live diagnostics output", async () => {
   const source = (await fs.readFile(new URL("../src/tool/edit.ts", import.meta.url), "utf8")).replaceAll("\r\n", "\n")
   const definition = await Effect.runPromise(
     withTool(path.dirname(fileURLToPath(import.meta.url)), (registry) => toolDefinitions(registry)),
@@ -454,13 +454,9 @@ test("keeps the locked edit schema, semantics docstring, and deferred TODOs visi
   expect(source).toContain(
     "absolute external paths retain mutation capability through a separate\n * external_directory approval before edit approval.",
   )
-  for (const todo of [
-    "Keep V1 fuzzy strategies in edit-match.ts (line-trimmed, block-anchor, indentation, similarity-threshold); do not reintroduce them inline in edit.ts.",
-    "Add formatter integration after V2 formatter runtime exists.",
-    "Publish watcher/file-edit events after V2 watcher integration exists.",
-    "Add snapshots / undo after design exists.",
-    "Add LSP notification and diagnostics after V2 LSP runtime exists.",
-  ]) {
-    expect(source).toContain(`TODO: ${todo}`)
-  }
+  expect(source).toContain("diagnostics: Schema.String.pipe(Schema.optional)")
+  expect(source).toContain("...(output.diagnostics ? [output.diagnostics] : [])")
+  expect(source).toContain("from \"./edit-match\"")
+  expect(source).not.toContain("TODO: Add formatter integration after V2 formatter runtime exists.")
+  expect(source).not.toContain("TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.")
 })

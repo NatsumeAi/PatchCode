@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { AgentV2 } from "../src/agent"
 import { deriveSubagentPermission, toLegacyRule, toCurrentRule } from "../src/session/subagent-permissions"
 import { Permission } from "@opencode-ai/schema/permission"
-import { PermissionV1 } from "@opencode-ai/schema/permission-v1"
+import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
 
 const agent = (permissions: Permission.Ruleset): AgentV2.Info =>
   AgentV2.Info.make({

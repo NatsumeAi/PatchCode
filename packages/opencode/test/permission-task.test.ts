@@ -1,4 +1,4 @@
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { describe, test, expect } from "bun:test"
 import { Effect } from "effect"

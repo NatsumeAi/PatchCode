@@ -14,6 +14,7 @@ import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { pinSession } from "@opencode-ai/core/sandbox/resolve"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { BashTool } from "@opencode-ai/core/tool/bash"
@@ -26,11 +27,13 @@ import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
 const sessionID = SessionV2.ID.make("ses_bash_tool_test")
+pinSession(sessionID, "off")
 const assertions: PermissionV2.AssertInput[] = []
 const spawns: Array<{
   readonly command: string
   readonly cwd?: string
   readonly shell?: string | boolean
+  readonly env?: Record<string, string>
 }> = []
 const published: Array<{ readonly type: string; readonly data: Record<string, unknown> }> = []
 let denyAction: string | undefined
@@ -73,7 +76,12 @@ const appProcess = Layer.succeed(
     spawn: (command: ChildProcess.Command) =>
       Effect.suspend(() => {
         if (command._tag !== "StandardCommand") throw new Error("expected standard command")
-        spawns.push({ command: command.command, cwd: command.options.cwd, shell: command.options.shell })
+        spawns.push({
+          command: command.command,
+          cwd: command.options.cwd,
+          shell: command.options.shell,
+          env: command.options.env as Record<string, string> | undefined,
+        })
         if (spawnFailure) return Effect.fail(spawnFailure)
         const output = spawnResult.output ?? Buffer.alloc(0)
         // Hang after optional partial stdout so timeout can assert captured output is kept.
@@ -187,6 +195,7 @@ const withTool = <A, E, R>(
   directory: string,
   body: (registry: ToolRegistry.Interface) => Effect.Effect<A, E, R>,
   processLayer: Layer.Layer<AppProcess.Service> = appProcess,
+  hostLayer?: Layer.Layer<BashTool.HostService>,
 ) => {
   const activeLocation = Layer.succeed(
     Location.Service,
@@ -206,6 +215,7 @@ const withTool = <A, E, R>(
           [Config.node, config],
           [EventV2.node, events],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+          ...(hostLayer ? ([[BashTool.hostNode, hostLayer]] as const) : []),
         ],
       ),
     ),
@@ -233,6 +243,9 @@ describe("BashTool", () => {
             const definitions = yield* toolDefinitions(registry)
             expect(definitions.map((tool) => tool.name)).toEqual(["bash"])
             expect(definitions[0]?.inputSchema).toHaveProperty("properties.background")
+            expect(definitions[0]?.description).toContain("Git and GitHub")
+            expect(definitions[0]?.description).toContain("workdir")
+            expect(definitions[0]?.description).toContain("If background is true")
             expect(definitions[0]?.inputSchema).not.toHaveProperty("properties.description")
             expect(definitions[0]?.outputSchema).not.toHaveProperty("properties.output")
             expect(definitions[0]?.outputSchema).not.toHaveProperty("properties.command")
@@ -261,6 +274,31 @@ describe("BashTool", () => {
             expect(progressEvents()).toEqual([])
             expect(assertions).toMatchObject([{ sessionID, action: "bash", resources: ["pwd"], save: ["pwd"] }])
           }),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.live("merges host shell.env into the spawned command environment", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        return withTool(
+          tmp.path,
+          (registry) =>
+            Effect.gen(function* () {
+              yield* executeTool(registry, call({ command: "pwd" }))
+              expect(spawns[0]?.env).toMatchObject({ OPENCODE_TEST_SHELL_ENV: "1" })
+            }),
+          appProcess,
+          Layer.succeed(
+            BashTool.HostService,
+            BashTool.HostService.of({
+              env: () => Effect.succeed({ OPENCODE_TEST_SHELL_ENV: "1" }),
+            }),
+          ),
         )
       },
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),

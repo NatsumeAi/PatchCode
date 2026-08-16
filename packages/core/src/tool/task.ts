@@ -24,15 +24,21 @@ export const description = `Launch a new agent to handle complex, multistep task
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 
 When NOT to use the Task tool:
-- If you want to read a specific file path, use the Read or Glob tool instead
-- If you are searching for a specific class definition, use the Grep tool instead
-- If you are searching for code within 2-3 files, use the Read tool instead
+- If you want to read a specific file path, use the Read or Glob tool instead of the Task tool, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the Grep tool instead, to find the match more quickly
+- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly
+- If no available agent is a good fit for the task, use other tools directly
 
 Usage notes:
-1. Launch multiple agents concurrently when possible
-2. Do not duplicate work the subagent is doing
-3. The result includes a task_id you can reuse later to continue the same subagent session
-4. Foreground (default) waits for the result; background=true returns immediately`
+1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+2. Once you have delegated work to an agent, do not duplicate that work yourself. Continue with non-overlapping tasks, or wait for the result. For background tasks, you will be notified automatically when the result is ready.
+3. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result. The output includes a task_id you can reuse later to continue the same subagent session.
+4. Each agent invocation starts with a fresh context unless you provide task_id to resume the same subagent session (which continues with its previous messages and tool outputs). When starting fresh, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
+5. The agent's outputs should generally be trusted
+6. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
+7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
+
+Foreground (default) waits for the result; background=true returns immediately.`
 
 export const Input = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
@@ -80,6 +86,42 @@ export const Output = Schema.Struct({
   /** Isolated git worktree id when isolation is worktree. */
   worktreeId: Schema.String.pipe(Schema.optional),
 })
+
+export const renderOutput = (input: {
+  sessionID: string
+  state: "running" | "completed" | "error"
+  summary?: string
+  text: string
+}) => {
+  const tag = input.state === "error" ? "task_error" : "task_result"
+  return [
+    `<task id="${input.sessionID}" state="${input.state}">`,
+    ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
+    `<${tag}>`,
+    input.text,
+    `</${tag}>`,
+    "</task>",
+  ].join("\n")
+}
+
+const toTaskModelOutput = (output: typeof Output.Type) => {
+  if (output.output.includes("<task id=")) return output.output
+  const childID = output.sessionID ?? output.task_id
+  if (!childID) return output.output
+  const exitTag = output.structured?.exit
+  const isBackground = output.background === true || exitTag === "running"
+  const state: "running" | "completed" | "error" = isBackground
+    ? "running"
+    : exitTag === "failed" || exitTag === "cancelled" || exitTag === "timeout"
+      ? "error"
+      : "completed"
+  return renderOutput({
+    sessionID: childID,
+    state,
+    text: output.output,
+    ...(isBackground ? { summary: "Background task started" } : {}),
+  })
+}
 
 export interface Host {
   readonly run: (input: {
@@ -148,7 +190,7 @@ const layer = Layer.effectDiscard(
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+          toModelOutput: ({ output }) => [{ type: "text", text: toTaskModelOutput(output) }],
           execute: (input, context) =>
             Effect.gen(function* () {
               // V1 published title via ctx.metadata at execute start so a running

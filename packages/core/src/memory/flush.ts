@@ -7,7 +7,6 @@ import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { Location } from "../location"
 import { makeLocationNode } from "../effect/app-node"
-import { llmClient } from "../effect/app-node-platform"
 import { SessionStore } from "../session/store"
 import { SessionSchema } from "../session/schema"
 import { SessionRunnerModel } from "../session/runner/model"
@@ -283,16 +282,17 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const store = yield* SessionStore.Service
-    const llm = yield* LLMClient.Service
     const models = yield* SessionRunnerModel.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
     return Service.of({
       flush: Effect.fn("Memory.flush")(function* (sessionID) {
+        const llm = yield* Effect.serviceOption(LLMClient.Service)
+        if (llm._tag === "None") return
         const session = yield* Effect.orElseSucceed(store.get(sessionID), () => undefined)
         if (!session) return
-        yield* flushSession(session, store, llm, models, fs, global, location).pipe(Effect.catch(() => Effect.void))
+        yield* flushSession(session, store, llm.value, models, fs, global, location).pipe(Effect.catch(() => Effect.void))
       }),
     })
   }),
@@ -301,5 +301,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   name: "memory-flush",
   layer,
-  deps: [llmClient, SessionStore.node, SessionRunnerModel.node, FSUtil.node, Location.node, Global.node],
+  deps: [SessionStore.node, SessionRunnerModel.node, FSUtil.node, Location.node, Global.node],
 })

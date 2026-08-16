@@ -1,12 +1,11 @@
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { Permission } from "@/permission"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 
 import { Session } from "@/session/session"
-import { MessageV2 } from "@/session/message-v2"
-import { SessionRevert } from "@/session/revert"
+import { MessageV2 } from "@/session/session-message-wire"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
@@ -125,7 +124,10 @@ export const CommandPayload = Schema.Struct({
     ),
   ),
 })
-export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput.fields, ["sessionID"]))
+export const RevertPayload = Schema.Struct({
+  messageID: MessageID,
+  partID: Schema.optional(PartID),
+})
 export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })

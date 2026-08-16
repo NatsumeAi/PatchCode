@@ -2,6 +2,7 @@ export * as Tool from "./tool"
 
 import { ToolDefinition, ToolFailure, ToolOutput, type ToolCall } from "@opencode-ai/llm"
 import { Effect, JsonSchema, Schema } from "effect"
+import { fromSchema } from "./json-schema"
 import type { AgentV2 } from "../agent"
 import type { SessionMessage } from "../session/message"
 import type { SessionSchema } from "../session/schema"
@@ -164,7 +165,5 @@ function runtimeOf(tool: AnyTool) {
 }
 
 function toJsonSchema(schema: Schema.Top): JsonSchema.JsonSchema {
-  const document = Schema.toJsonSchemaDocument(schema)
-  if (Object.keys(document.definitions).length === 0) return document.schema
-  return { ...document.schema, $defs: document.definitions }
+  return fromSchema(schema)
 }

@@ -1,11 +1,11 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { Config } from "@/config/config"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { Provider } from "@/provider/provider"
 
 import { generateObject, streamObject, type ModelMessage } from "ai"
-import { Truncate } from "@/tool/truncate"
+import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { Auth } from "../auth"
 import { ProviderTransform } from "@/provider/transform"
 
@@ -107,7 +107,7 @@ const layer = Layer.effect(
             }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
           : []
         const whitelistedDirs = [
-          Truncate.GLOB,
+          ToolOutputStore.GLOB,
           path.join(Global.Path.tmp, "*"),
           ...skillDirs.map((dir) => path.join(dir, "*")),
           ...referenceDirs.map((dir) => path.join(dir, "*")),
@@ -295,19 +295,19 @@ const layer = Layer.effect(
           item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
         }
 
-        // Ensure Truncate.GLOB is allowed unless explicitly configured
+        // Ensure tool-output glob is allowed unless explicitly configured
         for (const name in agents) {
           const agent = agents[name]
           const explicit = agent.permission.some((r) => {
             if (r.permission !== "external_directory") return false
             if (r.action !== "deny") return false
-            return r.pattern === Truncate.GLOB
+            return r.pattern === ToolOutputStore.GLOB
           })
           if (explicit) continue
 
           agents[name].permission = Permission.merge(
             agents[name].permission,
-            Permission.fromConfig({ external_directory: { [Truncate.GLOB]: "allow" } }),
+            Permission.fromConfig({ external_directory: { [ToolOutputStore.GLOB]: "allow" } }),
           )
         }
 

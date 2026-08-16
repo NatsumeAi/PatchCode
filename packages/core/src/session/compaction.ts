@@ -1,20 +1,27 @@
 export * as SessionCompaction from "./compaction"
 
 import { LLM, LLMError, LLMEvent, Message, SystemPart, type LLMRequest, type Model } from "@opencode-ai/llm"
-import { DateTime, Effect, Stream } from "effect"
+import { DateTime, Effect, Option, Stream } from "effect"
+import { eq } from "drizzle-orm"
 import type { Config } from "../config"
+import { Database } from "../database/database"
 import type { EventV2 } from "../event"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
+import { SessionMessageTable } from "./sql"
 import { Token } from "../util/token"
 import { Hooks } from "../hooks"
 import { CompactionCheckpoint } from "./compaction-checkpoint"
+import { PluginHooks } from "../plugin-hooks"
 
 const DEFAULT_BUFFER = 20_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const SUMMARY_BUDGET_L = 20_000
 const SUMMARY_BUDGET_K = 272_000
+export const PRUNE_MINIMUM = 20_000
+export const PRUNE_PROTECT = 40_000
+const PRUNE_PROTECTED_TOOLS = new Set(["skill"])
 
 /**
  * Summary output budget via the MM saturating formula
@@ -103,6 +110,7 @@ type Entry = {
 
 type Settings = {
   readonly auto: boolean
+  readonly prune: boolean
   readonly buffer?: number
   readonly selectEnabled: boolean
   readonly selectBudget: number
@@ -211,6 +219,8 @@ const serialize = (message: SessionMessage.Message) => {
         if (part.type === "text") return [`[Assistant]: ${part.text}`]
         if (part.type === "reasoning") return part.text ? [`[Assistant reasoning]: ${part.text}`] : []
         const input = typeof part.state.input === "string" ? part.state.input : JSON.stringify(part.state.input)
+        if (part.time.pruned)
+          return [`[Assistant tool call]: ${part.name}(${input})`, `[Tool result]: [pruned]`]
         if (part.state.status === "completed")
           return [
             `[Assistant tool call]: ${part.name}(${input})`,
@@ -235,6 +245,7 @@ const settings = (documents: readonly Config.Entry[]) => {
   return configured.reduce<Settings>(
     (result, current) => ({
       auto: current.auto ?? result.auto,
+      prune: current.prune ?? result.prune,
       buffer: current.buffer ?? result.buffer,
       selectEnabled: current.select?.enabled ?? result.selectEnabled,
       selectBudget: current.select?.budget ?? result.selectBudget,
@@ -246,6 +257,7 @@ const settings = (documents: readonly Config.Entry[]) => {
     }),
     {
       auto: true,
+      prune: false,
       buffer: undefined,
       selectEnabled: true,
       selectBudget: SELECTION_RATIO,
@@ -533,6 +545,58 @@ const MAX_SUMMARIZE_CALLS = 4
 
 export const make = (dependencies: Dependencies) => {
   const config = settings(dependencies.config)
+  const pruneToolOutputs = Effect.fn("SessionCompaction.prune")(function* (input: {
+    readonly sessionID: SessionSchema.ID
+    readonly entries: readonly Entry[]
+  }) {
+    if (!config.prune) return
+    const dbOpt = yield* Effect.serviceOption(Database.Service)
+    if (Option.isNone(dbOpt)) return
+    const db = dbOpt.value.db
+    let total = 0
+    let prunedTokens = 0
+    const toPrune: Array<{ readonly message: SessionMessage.Assistant; readonly partIndex: number }> = []
+    let turns = 0
+    loop: for (let i = input.entries.length - 1; i >= 0; i--) {
+      const message = input.entries[i]!.message
+      if (message.type === "user") turns++
+      if (turns < 2) continue
+      if (message.type === "compaction") break loop
+      if (message.type !== "assistant") continue
+      for (let partIndex = message.content.length - 1; partIndex >= 0; partIndex--) {
+        const part = message.content[partIndex]!
+        if (part.type !== "tool") continue
+        if (part.state.status !== "completed") continue
+        if (PRUNE_PROTECTED_TOOLS.has(part.name)) continue
+        if (part.time.pruned) break loop
+        const estimate = Token.estimate(serializeToolContent(part.state.content))
+        total += estimate
+        if (total <= PRUNE_PROTECT) continue
+        prunedTokens += estimate
+        toPrune.push({ message, partIndex })
+      }
+    }
+    if (prunedTokens <= PRUNE_MINIMUM) return
+    const prunedAt = yield* DateTime.now
+    const grouped = new Map<SessionMessage.ID, { message: SessionMessage.Assistant; parts: Set<number> }>()
+    for (const item of toPrune) {
+      const existing = grouped.get(item.message.id)
+      if (existing) existing.parts.add(item.partIndex)
+      else grouped.set(item.message.id, { message: item.message, parts: new Set([item.partIndex]) })
+    }
+    for (const item of grouped.values()) {
+      const content = item.message.content.map((part, idx) => {
+        if (!item.parts.has(idx) || part.type !== "tool") return part
+        return { ...part, time: { ...part.time, pruned: prunedAt } }
+      })
+      yield* db
+        .update(SessionMessageTable)
+        .set({ data: { ...item.message, content } })
+        .where(eq(SessionMessageTable.id, item.message.id))
+        .pipe(Effect.orDie)
+    }
+    yield* Effect.logInfo("pruned tool outputs", { sessionID: input.sessionID, count: toPrune.length })
+  })
   const compactAfterOverflow = Effect.fn("SessionCompaction.compactAfterOverflow")(function* (input: Input) {
     const reason = input.reason ?? "auto"
     // V1 processor: compaction.auto === false means 413/overflow stops the turn
@@ -582,12 +646,22 @@ Choose items that are hard to compress (large code blocks, exact formats) or who
 Items marked ×N have survived N previous compactions — keep them if they are still important, or let them go when the summary already covers them.
 If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     const fullHistory = [head].filter(Boolean)
+    const compactionHookEarly = yield* Effect.serviceOption(PluginHooks.CompactionService)
+    const compacting = Option.isSome(compactionHookEarly)
+      ? yield* compactionHookEarly.value.compacting({ sessionID: String(input.sessionID) })
+      : { context: [] as string[], prompt: undefined as string | undefined }
+    if (Option.isSome(compactionHookEarly)) {
+      yield* compactionHookEarly.value.transformMessages({ messages: [...fullHistory] })
+    }
     // Best-effort pre-compress insights (memory wiring): absent wiring and
     // failures both degrade to "" so compaction never depends on memory.
     const insights = yield* (dependencies.onPreCompress?.(input.entries, input.sessionID) ?? Effect.succeed("")).pipe(
       Effect.catch(() => Effect.succeed("")),
     )
-    const basePrompt = buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: fullHistory })
+    const pluginContext = compacting.context.length > 0 ? [...fullHistory, ...compacting.context] : fullHistory
+    const basePrompt =
+      compacting.prompt ??
+      buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: pluginContext })
     const withMemory = withInsights(basePrompt, insights)
     // Summarize-request must itself fit the window (system slot + prompt + max out).
     // Insights are best-effort: when they push the request over the window,
@@ -818,6 +892,7 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     return true
   })
   const compactIfNeeded = Effect.fn("SessionCompaction.compactIfNeeded")(function* (input: Input) {
+    yield* pruneToolOutputs({ sessionID: input.sessionID, entries: input.entries })
     if (!config.auto) return false
     const context = input.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
@@ -837,5 +912,6 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
   return {
     compactIfNeeded,
     compactAfterOverflow,
+    prune: pruneToolOutputs,
   }
 }

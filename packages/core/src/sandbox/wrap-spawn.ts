@@ -229,7 +229,7 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
     throw new Unsupported({ platform: "win32", profile: resolved.profile.name })
   }
 
-  const ctx = pathContext(location, input.home ?? os.homedir())
+  const ctx = pathContext(location, input.home ?? process.env.OPENCODE_TEST_HOME ?? os.homedir())
   const expandRoots = [location, ctx.home].filter((root, index, all) => all.indexOf(root) === index)
   const denied = await expandDenyGlobs({
     globs: resolved.profile.denyGlobs,

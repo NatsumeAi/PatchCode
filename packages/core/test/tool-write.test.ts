@@ -283,7 +283,7 @@ describe("WriteTool", () => {
   )
 })
 
-test("keeps the locked write schema, semantics docstring, and deferred UX TODOs visible", async () => {
+test("keeps the locked write schema, semantics docstring, and live diagnostics output", async () => {
   const source = (await fs.readFile(new URL("../src/tool/write.ts", import.meta.url), "utf8")).replaceAll("\r\n", "\n")
   const definition = await Effect.runPromise(
     withTool(path.dirname(fileURLToPath(import.meta.url)), (registry) => toolDefinitions(registry)),
@@ -294,13 +294,11 @@ test("keeps the locked write schema, semantics docstring, and deferred UX TODOs 
   expect(source).toContain(
     "absolute external paths retain mutation capability through a separate\n * external_directory approval before edit approval.",
   )
-  for (const todo of [
-    "Revisit whether model-facing mutation schemas should prefer absolute `filePath` naming for trained-in compatibility after evaluating model behavior.",
-    "Add formatter integration after V2 formatter runtime exists.",
-    "Publish watcher/file-edit events after V2 watcher integration exists.",
-    "Add snapshots / undo after design exists.",
-    "Add LSP notification and diagnostics after V2 LSP runtime exists.",
-  ]) {
-    expect(source).toContain(`TODO: ${todo}`)
-  }
+  expect(source).toContain("diagnostics: Schema.String.pipe(Schema.optional)")
+  expect(source).toContain("${output.existed ? \"Wrote\" : \"Created\"} file successfully: ${output.resource}${output.diagnostics ?? \"\"}")
+  expect(source).toContain(
+    "TODO: Revisit whether model-facing mutation schemas should prefer absolute `filePath` naming for trained-in compatibility after evaluating model behavior.",
+  )
+  expect(source).not.toContain("TODO: Add formatter integration after V2 formatter runtime exists.")
+  expect(source).not.toContain("TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.")
 })

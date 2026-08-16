@@ -1,11 +1,26 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { parseResponse } from "../../src/tool/mcp-websearch"
-import { selectWebSearchProvider, webSearchModelName, webSearchProviderLabel } from "../../src/tool/websearch"
+import { parseResponse, selectProvider } from "@opencode-ai/core/tool/websearch"
 
-import { webSearchEnabled } from "../../src/tool/registry"
+import { webSearchEnabled } from "@opencode-ai/core/tool/websearch"
 import { it } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+
+function selectWebSearchProvider(sessionID: string, flags = { exa: false, parallel: false }) {
+  return selectProvider(sessionID, { enableExa: flags.exa, enableParallel: flags.parallel })
+}
+
+function webSearchProviderLabel(provider: unknown) {
+  if (provider === "parallel") return "Parallel Web Search"
+  if (provider === "exa") return "Exa Web Search"
+  return "Web Search"
+}
+
+function webSearchModelName(extra: { model?: { id?: string; api?: { id?: string } } }) {
+  const model = extra.model
+  if (!model) return undefined
+  return (model.api?.id ?? model.id)?.slice(0, 100)
+}
 
 const SESSION_ID = "ses_0196aabbccddeeff001122334455"
 

@@ -1,299 +1,96 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { NodeHttpServer, NodeServices } from "@effect/platform-node"
-import { PtyID } from "@opencode-ai/core/pty/schema"
-import { Server } from "../../src/server/server"
-import { PtyPaths } from "../../src/server/routes/instance/httpapi/groups/pty"
-import { resetDatabase } from "../fixture/db"
-import { disposeAllInstances, tmpdir, tmpdirScoped } from "../fixture/fixture"
-import { Config, Effect, Layer, Queue, Schema } from "effect"
-import { HttpClient, HttpClientRequest, HttpRouter, HttpServer } from "effect/unstable/http"
-import * as Socket from "effect/unstable/socket/Socket"
-import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
+import { Context, Schema } from "effect"
+import { Location } from "@opencode-ai/core/location"
 import { Pty } from "@opencode-ai/core/pty"
-import { testEffect } from "../lib/effect"
+import { PtyTicket } from "@opencode-ai/core/pty/ticket"
+import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
+import { resetDatabase } from "../fixture/db"
+import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
+const context = Context.empty() as Context.Context<unknown>
 const testPty = process.platform === "win32" ? test.skip : test
 
-const testStateLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    yield* Effect.promise(() => resetDatabase())
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(async () => {
-        await resetDatabase()
-      }),
-    )
-  }),
-)
-
-const servedRoutes: Layer.Layer<never, Config.ConfigError, HttpServer.HttpServer> = HttpRouter.serve(
-  HttpApiApp.routes,
-  { disableListenLog: true, disableLogger: true },
-)
-
-const effectIt = testEffect(
-  Layer.mergeAll(
-    testStateLayer,
-    Socket.layerWebSocketConstructorGlobal,
-    servedRoutes.pipe(
-      Layer.provide(Socket.layerWebSocketConstructorGlobal),
-      Layer.provideMerge(NodeHttpServer.layerTest),
-      Layer.provideMerge(NodeServices.layer),
-    ),
-  ),
-)
-
-function app() {
-  return Server.Default().app
+function request(route: string, directory: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers)
+  headers.set("x-opencode-directory", directory)
+  return HttpApiApp.webHandler().handler(
+    new Request(`http://localhost${route}`, {
+      ...init,
+      headers,
+    }),
+    context,
+  )
 }
-
-function serverUrl() {
-  return HttpServer.HttpServer.use((server) => Effect.succeed(HttpServer.formatAddress(server.address)))
-}
-
-const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-opencode-directory", dir)
 
 afterEach(async () => {
   await disposeAllInstances()
   await resetDatabase()
 })
 
-describe("pty HttpApi bridge", () => {
-  test("serves available shell list through experimental Effect routes", async () => {
+describe("v2 pty HttpApi", () => {
+  testPty("serves location-wrapped PTY routes and retains exited sessions", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const response = await app().request(PtyPaths.shells, { headers: { "x-opencode-directory": tmp.path } })
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: expect.any(String),
-          name: expect.any(String),
-          acceptable: expect.any(Boolean),
-        }),
-      ]),
-    )
-  })
+    const empty = await request("/api/pty", tmp.path)
+    expect(empty.status).toBe(200)
+    expect(Schema.decodeUnknownSync(Location.response(Schema.Array(Pty.Info)))(await empty.json()).data).toEqual([])
 
-  testPty("serves PTY JSON routes through experimental Effect routes", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const headers = { "x-opencode-directory": tmp.path }
-    const list = await app().request(PtyPaths.list, { headers })
-    expect(list.status).toBe(200)
-    expect(await list.json()).toEqual([])
-
-    const created = await app().request(PtyPaths.create, {
+    const created = await request("/api/pty", tmp.path, {
       method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"], title: "demo" }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ command: "/usr/bin/env", args: ["sh", "-c", "exit 4"], title: "v2" }),
     })
     expect(created.status).toBe(200)
-    const info = await created.json()
+    const body = Schema.decodeUnknownSync(Location.response(Pty.Info))(await created.json())
+    expect(String(body.location.directory)).toBe(tmp.path)
+    expect(body.data.title).toBe("v2")
 
-    try {
-      expect(info).toMatchObject({ title: "demo", command: "/usr/bin/env", status: "running" })
-
-      const found = await app().request(PtyPaths.get.replace(":ptyID", info.id), { headers })
-      expect(found.status).toBe(200)
-      expect(await found.json()).toMatchObject({ id: info.id, title: "demo" })
-
-      const updated = await app().request(PtyPaths.update.replace(":ptyID", info.id), {
-        method: "PUT",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ title: "renamed", size: { cols: 80, rows: 24 } }),
-      })
-      expect(updated.status).toBe(200)
-      expect(await updated.json()).toMatchObject({ id: info.id, title: "renamed" })
-    } finally {
-      await app().request(PtyPaths.remove.replace(":ptyID", info.id), { method: "DELETE", headers })
-    }
-
-    const missing = await app().request(PtyPaths.get.replace(":ptyID", info.id), { headers })
-    expect(missing.status).toBe(404)
-    expect(await missing.json()).toEqual({
-      _tag: "PtyNotFoundError",
-      ptyID: info.id,
-      message: `PTY session not found: ${info.id}`,
-    })
-
-    const missingUpdate = await app().request(PtyPaths.update.replace(":ptyID", info.id), {
-      method: "PUT",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ title: "missing" }),
-    })
-    expect(missingUpdate.status).toBe(404)
-    expect(await missingUpdate.json()).toEqual({
-      _tag: "PtyNotFoundError",
-      ptyID: info.id,
-      message: `PTY session not found: ${info.id}`,
-    })
-
-    const missingRemove = await app().request(PtyPaths.remove.replace(":ptyID", info.id), { method: "DELETE", headers })
-    expect(missingRemove.status).toBe(404)
-    expect(await missingRemove.json()).toEqual({
-      _tag: "PtyNotFoundError",
-      ptyID: info.id,
-      message: `PTY session not found: ${info.id}`,
-    })
-  })
-
-  testPty("hides exited sessions on the legacy surface", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const headers = { "x-opencode-directory": tmp.path }
-    const created = await app().request(PtyPaths.create, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ command: "/usr/bin/env", args: ["sh", "-c", "exit 0"] }),
-    })
-    expect(created.status).toBe(200)
-    const info = await created.json()
-
-    // Exited sessions are retained by core for the canonical surface, but the legacy
-    // routes preserve pre-retention behavior: exited sessions are invisible here.
     const deadline = Date.now() + 5_000
+    let info: { status: string; exitCode?: number } | undefined
     while (Date.now() < deadline) {
-      const found = await app().request(PtyPaths.get.replace(":ptyID", info.id), { headers })
-      if (found.status === 404) break
+      const found = await request(`/api/pty/${body.data.id}`, tmp.path)
+      expect(found.status).toBe(200)
+      info = Schema.decodeUnknownSync(Location.response(Pty.Info))(await found.json()).data
+      if (info.status === "exited") break
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    const found = await app().request(PtyPaths.get.replace(":ptyID", info.id), { headers })
-    expect(found.status).toBe(404)
+    expect(info).toMatchObject({ status: "exited", exitCode: 4 })
 
-    const list = await app().request(PtyPaths.list, { headers })
-    expect(list.status).toBe(200)
-    expect(await list.json()).toEqual([])
+    const removed = await request(`/api/pty/${body.data.id}`, tmp.path, { method: "DELETE" })
+    expect(removed.status).toBe(204)
+
+    const missing = await request(`/api/pty/${body.data.id}`, tmp.path)
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ _tag: "PtyNotFoundError", ptyID: body.data.id })
   })
 
-  testPty("disposes PTY sessions with their legacy instance", async () => {
+  testPty("rejects connect tokens without the CSRF header and connects with a valid ticket", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const headers = { "x-opencode-directory": tmp.path }
-    const created = await app().request(PtyPaths.create, {
+    const created = await request("/api/pty", tmp.path, {
       method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"] }),
     })
     expect(created.status).toBe(200)
+    const info = Schema.decodeUnknownSync(Location.response(Pty.Info))(await created.json()).data
 
-    await disposeAllInstances()
+    try {
+      const forbidden = await request(`/api/pty/${info.id}/connect-token`, tmp.path, { method: "POST" })
+      expect(forbidden.status).toBe(403)
+      expect(await forbidden.json()).toMatchObject({ _tag: "ForbiddenError" })
 
-    const list = await app().request(PtyPaths.list, { headers })
-    expect(list.status).toBe(200)
-    expect(await list.json()).toEqual([])
-  })
+      const token = await request(`/api/pty/${info.id}/connect-token`, tmp.path, {
+        method: "POST",
+        headers: { "x-opencode-ticket": "1" },
+      })
+      expect(token.status).toBe(200)
+      const ticket = Schema.decodeUnknownSync(Location.response(PtyTicket.ConnectToken))(await token.json()).data.ticket
+      expect(ticket).toBeTruthy()
 
-  test("returns 404 for missing PTY websocket before upgrade", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const response = await app().request(PtyPaths.connect.replace(":ptyID", PtyID.ascending()), {
-      headers: { "x-opencode-directory": tmp.path },
-    })
-    expect(response.status).toBe(404)
-  })
-
-  test("returns 404 for missing PTY websocket before decoding cursor query", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const response = await app().request(`${PtyPaths.connect.replace(":ptyID", PtyID.ascending())}?cursor=a&cursor=b`, {
-      headers: { "x-opencode-directory": tmp.path },
-    })
-    expect(response.status).toBe(404)
-  })
-
-  test("returns typed not found errors for missing PTY HTTP resources", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const headers = { "x-opencode-directory": tmp.path }
-    const missingID = String(PtyID.ascending())
-    const expected = {
-      _tag: "PtyNotFoundError",
-      ptyID: missingID,
-      message: `PTY session not found: ${missingID}`,
+      const invalid = await request(`/api/pty/${info.id}/connect?ticket=not-a-ticket`, tmp.path)
+      expect(invalid.status).toBe(403)
+    } finally {
+      await request(`/api/pty/${info.id}`, tmp.path, { method: "DELETE" })
     }
-
-    const found = await app().request(PtyPaths.get.replace(":ptyID", missingID), { headers })
-    expect(found.status).toBe(404)
-    expect(await found.json()).toEqual(expected)
-
-    const updated = await app().request(PtyPaths.update.replace(":ptyID", missingID), {
-      method: "PUT",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ title: "missing" }),
-    })
-    expect(updated.status).toBe(404)
-    expect(await updated.json()).toEqual(expected)
-
-    const removed = await app().request(PtyPaths.remove.replace(":ptyID", missingID), { method: "DELETE", headers })
-    expect(removed.status).toBe(404)
-    expect(await removed.json()).toEqual(expected)
   })
-
-  test("returns typed errors for PTY connect token failures", async () => {
-    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
-    const headers = { "x-opencode-directory": tmp.path }
-    const missingID = String(PtyID.ascending())
-
-    const forbidden = await app().request(PtyPaths.connectToken.replace(":ptyID", missingID), {
-      method: "POST",
-      headers,
-    })
-    expect(forbidden.status).toBe(403)
-    expect(await forbidden.json()).toEqual({
-      _tag: "PtyForbiddenError",
-      message: "Invalid PTY connect token request",
-    })
-
-    const missing = await app().request(PtyPaths.connectToken.replace(":ptyID", missingID), {
-      method: "POST",
-      headers: {
-        ...headers,
-        "x-opencode-ticket": "1",
-      },
-    })
-    expect(missing.status).toBe(404)
-    expect(await missing.json()).toEqual({
-      _tag: "PtyNotFoundError",
-      ptyID: missingID,
-      message: `PTY session not found: ${missingID}`,
-    })
-  })
-  ;(process.platform === "win32" ? effectIt.live.skip : effectIt.live)(
-    "serves PTY websocket output and input through Effect routes",
-    () =>
-      Effect.gen(function* () {
-        const dir = yield* tmpdirScoped({ git: true, config: { formatter: false, lsp: false } })
-        const created = yield* HttpClientRequest.post(PtyPaths.create).pipe(
-          directoryHeader(dir),
-          HttpClientRequest.bodyJson({ command: "/bin/cat", title: "websocket" }),
-          Effect.flatMap(HttpClient.execute),
-        )
-        expect(created.status).toBe(200)
-        const info = yield* Schema.decodeUnknownEffect(Pty.Info)(yield* created.json)
-
-        const socket = yield* Socket.makeWebSocket(
-          `${(yield* serverUrl()).replace(/^http/, "ws")}${PtyPaths.connect.replace(":ptyID", info.id)}?cursor=-1&directory=${encodeURIComponent(dir)}`,
-          { closeCodeIsError: () => false },
-        )
-        const messages = yield* Queue.unbounded<string>()
-        yield* socket
-          .runRaw((message) =>
-            Queue.offer(messages, typeof message === "string" ? message : new TextDecoder().decode(message)),
-          )
-          .pipe(Effect.catch(() => Effect.void))
-          .pipe(Effect.forkScoped)
-        const write = yield* socket.writer
-
-        const takeUntil = (expected: string, seen = ""): Effect.Effect<string, unknown> =>
-          Effect.gen(function* () {
-            const next = seen + (yield* Queue.take(messages).pipe(Effect.timeout("5 seconds")))
-            if (next.includes(expected)) return next
-            return yield* takeUntil(expected, next)
-          })
-
-        yield* write("ping-route\n")
-        expect(yield* takeUntil("ping-route")).toContain("ping-route")
-        yield* write(new Socket.CloseEvent(1000, "done")).pipe(Effect.catch(() => Effect.void))
-
-        const removed = yield* HttpClientRequest.delete(PtyPaths.remove.replace(":ptyID", info.id)).pipe(
-          directoryHeader(dir),
-          HttpClient.execute,
-        )
-        expect(removed.status).toBe(200)
-      }),
-  )
 })

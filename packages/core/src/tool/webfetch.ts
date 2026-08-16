@@ -18,9 +18,20 @@ export const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 export const DEFAULT_TIMEOUT_SECONDS = 30
 export const MAX_TIMEOUT_SECONDS = 120
 
-export const description = `Fetch content from an HTTP or HTTPS URL and return it as text, markdown, or HTML. Markdown is the default.
+export const description = `- Fetches content from a specified URL
+- Takes a URL and optional format as input
+- Fetches the URL content, converts to requested format (markdown by default)
+- Returns the content in the specified format
+- Use this tool when you need to retrieve and analyze web content
 
-Use a more targeted tool when one is available. This tool is read-only. Large text results may be replaced with a preview while the complete output is retained in managed storage.`
+Usage notes:
+  - IMPORTANT: if another tool is present that offers better web fetching capabilities, is more targeted to the task, or has fewer restrictions, prefer using that tool instead of this one.
+  - The URL must be a fully-formed valid URL
+  - HTTP URLs will be automatically upgraded to HTTPS
+  - Format options: "markdown" (default), "text", or "html"
+  - This tool is read-only and does not modify any files
+  - Results may be summarized if the content is very large
+  - Image responses are returned as file attachments`
 
 const Timeout = Schema.Number.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(MAX_TIMEOUT_SECONDS))
 
@@ -39,6 +50,12 @@ const Output = Schema.Struct({
   contentType: Schema.String,
   format: Input.fields.format,
   output: Schema.String,
+  attachment: Schema.optional(
+    Schema.Struct({
+      mime: Schema.String,
+      data: Schema.String,
+    }),
+  ),
 })
 
 type Format = (typeof Input.Type)["format"]
@@ -86,8 +103,31 @@ const assertHttpUrl = (url: URL) => {
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("URL must use http:// or https://")
 }
 
+const LOOPBACK_NO_PROXY = ["localhost", "127.0.0.1", "::1", "localhost."]
+
+/** HTTP_PROXY must not intercept loopback; Bun/Node fetch otherwise 502s localhost (redirect tests, local tools). */
+export function ensureLoopbackNoProxy() {
+  const current = process.env.NO_PROXY ?? process.env.no_proxy ?? ""
+  const parts = current
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const seen = new Set(parts.map((item) => item.toLowerCase()))
+  let changed = false
+  for (const host of LOOPBACK_NO_PROXY) {
+    if (seen.has(host.toLowerCase())) continue
+    parts.push(host)
+    seen.add(host.toLowerCase())
+    changed = true
+  }
+  if (changed) process.env.NO_PROXY = parts.join(",")
+}
+
 const execute = (http: HttpClient.HttpClient, url: string, format: Format, userAgent = browserUserAgent) =>
-  http.execute(request(url, format, userAgent)).pipe(Effect.flatMap(HttpClientResponse.filterStatusOk))
+  Effect.sync(ensureLoopbackNoProxy).pipe(
+    Effect.andThen(http.pipe(HttpClient.followRedirects()).execute(request(url, format, userAgent))),
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+  )
 
 const collectBody = (response: HttpClientResponse.HttpClientResponse) =>
   collectBoundedResponseBody(
@@ -127,7 +167,13 @@ const layer = Layer.effectDiscard(
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+          toModelOutput: ({ output }) =>
+            output.attachment
+              ? [
+                  { type: "text", text: output.output },
+                  { type: "file", data: output.attachment.data, mime: output.attachment.mime, name: output.url },
+                ]
+              : [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
               yield* Effect.try({
@@ -145,34 +191,42 @@ const layer = Layer.effectDiscard(
                 source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
               })
 
-              const { body, contentType } = yield* Effect.gen(function* () {
+              const fetched = yield* Effect.gen(function* () {
                 const response = yield* execute(http, input.url, input.format).pipe(
                   Effect.catchIf(isCloudflareChallenge, () => execute(http, input.url, input.format, "opencode")),
                 )
                 const contentType = response.headers["content-type"] || ""
                 const mime = mimeFrom(contentType)
-                if (isImageAttachment(mime))
-                  return yield* Effect.fail(new Error(`Unsupported fetched image content type: ${mime}`))
+                const body = yield* collectBody(response)
+                if (isImageAttachment(mime)) {
+                  return {
+                    url: input.url,
+                    contentType,
+                    format: input.format,
+                    output: "Image fetched successfully",
+                    attachment: { mime, data: Buffer.from(body).toString("base64") },
+                  }
+                }
                 if (!isTextualMime(mime))
                   return yield* Effect.fail(new Error(`Unsupported fetched file content type: ${mime}`))
-                return { body: yield* collectBody(response), contentType }
+                const content = new TextDecoder().decode(body)
+                const output = yield* Effect.try({
+                  try: () => convert(content, contentType, input.format),
+                  catch: (error) => error,
+                })
+                return {
+                  url: input.url,
+                  contentType,
+                  format: input.format,
+                  output,
+                }
               }).pipe(
                 Effect.timeoutOrElse({
                   duration: Duration.seconds(input.timeout ?? DEFAULT_TIMEOUT_SECONDS),
                   orElse: () => Effect.fail(new Error("Request timed out")),
                 }),
               )
-              const content = new TextDecoder().decode(body)
-              const output = yield* Effect.try({
-                try: () => convert(content, contentType, input.format),
-                catch: (error) => error,
-              })
-              return {
-                url: input.url,
-                contentType,
-                format: input.format,
-                output,
-              }
+              return fetched
             }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to fetch ${input.url}` }))),
         }),
       })

@@ -20,7 +20,7 @@ import { rootSession } from "@/utils/session-route"
 import { normalizeSessionInfo } from "@/utils/session"
 import { normalizeSessionMessages } from "@/utils/session-message"
 import { dropSessionCaches, pickSessionCacheEvictions, SESSION_CACHE_LIMIT } from "./global-sync/session-cache"
-import { createV2SessionReducer, type V2SessionReduction } from "./server-session-v2-reducer"
+import { createV2SessionReducer, type V2SessionReduction } from "./session-next-reducer"
 import type { ServerApi } from "@/utils/server"
 
 type MessageApi = ServerApi["message"]

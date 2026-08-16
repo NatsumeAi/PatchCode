@@ -1,22 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Schedule, Schema } from "effect"
-import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { SessionRetry } from "../../src/session/retry"
-import { MessageV2 } from "../../src/session/message-v2"
+import { Schema } from "effect"
+import { SessionRetry } from "@opencode-ai/core/session/runner/retry"
+import { MessageV2 } from "../../src/session/session-message-wire"
 import { ProviderError } from "../../src/provider/error"
-import { SessionID } from "../../src/session/schema"
-import { SessionStatus } from "../../src/session/status"
-import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 
 const providerID = ProviderV2.ID.make("test")
 const retryProvider = "test"
-const it = testEffect(LayerNode.compile(LayerNode.group([SessionStatus.node, CrossSpawnSpawner.node])))
 
 function apiError(headers?: Record<string, string>): SessionV1.APIError {
   return Schema.decodeUnknownSync(SessionV1.APIError.Schema)(
@@ -86,35 +80,6 @@ describe("session.retry.delay", () => {
     expect(SessionRetry.delay(1, error)).toBe(SessionRetry.RETRY_MAX_DELAY)
   })
 
-  it.instance("policy updates retry status and increments attempts", () =>
-    Effect.gen(function* () {
-      const sessionID = SessionID.make("session-retry-test")
-      const error = apiError({ "retry-after-ms": "0" })
-      const status = yield* SessionStatus.Service
-
-      const step = yield* Schedule.toStepWithMetadata(
-        SessionRetry.policy({
-          provider: "test",
-          parse: Schema.decodeUnknownSync(SessionV1.APIError.Schema),
-          set: (info) =>
-            status.set(sessionID, {
-              type: "retry",
-              attempt: info.attempt,
-              message: info.message,
-              next: info.next,
-            }),
-        }),
-      )
-      yield* step(error)
-      yield* step(error)
-
-      expect(yield* status.get(sessionID)).toMatchObject({
-        type: "retry",
-        attempt: 2,
-        message: "boom",
-      })
-    }),
-  )
 })
 
 describe("session.retry.retryable", () => {
@@ -350,6 +315,8 @@ describe("session.message-v2.fromError", () => {
   test.concurrent(
     "converts ECONNRESET socket errors to retryable APIError",
     async () => {
+      const { ensureLoopbackNoProxy } = await import("@opencode-ai/core/tool/webfetch")
+      ensureLoopbackNoProxy()
       using server = Bun.serve({
         port: 0,
         idleTimeout: 8,

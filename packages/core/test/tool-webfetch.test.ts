@@ -225,14 +225,17 @@ describe("WebFetchTool registration", () => {
     }),
   )
 
-  it.effect("keeps images and files unsupported until typed settlement can carry attachments", () =>
+  it.effect("returns fetched images as file attachments", () =>
     Effect.gen(function* () {
       reset()
       const registry = yield* ToolRegistry.Service
       respond = () => Effect.succeed(new Response("png", { headers: { "content-type": "image/png" } }))
       expect(yield* executeTool(registry, call({ url: "https://1.1.1.1/image", format: "html" }))).toEqual({
-        type: "error",
-        value: "Unable to fetch https://1.1.1.1/image",
+        type: "content",
+        value: [
+          { type: "text", text: "Image fetched successfully" },
+          { type: "file", uri: `data:image/png;base64,${Buffer.from("png").toString("base64")}`, mime: "image/png", name: "https://1.1.1.1/image" },
+        ],
       })
 
       respond = () => Effect.succeed(new Response("pdf", { headers: { "content-type": "application/pdf" } }))

@@ -15,4 +15,7 @@ export class Policy extends Schema.Class<Policy>("ConfigV2.Experimental.Policy")
 
 export class Experimental extends Schema.Class<Experimental>("ConfigV2.Experimental")({
   policies: Policy.pipe(Schema.Array, Schema.optional),
+  continue_loop_on_deny: Schema.optional(Schema.Boolean).annotate({
+    description: "Continue the agent loop when a tool call is denied (official default: halt)",
+  }),
 }) {}

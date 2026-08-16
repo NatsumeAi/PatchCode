@@ -10,7 +10,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { Vcs } from "../../src/project/vcs"
 import { Session } from "../../src/session/session"
-import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { EventV2Bridge } from "../../src/event-bridge"
 
 export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.Info>) =>
   AppNodeBuilder.build(

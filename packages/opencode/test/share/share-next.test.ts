@@ -8,7 +8,7 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 
 import { AccessToken, AccountID, OrgID, RefreshToken } from "../../src/account/schema"
 import { AccountRepo } from "../../src/account/repo"
-import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { EventV2Bridge } from "../../src/event-bridge"
 import { Session } from "@/session/session"
 import type { SessionID } from "../../src/session/schema"
 import { ShareNext } from "@/share/share-next"

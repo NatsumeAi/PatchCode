@@ -29,13 +29,20 @@ export const MAX_RESPONSE_BYTES = 256 * 1024
  * from provider-hosted web search tools, which remain route-owned and execute
  * at the model provider. Ownership of this compromise can be revisited later.
  */
-export const description = `Search the web using the session's local web search provider. Use this for current information beyond knowledge cutoff.
+export const description = `- Search the web using the session's web search provider - performs real-time web searches and can scrape content from specific URLs
+- Provides up-to-date information for current events and recent data
+- Supports configurable result counts and returns the content from the most relevant websites
+- Use this tool for accessing information beyond knowledge cutoff
+- Searches are performed automatically within a single API call
 
-This is a provider-independent local tool backed by Exa or Parallel. Provider-hosted web search tools are separate and execute at the model provider.
+Usage notes:
+  - Supports live crawling modes when available: 'fallback' (backup if cached unavailable) or 'preferred' (prioritize live crawling)
+  - Search types when available: 'auto' (balanced), 'fast' (quick results), 'deep' (comprehensive search)
+  - Configurable context length for optimal LLM integration
+  - Domain filtering and advanced search options available
 
-Optional controls support result count, live crawling ('fallback' or 'preferred'), search type ('auto', 'fast', or 'deep'), and maximum context characters.
-
-The current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
+The current year is ${new Date().getFullYear()}. You MUST use this year when searching for recent information or current events
+- Example: If the current year is ${new Date().getFullYear()} and the user asks for "latest AI news", search for "AI news ${new Date().getFullYear()}", NOT "AI news ${new Date().getFullYear() - 1}"`
 
 export const Input = Schema.Struct({
   query: Schema.String.annotate({ description: "Websearch query" }),
@@ -85,12 +92,22 @@ export const defaultConfigLayer = Layer.sync(ConfigService, () =>
 
 export const configNode = makeLocationNode({ service: ConfigService, layer: defaultConfigLayer, deps: [] })
 
+/** Official leftover ToolRegistry.webSearchEnabled. */
+export function webSearchEnabled(
+  providerID: string,
+  flags: { readonly exa?: boolean; readonly parallel?: boolean } = {},
+) {
+  return providerID === "opencode" || flags.exa === true || flags.parallel === true
+}
+
 export function selectProvider(
   sessionID: string,
   flags: Pick<Config, "enableExa" | "enableParallel"> = { enableExa: false, enableParallel: false },
   override?: Provider,
 ): Provider {
   if (override) return override
+  const env = process.env.OPENCODE_WEBSEARCH_PROVIDER
+  if (env === "exa" || env === "parallel") return env
   if (flags.enableParallel) return "parallel"
   if (flags.enableExa) return "exa"
   return Number.parseInt(checksum(sessionID) ?? "0", 36) % 2 === 0 ? "exa" : "parallel"

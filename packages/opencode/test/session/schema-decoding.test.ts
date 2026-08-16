@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 
 import { Session } from "@/session/session"
-import { SessionPrompt } from "../../src/session/prompt"
-import { SessionRevert } from "../../src/session/revert"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { Todo } from "../../src/session/todo"
@@ -198,20 +196,6 @@ describe("Session input schemas", () => {
   })
 })
 
-describe("SessionRevert.RevertInput", () => {
-  const decode = decodeUnknown(SessionRevert.RevertInput)
-
-  test("messageID is required, partID is optional", () => {
-    const withPart = { sessionID, messageID, partID }
-    expect(decode(withPart)).toEqual(withPart)
-
-    const noPart = { sessionID, messageID }
-    expect(decode(noPart)).toEqual(noPart)
-
-    expect(() => decode({ sessionID })).toThrow()
-  })
-})
-
 describe("SessionSummary.DiffInput", () => {
   const decode = decodeUnknown(SessionSummary.DiffInput)
 
@@ -261,53 +245,4 @@ describe("Todo.Info", () => {
   })
 })
 
-describe("SessionPrompt input schemas", () => {
-  test("LoopInput is just sessionID", () => {
-    const decode = decodeUnknown(SessionPrompt.LoopInput)
-    expect(decode({ sessionID })).toEqual({ sessionID })
-  })
 
-  test("ShellInput requires agent + command", () => {
-    const decode = decodeUnknown(SessionPrompt.ShellInput)
-    const expected = { sessionID, agent: "build", command: "echo hi" }
-    const input: unknown = expected
-    expect(decode(input)).toEqual(expected)
-    expect(() => decode({ sessionID })).toThrow()
-  })
-
-  test("PromptInput accepts a text part and a file part", () => {
-    const decode = decodeUnknown(SessionPrompt.PromptInput)
-    const expected = {
-      sessionID,
-      parts: [
-        { type: "text" as const, text: "hello" },
-        { type: "file" as const, mime: "image/png", url: "data:image/png;base64,AAAA" },
-      ],
-    }
-    const input: unknown = expected
-    const decoded = decode(input)
-    expect(decoded.parts).toHaveLength(2)
-    expect(decoded.parts[0]).toMatchObject({ type: "text", text: "hello" })
-    expect(decoded.parts[1]).toMatchObject({ type: "file", mime: "image/png" })
-  })
-
-  test("PromptInput rejects unknown part type", () => {
-    const decode = decodeUnknown(SessionPrompt.PromptInput)
-    const bad = {
-      sessionID,
-      parts: [{ type: "nonsense", payload: 42 }],
-    }
-    expect(() => decode(bad)).toThrow()
-  })
-
-  test("CommandInput round-trips core fields", () => {
-    const decode = decodeUnknown(SessionPrompt.CommandInput)
-    const expected = {
-      sessionID,
-      arguments: "--flag",
-      command: "deploy",
-    }
-    const input: unknown = expected
-    expect(decode(input)).toEqual(expected)
-  })
-})

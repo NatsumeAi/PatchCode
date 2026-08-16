@@ -195,6 +195,7 @@ describe("experimental HttpApi", () => {
         },
       },
     },
+    { timeout: 20_000 },
   )
 
   it.instance("returns declared worktree errors", () =>

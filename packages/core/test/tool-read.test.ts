@@ -177,15 +177,9 @@ describe("ReadTool", () => {
           ...toolIdentity,
           call: { type: "tool-call", id: "call-read", name: "read", input: { path: "README.md" } },
         }),
-      ).toEqual({
-        type: "json",
-        value: {
-          uri: "file:///README.md",
-          name: "README.md",
-          content: "hello",
-          encoding: "utf8",
-          mime: "text/plain",
-        },
+      ).toMatchObject({
+        type: "text",
+        value: expect.stringContaining("1: hello"),
       })
       expect(assertions).toMatchObject([{ sessionID, action: "read", resources: ["README.md"], save: ["*"] }])
       expect(readCalls).toEqual([
@@ -208,7 +202,7 @@ describe("ReadTool", () => {
           ...toolIdentity,
           call: { type: "tool-call", id: "call-external-read", name: "read", input: { path: external } },
         }),
-      ).toMatchObject({ type: "json" })
+      ).toMatchObject({ type: "text" })
       expect(assertions).toMatchObject([
         {
           sessionID,
@@ -577,7 +571,10 @@ describe("ReadTool", () => {
             input: { path: "src", offset: 2, limit: 10 },
           },
         }),
-      ).toEqual({ type: "json", value: { entries: [], truncated: false } })
+      ).toMatchObject({
+        type: "text",
+        value: expect.stringContaining("<type>directory</type>"),
+      })
       expect(assertions).toMatchObject([{ sessionID, action: "read", resources: ["src"], save: ["*"] }])
       expect(listCalls).toEqual([{ offset: 2, limit: 10 }])
     }),
@@ -642,9 +639,9 @@ describe("ReadTool", () => {
             input: { path: "large.txt", offset: 2, limit: 1 },
           },
         }),
-      ).toEqual({
-        type: "json",
-        value: { type: "text-page", content: "hello", mime: "text/plain", offset: 2, truncated: true, next: 3 },
+      ).toMatchObject({
+        type: "text",
+        value: expect.stringContaining("2: hello"),
       })
       expect(readCalls).toEqual([
         { input: AbsolutePath.make(path.join(process.cwd(), "large.txt")), page: { offset: 2, limit: 1 } },

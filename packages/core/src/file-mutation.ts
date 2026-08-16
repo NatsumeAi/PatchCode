@@ -1,7 +1,7 @@
 export * as FileMutation from "./file-mutation"
 
 import { makeLocationNode } from "./effect/app-node"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import { dirname } from "path"
 import { KeyedMutex } from "./effect/keyed-mutex"
 import { FSUtil } from "./fs-util"
@@ -48,7 +48,25 @@ export interface WriteResult {
   readonly target: string
   readonly resource: string
   readonly existed: boolean
+  readonly diagnostics?: string
 }
+
+export interface AfterCommitInput {
+  readonly path: string
+  readonly existed: boolean
+  readonly operation: "write" | "create" | "remove" | "rename"
+  readonly from?: string
+}
+
+export interface AfterCommitResult {
+  readonly diagnostics: string
+}
+
+export interface Effects {
+  readonly afterCommit: (input: AfterCommitInput) => Effect.Effect<AfterCommitResult>
+}
+
+export class EffectsService extends Context.Service<EffectsService, Effects>()("@opencode/v2/FileMutation.Effects") {}
 
 export interface RemoveResult {
   readonly operation: "remove"
@@ -91,6 +109,14 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
+    const afterCommit = (input: AfterCommitInput) =>
+      Effect.gen(function* () {
+        const effects = yield* Effect.serviceOption(EffectsService)
+        if (Option.isNone(effects)) return { diagnostics: "" }
+        return yield* effects.value.afterCommit(input)
+      })
+    const withDiagnostics = (result: WriteResult, extra: AfterCommitResult): WriteResult =>
+      extra.diagnostics ? { ...result, diagnostics: extra.diagnostics } : result
     const locks = KeyedMutex.makeUnsafe<string>()
     const withTargetLock =
       (target: Target) =>
@@ -116,7 +142,12 @@ const layer = Layer.effect(
         Effect.gen(function* () {
           const existed = yield* fs.exists(input.target.canonical)
           yield* fs.writeWithDirs(input.target.canonical, input.content)
-          return writeResult(input.target, existed)
+          const extra = yield* afterCommit({
+            path: input.target.canonical,
+            existed,
+            operation: "write",
+          })
+          return withDiagnostics(writeResult(input.target, existed), extra)
         }),
       ),
     )
@@ -132,7 +163,12 @@ const layer = Layer.effect(
             input.target.canonical,
             joinBom(next.text, Boolean(current && hasUtf8Bom(current)) || next.bom),
           )
-          return writeResult(input.target, current !== undefined)
+          const extra = yield* afterCommit({
+            path: input.target.canonical,
+            existed: current !== undefined,
+            operation: "write",
+          })
+          return withDiagnostics(writeResult(input.target, current !== undefined), extra)
         }),
       ),
     )
@@ -152,7 +188,12 @@ const layer = Layer.effect(
               Effect.fail(new TargetExistsError({ path: input.target.canonical })),
             ),
           )
-          return writeResult(input.target, false)
+          const extra = yield* afterCommit({
+            path: input.target.canonical,
+            existed: false,
+            operation: "create",
+          })
+          return withDiagnostics(writeResult(input.target, false), extra)
         }),
       ),
     )
@@ -167,7 +208,12 @@ const layer = Layer.effect(
           yield* typeof input.content === "string"
             ? fs.writeFileString(input.target.canonical, input.content)
             : fs.writeFile(input.target.canonical, input.content)
-          return writeResult(input.target, true)
+          const extra = yield* afterCommit({
+            path: input.target.canonical,
+            existed: true,
+            operation: "write",
+          })
+          return withDiagnostics(writeResult(input.target, true), extra)
         }),
       ),
     )
@@ -179,6 +225,13 @@ const layer = Layer.effect(
             Effect.as(true),
             Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
           )
+          if (existed) {
+            yield* afterCommit({
+              path: input.target.canonical,
+              existed: true,
+              operation: "remove",
+            })
+          }
           return removeResult(input.target, existed)
         }),
       ),
@@ -215,6 +268,12 @@ const layer = Layer.effect(
               }),
             ),
           )
+          yield* afterCommit({
+            path: input.to.canonical,
+            existed: false,
+            operation: "rename",
+            from: input.from.canonical,
+          })
           return {
             operation: "rename" as const,
             from: input.from.canonical,
@@ -264,13 +323,3 @@ export const locationLayer = layer
 
 export const node = makeLocationNode({ service: Service, layer, deps: [FSUtil.node] })
 
-/**
- * Deferred until the corresponding V2 integrations exist.
- */
-// TODO: Add formatter integration after V2 formatter runtime exists.
-// TODO: Publish watcher/file-edit events after V2 watcher integration exists.
-// TODO: Add snapshots / undo after V2 snapshot design exists.
-// TODO: Notify LSP and collect diagnostics after V2 LSP runtime exists.
-// TODO: Design multi-file transactions / rollback if apply_patch needs atomic edits.
-// Until then, edits are sequential and report partial application.
-// TODO: Define crash recovery and idempotency for side effects between Tool.Called and durable settlement.

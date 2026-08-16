@@ -1,6 +1,7 @@
 export * as PromptTapeAppend from "./prompt-tape-append"
 
 import type { PromptTape } from "./prompt-tape"
+import { frameToolResult } from "./tool-result-framing"
 
 const escapeSystemUpdateText = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -144,7 +145,16 @@ export const hydrateFromSession = (
     )
     for (const item of message.content ?? []) {
       if (item.type !== "tool" || item.provider?.executed === true || !item.id || !item.state) continue
-      out.push(lowerToolResult({ toolCallId: item.id, content: toolResultContent({ state: item.state }) }))
+      out.push(
+        lowerToolResult({
+          toolCallId: item.id,
+          content: (() => {
+            const raw = toolResultContent({ state: item.state })
+            const framed = frameToolResult(item.name, raw)
+            return typeof framed === "string" ? framed : JSON.stringify(framed)
+          })(),
+        }),
+      )
     }
   }
   return out

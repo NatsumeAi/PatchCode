@@ -19,7 +19,6 @@ import { Tools } from "./tools"
 
 export const name = "write"
 
-// TODO: Revisit whether model-facing mutation schemas should prefer absolute `filePath` naming for trained-in compatibility after evaluating model behavior.
 export const Input = Schema.Struct({
   path: Schema.String.annotate({
     description:
@@ -33,17 +32,12 @@ export const Output = Schema.Struct({
   target: Schema.String,
   resource: Schema.String,
   existed: Schema.Boolean,
+  diagnostics: Schema.String.pipe(Schema.optional),
 })
 export type Output = typeof Output.Type
 
 export const toModelOutput = (output: Output) =>
-  `${output.existed ? "Wrote" : "Created"} file successfully: ${output.resource}`
-
-/** Deferred V2 write UX integrations remain visible at the model-facing seam. */
-// TODO: Add formatter integration after V2 formatter runtime exists.
-// TODO: Publish watcher/file-edit events after V2 watcher integration exists.
-// TODO: Add snapshots / undo after design exists.
-// TODO: Add LSP notification and diagnostics after V2 LSP runtime exists.
+  `${output.existed ? "Wrote" : "Created"} file successfully: ${output.resource}${output.diagnostics ?? ""}`
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {

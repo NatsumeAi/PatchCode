@@ -28,7 +28,7 @@ export function pinnedProfile(sessionID: string | undefined): string | undefined
   return pins.get(sessionID)
 }
 
-export function pathContext(location: string, home = os.homedir()): PathContext {
+export function pathContext(location: string, home = process.env.OPENCODE_TEST_HOME ?? os.homedir()): PathContext {
   return {
     location: path.resolve(location),
     home,

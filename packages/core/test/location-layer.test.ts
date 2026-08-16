@@ -32,6 +32,40 @@ import { Reference } from "../src/reference"
 import { ToolRegistry } from "../src/tool/registry"
 import { ApplicationTools } from "../src/tool/application-tools"
 
+const LIVE_ADVERTISED_TOOLS = [
+  "application_context",
+  "apply_patch",
+  "bash",
+  "edit",
+  "execute",
+  "glob",
+  "grep",
+  "job",
+  "list_dir",
+  "lsp",
+  "memory_add_note",
+  "memory_list",
+  "memory_read",
+  "memory_search",
+  "peer_message",
+  "plan_enter",
+  "plan_exit",
+  "question",
+  "read",
+  "repo_clone",
+  "repo_overview",
+  "review",
+  "skill",
+  "skill_install",
+  "skill_trust",
+  "task",
+  "todowrite",
+  "webfetch",
+  "websearch",
+  "worktree",
+  "write",
+]
+
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([ApplicationTools.node, Database.node, EventV2.node, LocationServiceMap.node])),
 )
@@ -103,56 +137,11 @@ describe("LocationServiceMap", () => {
 
           const blockedState = yield* update(blocked.path)
           expect(blockedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(false)
-          expect(blockedState.tools.map((tool) => tool.name).sort()).toEqual([
-            "application_context",
-            "apply_patch",
-            "bash",
-            "edit",
-            "glob",
-            "grep",
-            "lsp",
-            "memory_add_note",
-            "memory_list",
-            "memory_read",
-            "memory_search",
-            "peer_message",
-            "plan_enter",
-            "plan_exit",
-            "question",
-            "read",
-            "skill",
-            "task",
-            "todowrite",
-            "webfetch",
-            "websearch",
-            "write",
-          ])
+          expect(blockedState.tools.map((tool) => tool.name).sort()).toEqual(LIVE_ADVERTISED_TOOLS)
+          expect(blockedState.tools.map((tool) => tool.name)).not.toContain("invalid")
           const allowedState = yield* update(allowed.path)
           expect(allowedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(true)
-          expect(allowedState.tools.map((tool) => tool.name).sort()).toEqual([
-            "application_context",
-            "apply_patch",
-            "bash",
-            "edit",
-            "glob",
-            "grep",
-            "lsp",
-            "memory_add_note",
-            "memory_list",
-            "memory_read",
-            "memory_search",
-            "peer_message",
-            "plan_enter",
-            "plan_exit",
-            "question",
-            "read",
-            "skill",
-            "task",
-            "todowrite",
-            "webfetch",
-            "websearch",
-            "write",
-          ])
+          expect(allowedState.tools.map((tool) => tool.name).sort()).toEqual(LIVE_ADVERTISED_TOOLS)
         }),
       ),
     ),

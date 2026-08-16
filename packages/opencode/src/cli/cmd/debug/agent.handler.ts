@@ -1,14 +1,14 @@
-import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EOL } from "os"
-import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { basename } from "path"
-import { Cause, Effect } from "effect"
+import { Effect } from "effect"
+import { AgentV2 } from "@opencode-ai/core/agent"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { Location } from "@opencode-ai/core/location"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { ToolRegistry as CoreToolRegistry } from "@opencode-ai/core/tool/registry"
 import { Agent } from "../../../agent/agent"
-import { Provider } from "@/provider/provider"
-import { Session } from "@/session/session"
-import type { MessageV2 } from "../../../session/message-v2"
-import { MessageID, PartID } from "../../../session/schema"
-import { ToolRegistry } from "@/tool/registry"
 import { Permission } from "../../../permission"
 import { iife } from "../../../util/iife"
 import { fail } from "../../effect-cmd"
@@ -37,7 +37,7 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
     )
     return yield* fail("", 1)
   }
-  const availableTools = yield* getAvailableTools(agent)
+  const availableTools = yield* getAvailableTools(ctx)
   const resolvedTools = resolveTools(agent, availableTools)
   const toolID = args.tool
   if (toolID) {
@@ -51,8 +51,7 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
       return yield* fail("", 1)
     }
     const params = parseToolParams(args.params)
-    const toolCtx = yield* createToolContext(agent, ctx)
-    const result = yield* tool.execute(params, toolCtx)
+    const result = yield* executeTool(agent, ctx, toolID, params)
     process.stdout.write(JSON.stringify({ tool: toolID, input: params, result }, null, 2) + EOL)
     return
   }
@@ -64,25 +63,22 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
   process.stdout.write(JSON.stringify(output, null, 2) + EOL)
 })
 
-const getAvailableTools = Effect.fn("Cli.debug.agent.getAvailableTools")(function* (agent: Agent.Info) {
-  const provider = yield* Provider.Service
-  const registry = yield* ToolRegistry.Service
-  const model =
-    agent.model ??
-    (yield* provider.defaultModel().pipe(
-      Effect.matchCauseEffect({
-        onSuccess: Effect.succeed,
-        onFailure: (cause) => {
-          const error = Cause.squash(cause) as Provider.DefaultModelError
-          if (error instanceof Provider.ModelNotFoundError) {
-            return fail(`Model not found: ${error.providerID}/${error.modelID}`)
-          }
-          if (error instanceof Provider.NoModelsError) return fail(`No models found for provider ${error.providerID}`)
-          return fail("No providers found")
-        },
-      }),
-    ))
-  return yield* registry.tools({ ...model, agent })
+const withLocationTools = <A, E, R>(ctx: InstanceContext, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const locations = yield* LocationServiceMap.Service
+    const directory = AbsolutePath.make(ctx.directory)
+    return yield* effect.pipe(Effect.provide(locations.get(Location.Ref.make({ directory }))))
+  })
+
+const getAvailableTools = Effect.fn("Cli.debug.agent.getAvailableTools")(function* (ctx: InstanceContext) {
+  return yield* withLocationTools(
+    ctx,
+    Effect.gen(function* () {
+      const registry = yield* CoreToolRegistry.Service
+      const materialized = yield* registry.materialize()
+      return materialized.definitions.map((item) => ({ id: item.name }))
+    }),
+  )
 })
 
 function resolveTools(agent: Agent.Info, availableTools: { id: string }[]) {
@@ -123,71 +119,34 @@ function parseToolParams(input?: string) {
   return parsed as Record<string, unknown>
 }
 
-const createToolContext = Effect.fn("Cli.debug.agent.createToolContext")(function* (
+const executeTool = Effect.fn("Cli.debug.agent.executeTool")(function* (
   agent: Agent.Info,
   ctx: InstanceContext,
+  toolID: string,
+  params: Record<string, unknown>,
 ) {
-  const sessionSvc = yield* Session.Service
-  const session = yield* sessionSvc.create({ title: `Debug tool run (${agent.name})` })
-  const messageID = MessageID.ascending()
-  const model = agent.model
-    ? agent.model
-    : yield* Effect.gen(function* () {
-        const provider = yield* Provider.Service
-        return yield* provider.defaultModel().pipe(
-          Effect.matchCauseEffect({
-            onSuccess: Effect.succeed,
-            onFailure: (cause) => {
-              const error = Cause.squash(cause) as Provider.DefaultModelError
-              if (error instanceof Provider.ModelNotFoundError) {
-                return fail(`Model not found: ${error.providerID}/${error.modelID}`)
-              }
-              if (error instanceof Provider.NoModelsError)
-                return fail(`No models found for provider ${error.providerID}`)
-              return fail("No providers found")
-            },
-          }),
-        )
+  const v2 = yield* SessionV2.Service
+  const session = yield* v2.create({
+    title: `Debug tool run (${agent.name})`,
+    location: Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }),
+  })
+  return yield* withLocationTools(
+    ctx,
+    Effect.gen(function* () {
+      const registry = yield* CoreToolRegistry.Service
+      const materialized = yield* registry.materialize()
+      const settlement = yield* materialized.settle({
+        sessionID: session.id,
+        agent: AgentV2.ID.make(agent.name),
+        assistantMessageID: SessionMessage.ID.create(),
+        call: {
+          type: "tool-call",
+          id: `debug_${toolID}`,
+          name: toolID,
+          input: params,
+        },
       })
-  const now = Date.now()
-  const message: SessionV1.Assistant = {
-    id: messageID,
-    sessionID: session.id,
-    role: "assistant",
-    time: { created: now },
-    parentID: messageID,
-    modelID: model.modelID,
-    providerID: model.providerID,
-    mode: "debug",
-    agent: agent.name,
-    path: {
-      cwd: ctx.directory,
-      root: ctx.worktree,
-    },
-    cost: 0,
-    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-  }
-  yield* sessionSvc.updateMessage(message)
-
-  const ruleset = Permission.merge(agent.permission, session.permission ?? [])
-
-  return {
-    sessionID: session.id,
-    messageID,
-    callID: PartID.ascending(),
-    agent: agent.name,
-    abort: new AbortController().signal,
-    messages: [],
-    metadata: () => Effect.void,
-    ask(req: Omit<PermissionV1.Request, "id" | "sessionID" | "tool">) {
-      return Effect.sync(() => {
-        for (const pattern of req.patterns) {
-          const rule = Permission.evaluate(req.permission, pattern, ruleset)
-          if (rule.action === "deny") {
-            throw new PermissionV1.DeniedError({ ruleset })
-          }
-        }
-      })
-    },
-  }
+      return settlement.result
+    }),
+  )
 })
