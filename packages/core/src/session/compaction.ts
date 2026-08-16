@@ -8,6 +8,8 @@ import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { Token } from "../util/token"
+import { Hooks } from "../hooks"
+import { CompactionCheckpoint } from "./compaction-checkpoint"
 
 const DEFAULT_BUFFER = 20_000
 const TOOL_OUTPUT_MAX_CHARS = 2_000
@@ -636,6 +638,21 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       timestamp: yield* DateTime.now,
       reason,
     })
+    yield* Hooks.fire({ event: "PreCompact", sessionID: input.sessionID }).pipe(Effect.ignore)
+    const checkpointID = yield* CompactionCheckpoint.write({
+      sessionID: String(input.sessionID),
+      tapeJson: JSON.stringify(CompactionCheckpoint.snapshot(String(input.sessionID))),
+      messageIdsJson: JSON.stringify(input.entries.map((entry) => entry.message.id)),
+    }).pipe(Effect.catch(() => Effect.succeed(undefined as string | undefined)))
+    if (checkpointID) {
+      yield* dependencies.events
+        .publish(SessionEvent.Compaction.Checkpoint, {
+          sessionID: input.sessionID,
+          timestamp: yield* DateTime.now,
+          id: checkpointID,
+        })
+        .pipe(Effect.ignore)
+    }
 
     // Correction loop: 1 initial attempt + select.retry corrections. The first
     // successful full summarize caches the summary (D15: reselection never
@@ -797,6 +814,7 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
       survival: nextSurvival,
       ...(fileOps.read.length === 0 && fileOps.modified.length === 0 ? {} : { files: fileOps }),
     })
+    yield* Hooks.fire({ event: "PostCompact", sessionID: input.sessionID }).pipe(Effect.ignore)
     return true
   })
   const compactIfNeeded = Effect.fn("SessionCompaction.compactIfNeeded")(function* (input: Input) {

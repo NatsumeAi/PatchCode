@@ -21,4 +21,14 @@ describe("Net.denyHost", () => {
     expect(Net.denyHost("example.com")).toBe(false)
     expect(Net.denyHost("https://github.com/org/repo.git")).toBe(false)
   })
+
+  test("empty host is not a deny", () => {
+    expect(Net.denyHost("")).toBe(false)
+    expect(Net.denyHost("/tmp/out")).toBe(false)
+  })
+
+  test("short and hex loopback forms are denied", () => {
+    expect(Net.denyHost("127.1")).toBe(true)
+    expect(Net.denyHost("0x7f.0.0.1")).toBe(true)
+  })
 })

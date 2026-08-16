@@ -2,18 +2,24 @@ export * as BashTool from "./bash"
 
 import path from "path"
 import { ToolFailure, type ToolOutput } from "@opencode-ai/llm"
-import { Cause, DateTime, Duration, Effect, Layer, Schema, Stream } from "effect"
+import { Cause, DateTime, Deferred, Duration, Effect, Layer, Option, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeLocationNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { FSUtil } from "../fs-util"
+import { Identifier } from "../id/id"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
+import { BackgroundJob } from "../background-job"
+import { ExecPolicy } from "../exec-policy/service"
 import { PermissionV2 } from "../permission"
 import { Sandbox } from "../sandbox"
+import { Hooks } from "../hooks"
+import { PlanGate } from "../session/plan-gate"
 import { ToolOutputStore } from "../tool-output-store"
 import { PositiveInt } from "../schema"
+import { notifyJobFinished } from "../session/job-complete"
 import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -23,6 +29,10 @@ export const name = "bash"
 export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
 export const MAX_TIMEOUT_MS = 10 * 60 * 1_000
 export const MAX_CAPTURE_BYTES = 1024 * 1024
+/** Concurrent running `type=bash` jobs allowed per session. */
+export const MAX_RUNNING_BASH = 8
+export const BACKGROUND_NOTICE =
+  "Started in the background. Use the job tool with this jobID. You will also be notified when it finishes."
 /** Bounded checkpoint cadence for running-command progress events. */
 export const PROGRESS_EVERY_MS = 500
 /** Progress events carry only the tail window so durable events stay bounded. */
@@ -38,12 +48,18 @@ export const Input = Schema.Struct({
     .annotate({
       description: `Timeout in milliseconds. Defaults to ${DEFAULT_TIMEOUT_MS} and may not exceed ${MAX_TIMEOUT_MS}.`,
     }),
+  background: Schema.Boolean.pipe(Schema.optional).annotate({
+    description:
+      "If true, return a jobID immediately and keep the command running. Use the job tool to get, wait, or kill it.",
+  }),
 })
 
 const StructuredOutput = Schema.Struct({
   exit: Schema.Number.pipe(Schema.optional),
   truncated: Schema.Boolean,
   timeout: Schema.Boolean.pipe(Schema.optional),
+  jobID: Schema.String.pipe(Schema.optional),
+  status: Schema.String.pipe(Schema.optional),
 })
 
 const Output = Schema.Struct({
@@ -67,20 +83,9 @@ const modelOutput = (output: Output) => {
 }
 
 /**
- * Minimal V2 core shell boundary. Keep parity debt visible without pulling the
- * legacy shell runtime into core.
+ * V2 core shell. Parser-based approval lives in exec-policy (classify/decide).
+ * Background jobs persist via BackgroundJob; leftover pids are reaped on boot.
  */
-// TODO: Port tree-sitter bash / PowerShell parser-based approval reduction.
-// TODO: Port BashArity reusable command-prefix approvals.
-// TODO: Replace token-based command-argument external-directory advisories with parser-based detection.
-// TODO: Restore PowerShell and cmd-specific invocation/path handling on Windows.
-// TODO: Add plugin shell.env environment augmentation once V2 plugin hooks exist.
-// TODO: Persist background job status and define restart recovery before exposing remote observation.
-// TODO: Re-add model-facing background launch only with owner-bound get/wait/cancel tools and completion delivery.
-// TODO: Add HTTP background-job observation only after durable status, restart recovery, and authorization are defined.
-// TODO: Revisit process-group cleanup and platform coverage with shell-specific tests if current AppProcess semantics do not fully cover it.
-// TODO: Revisit binary output handling if stdout/stderr decoding is text-only.
-// TODO: Stream full shell output into managed storage while retaining only a bounded in-memory preview.
 
 const shellTokens = (command: string) => command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []
 const unquote = (value: string) => value.replace(/^(['"])(.*)\1$/, "$2")
@@ -106,8 +111,10 @@ const layer = Layer.effectDiscard(
     const mutation = yield* LocationMutation.Service
     const fs = yield* FSUtil.Service
     const appProcess = yield* AppProcess.Service
+    const jobs = yield* BackgroundJob.Service
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
+    const execPolicy = yield* ExecPolicy.Service
     const sandbox = yield* Sandbox.Service
     const events = yield* EventV2.Service
     const resources = yield* ToolOutputStore.Service
@@ -123,6 +130,8 @@ const layer = Layer.effectDiscard(
             truncated: output.truncated,
             ...(output.exit === undefined ? {} : { exit: output.exit }),
             ...(output.timeout === undefined ? {} : { timeout: output.timeout }),
+            ...(output.jobID === undefined ? {} : { jobID: output.jobID }),
+            ...(output.status === undefined ? {} : { status: output.status }),
           }),
           toModelOutput: ({ output }) => [
             { type: "text", text: output.output },
@@ -186,27 +195,72 @@ const layer = Layer.effectDiscard(
                 (directory) =>
                   `Command argument references external directory ${path.join(directory, "*").replaceAll("\\", "/")}. Bash runs with host-user filesystem, process, and network authority; this scan is advisory only.`,
               )
-              yield* permission.assert({
-                action: name,
-                resources: [input.command],
-                save: [input.command],
-                sessionID: context.sessionID,
-                agent: context.agent,
-                source,
-              })
-
-              // Frozen W1–W3 execute chain (do not invent a second spawn file):
-              // classify → decide → PlanGate → Permission → PreToolUse → wrapSpawn → BackgroundJob.start → AppProcess
-              // W1 only inserts wrapSpawn. Do not implement classify/decide/BackgroundJob.
-
-              if ((yield* fs.stat(target.canonical)).type !== "Directory")
-                return yield* Effect.fail(new Error(`Working directory is not a directory: ${target.canonical}`))
 
               const entries = yield* config.entries()
               const shell =
                 Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
                   .shell ?? defaultShell()
               const resolved = yield* sandbox.resolve(context.sessionID)
+
+              // Frozen W1–W3 execute chain (do not invent a second spawn file):
+              // classify → decide → PlanGate(W8b no-op) → Permission → PreToolUse(W5 no-op)
+              //   → wrapSpawn → BackgroundJob.start → AppProcess
+              // W2 inserts classify/decide. W3 inserts start after wrapSpawn argv is built.
+              // Deny (W2 / permission) must not start.
+              const decision = yield* execPolicy.decideCommand(input.command, shell, {
+                sandboxProfile: resolved.name,
+              })
+              const resources = decision.prefixes.map((prefix) => prefix.join(" "))
+              yield* PlanGate.assertMutation({
+                sessionID: context.sessionID,
+                kind: "bash",
+                command: input.command,
+                shell,
+              })
+              if (decision.effect === "deny") {
+                return yield* new PermissionV2.BlockedError({
+                  rules: resources.map((resource) => ({
+                    action: name,
+                    resource,
+                    effect: "deny" as const,
+                  })),
+                })
+              }
+              if (decision.effect === "ask") {
+                yield* permission.assertPolicyAsk({
+                  action: name,
+                  resources,
+                  save: resources,
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source,
+                })
+              } else {
+                yield* permission.assert({
+                  action: name,
+                  resources,
+                  save: resources,
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source,
+                })
+              }
+              // PreToolUse (W5): after permission, before wrapSpawn. W2 deny does not reach here.
+              const hooksOpt = yield* Effect.serviceOption(Hooks.Service)
+              if (Option.isSome(hooksOpt)) {
+                const hooked = yield* hooksOpt.value.dispatch({
+                  event: "PreToolUse",
+                  sessionID: context.sessionID,
+                  toolName: name,
+                  toolInput: input,
+                })
+                if (hooked._tag === "Deny")
+                  return yield* new ToolFailure({ message: `Hook denied: ${hooked.reason}` })
+              }
+
+              if ((yield* fs.stat(target.canonical)).type !== "Directory")
+                return yield* Effect.fail(new Error(`Working directory is not a directory: ${target.canonical}`))
+
               const wrapped =
                 resolved.name === "off"
                   ? undefined
@@ -232,9 +286,29 @@ const layer = Layer.effectDiscard(
                     forceKillAfter: Duration.seconds(3),
                   })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
+              if (input.background === true) {
+                const running = (yield* jobs.list()).filter(
+                  (job) =>
+                    job.type === "bash" &&
+                    job.status === "running" &&
+                    job.metadata?.sessionId === context.sessionID,
+                )
+                if (running.length >= MAX_RUNNING_BASH) {
+                  return yield* Effect.fail(new ToolFailure({ message: "Job.Busy" }))
+                }
+              }
+
+              const spawned = yield* Deferred.make<void>()
+              const jobID = Identifier.ascending("job")
+              const backgroundLaunch = input.background === true
               const collect = Effect.scoped(
                 Effect.gen(function* () {
                   const handle = yield* appProcess.spawn(command)
+                  const pid = Number((handle as { pid?: number }).pid)
+                  if (Number.isFinite(pid) && pid > 0) {
+                    yield* jobs.patch(jobID, { pid, pgid: pid })
+                  }
+                  yield* Deferred.succeed(spawned, undefined)
                   const decoder = new TextDecoder("utf-8")
                   let bytes = 0
                   let tail = ""
@@ -287,7 +361,7 @@ const layer = Layer.effectDiscard(
                   }
                 }),
               )
-              const settled = yield* Effect.uninterruptibleMask((restore) =>
+              const run = Effect.uninterruptibleMask((restore) =>
                 restore(
                   Effect.timeoutOrElse(collect, {
                     duration: Duration.millis(timeout),
@@ -325,7 +399,7 @@ const layer = Layer.effectDiscard(
                         truncated: settled.truncated === true,
                         timeout: true,
                         ...(warnings.length ? { warnings } : {}),
-                      }
+                      } satisfies Output
                     }
                     const output = settled.buffer.toString("utf8") || "(no output)"
                     const notice = settled.truncated ? "[output capture truncated at the in-memory safety limit]" : undefined
@@ -334,11 +408,102 @@ const layer = Layer.effectDiscard(
                       output: notice ? `${output}\n\n${notice}` : output,
                       truncated: settled.truncated === true,
                       ...(warnings.length ? { warnings } : {}),
-                    }
+                    } satisfies Output
                   }),
+                  Effect.tap((settled) =>
+                    jobs.patch(jobID, {
+                      ...(settled.exit === undefined ? {} : { exit: settled.exit }),
+                      truncated: settled.truncated,
+                      ...(settled.timeout === undefined ? {} : { timeout: settled.timeout }),
+                      ...(settled.warnings ? { warnings: settled.warnings } : {}),
+                    }),
+                  ),
+                  Effect.tap((settled) =>
+                    Effect.gen(function* () {
+                      const live = yield* jobs.get(jobID)
+                      if (live?.metadata?.background !== true && !backgroundLaunch) return
+                      const status =
+                        live?.status === "cancelled" || live?.status === "error" || live?.status === "completed"
+                          ? live.status
+                          : settled.timeout
+                            ? "error"
+                            : "completed"
+                      yield* notifyJobFinished({
+                        id: jobID,
+                        type: "bash",
+                        title: input.command.slice(0, 80),
+                        status,
+                        started_at: live?.started_at ?? Date.now(),
+                        output: settled.output,
+                        ...(live?.error ? { error: live.error } : {}),
+                        metadata: {
+                          sessionId: context.sessionID,
+                          callID: context.toolCallID,
+                          command: input.command,
+                          background: true,
+                          ...(settled.exit === undefined ? {} : { exit: settled.exit }),
+                        },
+                      })
+                    }),
+                  ),
+                  Effect.map((settled) => settled.output),
                 ),
               )
-              return settled
+              const job = yield* jobs.start({
+                id: jobID,
+                type: "bash",
+                title: input.command.slice(0, 80),
+                metadata: {
+                  sessionId: context.sessionID,
+                  callID: context.toolCallID,
+                  command: input.command,
+                  ...(backgroundLaunch ? { background: true } : {}),
+                },
+                run: run.pipe(Effect.ensuring(Deferred.succeed(spawned, undefined))),
+              })
+              yield* Deferred.await(spawned)
+
+              const launched = (): Output => ({
+                jobID: job.id,
+                status: "running",
+                output: BACKGROUND_NOTICE,
+                truncated: false,
+              })
+
+              if (backgroundLaunch) {
+                const live = yield* jobs.get(job.id)
+                const pid = Number(live?.metadata?.pid)
+                // Freeze: pid/pgid required on a running row before return. If
+                // spawn failed, ensuring still unblocks `spawned` — do not lie.
+                if (live?.status === "running" && Number.isFinite(pid) && pid > 1) return launched()
+              }
+
+              const waitDone = jobs.wait({ id: job.id }).pipe(
+                Effect.map((waited) => ({ tag: "done" as const, waited })),
+              )
+              const waitPromoted = jobs.waitForPromotion(job.id).pipe(
+                Effect.catch(() => Effect.never),
+                Effect.map((info) => ({ tag: "promoted" as const, info })),
+              )
+              const winner = yield* Effect.race(waitDone, waitPromoted)
+              if (winner.tag === "promoted") return launched()
+              const waited = winner.waited
+              const info = waited.info
+              if (!info) {
+                return yield* Effect.fail(new Error("Background job disappeared before settlement"))
+              }
+              if (info.metadata?.background === true && info.status === "running") return launched()
+              if (info.status === "error" && !info.output) {
+                return yield* Effect.fail(new Error(info.error ?? "bash job failed"))
+              }
+              const meta = info.metadata ?? {}
+              return {
+                output: info.output || "(no output)",
+                truncated: meta.truncated === true || info.status === "cancelled",
+                ...(typeof meta.exit === "number" ? { exit: meta.exit } : {}),
+                ...(meta.timeout === true ? { timeout: true } : {}),
+                ...(Array.isArray(meta.warnings) ? { warnings: meta.warnings as string[] } : {}),
+              } satisfies Output
             }).pipe(
               Effect.tap(() => Effect.sync(() => { published = true })),
               Effect.catchCause((cause) => {
@@ -350,6 +515,8 @@ const layer = Layer.effectDiscard(
                 })
               }),
               Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                if (error instanceof PlanGate.Denied) return new ToolFailure({ message: error.message })
                 const detail =
                   error instanceof Error && error.message
                     ? error.message
@@ -384,10 +551,13 @@ export const node = makeLocationNode({
     LocationMutation.node,
     FSUtil.node,
     AppProcess.node,
+    BackgroundJob.node,
     Config.node,
     PermissionV2.node,
+    ExecPolicy.node,
     Sandbox.node,
     EventV2.node,
     ToolOutputStore.node,
+    PlanGate.node,
   ],
 })

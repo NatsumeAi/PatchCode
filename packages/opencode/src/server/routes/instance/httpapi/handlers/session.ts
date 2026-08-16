@@ -8,6 +8,7 @@ import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
+import { BackgroundJob } from "@/background/job"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
@@ -20,6 +21,7 @@ import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { InstanceState } from "@/effect/instance-state"
+import { WorktreeEngine } from "@opencode-ai/core/worktree-engine"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -27,11 +29,13 @@ import { loopCommandForSession } from "@opencode-ai/core/session/loop-control/co
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { Hooks } from "@opencode-ai/core/hooks"
 import {
   CommandPayload,
   DiffQuery,
   ForkPayload,
   InitPayload,
+  JobWaitPayload,
   ListQuery,
   MessagesQuery,
   PermissionResponsePayload,
@@ -39,10 +43,12 @@ import {
   RevertPayload,
   ShellPayload,
   SummarizePayload,
+  UncompactPayload,
   UpdatePayload,
 } from "../groups/session"
 import { ApiNotFoundError, PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import * as ApiError from "../errors"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -60,6 +66,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const summary = yield* SessionSummary.Service
     const events = yield* EventV2Bridge.Service
     const v2Svc = yield* SessionV2.Service
+    const background = yield* BackgroundJob.Service
     const scope = yield* Scope.Scope
 
     // One busy source: session drain (execution.active). Used by revert + mutations.
@@ -97,6 +104,32 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const requireSession = Effect.fn("SessionHttpApi.requireSession")(function* (sessionID: SessionID) {
       return yield* SessionError.mapStorageNotFound(session.get(sessionID))
     })
+
+    const requireOwnedJob = Effect.fn("SessionHttpApi.requireOwnedJob")(function* (sessionID: SessionID, jobID: string) {
+      yield* requireSession(sessionID)
+      const job = yield* background.get(jobID)
+      if (!job || job.metadata?.sessionId !== sessionID) {
+        return yield* ApiError.notFound(`Job not found: ${jobID}`)
+      }
+      return job
+    })
+
+    const withLocationHooks = <A, E>(
+      sessionID: SessionID,
+      body: Effect.Effect<A, E, Hooks.Service>,
+    ): Effect.Effect<A, E | HttpApiError.BadRequest | ApiNotFoundError> =>
+      Effect.gen(function* () {
+        const current = yield* requireSession(sessionID)
+        const maybeLocations = yield* Effect.serviceOption(LocationServiceMap.Service)
+        if (Option.isNone(maybeLocations)) {
+          return yield* body.pipe(Effect.provide(Hooks.disabled))
+        }
+        const locationLayer = maybeLocations.value.get({
+          directory: AbsolutePath.make(current.directory),
+          workspaceID: current.workspaceID,
+        })
+        return yield* body.pipe(Effect.provide(locationLayer))
+      })
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* requireSession(ctx.params.sessionID)
@@ -192,6 +225,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const remove = Effect.fn("SessionHttpApi.remove")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* withLocationHooks(ctx.params.sessionID, Hooks.fireSessionEnd(ctx.params.sessionID)).pipe(Effect.ignore)
       yield* SessionError.mapStorageNotFound(session.remove(ctx.params.sessionID))
       return true
     })
@@ -214,6 +248,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         })
       }
       if (ctx.payload.time?.archived !== undefined) {
+        yield* withLocationHooks(ctx.params.sessionID, Hooks.fireSessionEnd(ctx.params.sessionID)).pipe(Effect.ignore)
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
       }
       return yield* requireSession(ctx.params.sessionID)
@@ -374,6 +409,44 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
               : new HttpApiError.BadRequest({}),
           ),
         )
+      return true
+    })
+
+    const uncompact = Effect.fn("SessionHttpApi.uncompact")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof UncompactPayload.Type
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      return yield* v2Svc
+        .uncompact({
+          sessionID: ctx.params.sessionID,
+          checkpointID: ctx.payload.checkpointID,
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof SessionV2.NotFoundError
+              ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+              : new HttpApiError.BadRequest({}),
+          ),
+        )
+    })
+
+    const worktreeMerge = Effect.fn("SessionHttpApi.worktreeMerge")(function* (ctx: {
+      params: { sessionID: SessionID; id: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      const directory = yield* InstanceState.directory
+      yield* WorktreeEngine.merge({
+        projectRoot: directory,
+        id: ctx.params.id,
+        sessionID: String(ctx.params.sessionID),
+      }).pipe(
+        Effect.mapError((error) =>
+          error instanceof WorktreeEngine.NotFound
+            ? new ApiNotFoundError({ name: "NotFoundError", data: { message: error.message } })
+            : new HttpApiError.BadRequest({}),
+        ),
+      )
       return true
     })
 
@@ -829,6 +902,57 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapV2Write(v2Svc.updatePart(payload))
     })
 
+    const jobs = Effect.fn("SessionHttpApi.jobs")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      const all = yield* background.list()
+      return all.filter((job) => job.metadata?.sessionId === ctx.params.sessionID)
+    })
+
+    const job = Effect.fn("SessionHttpApi.job")(function* (ctx: { params: { sessionID: SessionID; jobID: string } }) {
+      return yield* requireOwnedJob(ctx.params.sessionID, ctx.params.jobID)
+    })
+
+    const jobWait = Effect.fn("SessionHttpApi.jobWait")(function* (ctx: {
+      params: { sessionID: SessionID; jobID: string }
+      payload: typeof JobWaitPayload.Type | void
+    }) {
+      yield* requireOwnedJob(ctx.params.sessionID, ctx.params.jobID)
+      const timeout = ctx.payload && "timeout" in ctx.payload ? ctx.payload.timeout : undefined
+      const waited = yield* background.wait({ id: ctx.params.jobID, timeout })
+      if (!waited.info || waited.info.metadata?.sessionId !== ctx.params.sessionID) {
+        return yield* ApiError.notFound(`Job not found: ${ctx.params.jobID}`)
+      }
+      return waited.info
+    })
+
+    const jobKill = Effect.fn("SessionHttpApi.jobKill")(function* (ctx: {
+      params: { sessionID: SessionID; jobID: string }
+    }) {
+      yield* requireOwnedJob(ctx.params.sessionID, ctx.params.jobID)
+      const cancelled = yield* background.cancel(ctx.params.jobID)
+      if (!cancelled) return yield* ApiError.notFound(`Job not found: ${ctx.params.jobID}`)
+      return cancelled
+    })
+
+    const jobPromote = Effect.fn("SessionHttpApi.jobPromote")(function* (ctx: {
+      params: { sessionID: SessionID; jobID: string }
+    }) {
+      yield* requireOwnedJob(ctx.params.sessionID, ctx.params.jobID)
+      const promoted = yield* background.promote(ctx.params.jobID)
+      if (!promoted) return yield* ApiError.notFound(`Job not found: ${ctx.params.jobID}`)
+      return promoted
+    })
+
+    const hooks = Effect.fn("SessionHttpApi.hooks")(function* (ctx: { params: { sessionID: SessionID } }) {
+      return yield* withLocationHooks(
+        ctx.params.sessionID,
+        Effect.gen(function* () {
+          const service = yield* Hooks.Service
+          return yield* service.list()
+        }),
+      )
+    })
+
     return handlers
       .handle("list", list)
       .handle("status", status)
@@ -847,6 +971,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("share", share)
       .handle("unshare", unshare)
       .handle("summarize", summarize)
+      .handle("uncompact", uncompact)
+      .handle("worktreeMerge", worktreeMerge)
       .handle("prompt", prompt)
       .handle("promptAsync", promptAsync)
       .handle("command", command)
@@ -857,5 +983,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("deleteMessage", deleteMessage)
       .handle("deletePart", deletePart)
       .handle("updatePart", updatePart)
+      .handle("jobs", jobs)
+      .handle("job", job)
+      .handle("jobWait", jobWait)
+      .handle("jobKill", jobKill)
+      .handle("jobPromote", jobPromote)
+      .handle("hooks", hooks)
   }),
 )

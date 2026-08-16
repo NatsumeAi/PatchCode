@@ -35,6 +35,7 @@ describe("exec-policy merge", () => {
     )
     const untrusted = await loadMerged({ configDir, locationDir, trusted: false })
     expect(decide(untrusted, { tag: "segments", segments: [["ls"]] }).effect).toBe("allow")
+    expect(untrusted.skippedUntrusted).toBe(path.join(locationDir, ".opencode", "exec-policy.toml"))
     const trusted = await loadMerged({ configDir, locationDir, trusted: true })
     expect(decide(trusted, { tag: "segments", segments: [["ls"]] }).effect).toBe("deny")
   })

@@ -12,6 +12,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { FileMutation } from "../file-mutation"
 import { LocationMutation } from "../location-mutation"
 import { PermissionV2 } from "../permission"
+import { PlanGate } from "../session/plan-gate"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -84,8 +85,19 @@ const layer = Layer.effectDiscard(
                   agent: context.agent,
                   source,
                 })
+                yield* PlanGate.assertMutation({
+                  sessionID: context.sessionID,
+                  kind: "fs",
+                  paths: [target.canonical],
+                })
                 return yield* files.writeTextPreservingBom({ target, content: input.content })
-              }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to write ${input.path}` }))),
+              }).pipe(
+                Effect.mapError((error) => {
+                  if (error instanceof PlanGate.Denied) return new ToolFailure({ message: error.message })
+                  if (error instanceof ToolFailure) return error
+                  return new ToolFailure({ message: `Unable to write ${input.path}` })
+                }),
+              ),
           }),
           "edit",
         ),
@@ -97,5 +109,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/write",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, PermissionV2.node],
+  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, PermissionV2.node, PlanGate.node],
 })

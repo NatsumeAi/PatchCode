@@ -14,6 +14,7 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { BashTool } from "@opencode-ai/core/tool/bash"
+import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { location } from "../fixture/location"
@@ -25,6 +26,7 @@ const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
     assert: () => Effect.void,
+    assertPolicyAsk: () => Effect.void,
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
@@ -46,7 +48,43 @@ const config = Layer.succeed(
   }),
 )
 
+const jobRows = new Map<string, BackgroundJob.Info>()
+const inlineJobs = Layer.succeed(
+  BackgroundJob.Service,
+  BackgroundJob.Service.of({
+    list: () => Effect.succeed([...jobRows.values()]),
+    get: (id) => Effect.succeed(jobRows.get(id)),
+    start: (input) =>
+      Effect.gen(function* () {
+        const id = input.id ?? "job_live"
+        const running: BackgroundJob.Info = {
+          id,
+          type: input.type,
+          title: input.title,
+          status: "running",
+          started_at: Date.now(),
+          metadata: input.metadata,
+        }
+        jobRows.set(id, running)
+        const output = yield* input.run
+        jobRows.set(id, { ...jobRows.get(id)!, status: "completed", completed_at: Date.now(), output })
+        return running
+      }),
+    patch: (id, metadata) =>
+      Effect.sync(() => {
+        const job = jobRows.get(id)
+        if (job) jobRows.set(id, { ...job, metadata: { ...job.metadata, ...metadata } })
+      }),
+    extend: () => Effect.succeed(false),
+    wait: ({ id }) => Effect.succeed({ timedOut: false, info: jobRows.get(id) }),
+    waitForPromotion: () => Effect.never,
+    promote: () => Effect.succeed(undefined),
+    cancel: () => Effect.succeed(undefined),
+  }),
+)
+
 const withLive = <A, E, R>(directory: string, body: (registry: ToolRegistry.Interface) => Effect.Effect<A, E, R>) => {
+  jobRows.clear()
   const activeLocation = Layer.succeed(
     Location.Service,
     Location.Service.of(location({ directory: AbsolutePath.make(directory) })),
@@ -62,6 +100,7 @@ const withLive = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
           [PermissionV2.node, permission],
           [Config.node, config],
           [EventV2.node, events],
+          [BackgroundJob.node, inlineJobs],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
         ],
       ),
@@ -101,7 +140,7 @@ describe.skipIf(process.platform !== "linux")("bash live sandbox", () => {
     }
   })
 
-  test("read-only: bash python connect is ENETUNREACH", async () => {
+  test("read-only: word-only connect is ENETUNREACH", async () => {
     const work = await mkdtemp(path.join(tmpdir(), "oc-bash-net-"))
     pinSession(sessionID, "read-only")
     try {
@@ -109,13 +148,11 @@ describe.skipIf(process.platform !== "linux")("bash live sandbox", () => {
         Effect.gen(function* () {
           const result = yield* settleTool(
             registry,
-            call(
-              `python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('1.1.1.1', 53))"`,
-            ),
+            call("curl -sS --connect-timeout 1 http://1.1.1.1/"),
           )
           expect((result.output?.structured as { exit?: number } | undefined)?.exit).not.toBe(0)
           const text = JSON.stringify(result.output ?? result.result)
-          expect(text).toMatch(/Network is unreachable|Errno 101|ENETUNREACH/)
+          expect(text).toMatch(/Network is unreachable|Errno 101|ENETUNREACH|Could not resolve|Couldn't connect|Failed to connect|Connection refused/)
         }),
       ).pipe(Effect.runPromise)
     } finally {

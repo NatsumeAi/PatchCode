@@ -19,7 +19,7 @@ effect = "deny"
 reason = "privilege wrapper"
 
 [[rule]]
-prefix = ["mkfs"]
+prefix = ["mkfs*"]
 effect = "deny"
 reason = "destructive"
 
@@ -94,6 +94,11 @@ effect = "deny"
 reason = "destructive git"
 
 [[rule]]
+prefix = ["git", "reset", "--hard"]
+effect = "deny"
+reason = "destructive git"
+
+[[rule]]
 prefix = ["git", "branch"]
 effect = "allow"
 
@@ -117,22 +122,26 @@ effect = "allow"
 prefix = ["find"]
 effect = "allow"
 
-[[rule.match]]
+[[match]]
 argv = ["git", "status"]
 expect = "allow"
 
-[[rule.match]]
+[[match]]
 argv = ["sudo", "ls"]
 expect = "deny"
 
-[[rule.match]]
+[[match]]
 argv = ["rm", "-rf", "/"]
 expect = "deny"
 
-[[rule.match]]
+[[match]]
+argv = ["git", "reset", "--hard"]
+expect = "deny"
+
+[[match]]
 argv = ["curl", "http://169.254.169.254/latest/meta-data"]
 expect = "deny"
 
-[[rule.not_match]]
+[[not_match]]
 argv = ["git", "status"]
 prefix = ["git", "reset", "--hard"]

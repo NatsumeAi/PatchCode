@@ -38,5 +38,5 @@ export {
   resolvePinned,
   resolveProfile,
 } from "./sandbox/resolve"
-export { wrapSpawn } from "./sandbox/wrap-spawn"
+export { wrapSpawn, expandDenyGlobs } from "./sandbox/wrap-spawn"
 export { windowsRefuse } from "./sandbox/windows"

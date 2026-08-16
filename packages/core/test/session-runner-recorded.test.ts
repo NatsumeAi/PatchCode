@@ -54,6 +54,7 @@ const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
     assert: () => Effect.die("unused"),
+    assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),

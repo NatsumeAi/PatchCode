@@ -36,7 +36,8 @@ import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { EventBridge } from "@opencode-ai/core/session/loop-control/event-bridge"
 import { SpawnEdge } from "@opencode-ai/core/session/loop-control/spawn-edge"
 import { IterationBudget } from "@opencode-ai/core/session/loop-control/iteration-budget"
-import { WorktreePool } from "@opencode-ai/core/session/worktree-pool"
+import { WorktreeEngine } from "@opencode-ai/core/worktree-engine"
+import { Hooks } from "@opencode-ai/core/hooks"
 import { PersonaLoader } from "@opencode-ai/core/session/persona/loader"
 import { PersonaResolve } from "@opencode-ai/core/session/persona/resolve"
 import { PersonaStore } from "@opencode-ai/core/session/persona/store"
@@ -54,6 +55,7 @@ import { DateTime, Duration, Effect, Layer, Option, Schedule, Scope, Stream } fr
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { DynamicTools } from "./dynamic-tools"
+import { BrowserHostBridge } from "./browser-host"
 import path from "path"
 
 /** Subagents cannot spawn further subagents (flat delegation, grok-build parity). */
@@ -323,10 +325,11 @@ const taskHostLayer = Layer.effect(
           )
           .pipe(Effect.ignore)
         yield* bridgeParentLoop(parentID, childSessionID, state === "completed", state === "error" ? text : undefined)
-        // Best-effort worktree cleanup
-        if (parent) {
-          yield* WorktreePool.release(parent.location.directory, String(childSessionID)).pipe(Effect.ignore)
-        }
+        yield* Hooks.fire({ event: "SubagentStop", sessionID: String(parentID), toolName: subagentType }).pipe(
+          Effect.ignore,
+        )
+        // Leave the worktree leased so the parent can merge/diff/discard.
+        // Cancel paths still discard.
         // Additive memory observation: no-op when memory services aren't loaded.
         // `ok` is threaded explicitly: a budget-exhausted child settles this
         // path as "completed" but must record ok=false (mirrors the foreground
@@ -397,9 +400,10 @@ const taskHostLayer = Layer.effect(
                   yield* releaseParentResources(parentID, childSessionID)
                   const parent = yield* store.get(parentID)
                   if (parent) {
-                    yield* WorktreePool.release(parent.location.directory, String(childSessionID)).pipe(
-                      Effect.ignore,
-                    )
+                    yield* WorktreeEngine.discard({
+                      projectRoot: parent.location.directory,
+                      id: String(childSessionID),
+                    }).pipe(Effect.ignore)
                   }
                   return
                 }
@@ -629,13 +633,17 @@ const taskHostLayer = Layer.effect(
               requestedCwd: input.cwd,
               agentWorkspace: agentInfo.workspace,
             })
+            let worktreeId: string | undefined
             if (input.isolation === "worktree") {
-              const wt = yield* WorktreePool.acquire(project.directory, String(sessionID)).pipe(Effect.either)
-              if (wt._tag === "Left") {
+              const wt = yield* WorktreeEngine.acquire({ projectRoot: project.directory, id: String(sessionID) }).pipe(
+                Effect.result,
+              )
+              if (wt._tag === "Failure") {
                 if (agentGuard) yield* agentGuard.release
-                return yield* Effect.die(wt.left)
+                return yield* Effect.die(wt.failure)
               }
-              childDirectory = wt.right
+              childDirectory = wt.value.dir
+              worktreeId = String(sessionID)
             }
 
             // Persona resolve + store (workspace then user config layers)
@@ -750,6 +758,11 @@ const taskHostLayer = Layer.effect(
               parentSessionID: String(parentID),
             })
             .pipe(Effect.ignore)
+          yield* Hooks.fire({
+            event: "SubagentStart",
+            sessionID: String(parentID),
+            toolName: input.subagentType,
+          }).pipe(Effect.ignore)
 
           const waitForCompletion = (
             targetChildID: SessionSchema.ID,
@@ -1001,9 +1014,7 @@ const taskHostLayer = Layer.effect(
               })
               .pipe(Effect.ignore)
           }
-          if (input.isolation === "worktree") {
-            yield* WorktreePool.release(parent.location.directory, String(childID)).pipe(Effect.ignore)
-          }
+          // Do not auto-discard on complete: parent merges via the worktree tool.
 
           const assistants = msgs.filter((m): m is SessionMessage.Assistant => m.type === "assistant")
           const turns = record?.turnCount ?? assistants.length
@@ -1018,6 +1029,7 @@ const taskHostLayer = Layer.effect(
             task_id: String(childID),
             sessionID: String(childID),
             background: false,
+            worktreeId,
             structured: {
               exit,
               turns,
@@ -1058,5 +1070,5 @@ export const taskHostNode = makeGlobalNode({
   ],
 })
 
-/** Merged host bridges for the app layer (LSP, Task, Dynamic MCP/plugin tools). */
-export const node = LayerNode.group([lspHostNode, taskHostNode, DynamicTools.node])
+/** Merged host bridges for the app layer (LSP, Task, optional Browser, Dynamic MCP/plugin tools). */
+export const node = LayerNode.group([lspHostNode, taskHostNode, DynamicTools.node, ...BrowserHostBridge.nodes])

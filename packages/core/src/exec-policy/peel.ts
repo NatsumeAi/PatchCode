@@ -4,7 +4,7 @@ import path from "path"
 import type { ClassifyResult } from "./parse"
 
 export type ReduceResult =
-  | { tag: "segments"; segments: string[][] }
+  | { tag: "segments"; segments: string[][]; redirects?: string[] }
   | { tag: "opaque"; source: string; reason: string }
   | { tag: "deny-wrapper"; argv0: string }
 
@@ -35,10 +35,56 @@ const basename = (argv0: string) => path.basename(argv0.replace(/\\/g, "/"))
 
 const isAssignment = (token: string) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
 
+const interpreterFlags = (name: string) => {
+  if (OPAQUE_INTERPRETERS[name]) return OPAQUE_INTERPRETERS[name]
+  if (/^python[\d.]*$/.test(name)) return OPAQUE_INTERPRETERS.python3
+  return undefined
+}
+
+const hasInterpFlag = (argv: string[], flags: Set<string>) =>
+  argv.some((token) => {
+    if (flags.has(token)) return true
+    for (const flag of flags) {
+      if (token.startsWith(`${flag}=`)) return true
+    }
+    return false
+  })
+
 const stripWrapper = (argv: string[]): string[] | undefined => {
   const name = basename(argv[0] ?? "")
   if (!STRIP_WRAPPERS.has(name) || argv.length < 2) return undefined
   const rest = argv.slice(1)
+  if (name === "command") {
+    let i = 0
+    while (i < rest.length) {
+      const token = rest[i] ?? ""
+      if (token === "-p" || token === "-v" || token === "-V" || token === "--") {
+        i += 1
+        continue
+      }
+      if (token.startsWith("-") && token !== "-") return undefined
+      break
+    }
+    return rest.slice(i).length > 0 ? rest.slice(i) : undefined
+  }
+  if (name === "stdbuf") {
+    let i = 0
+    while (i < rest.length) {
+      const token = rest[i] ?? ""
+      if (token === "-o" || token === "-e" || token === "-i" || token === "--output" || token === "--error" || token === "--input") {
+        if (!rest[i + 1]) return undefined
+        i += 2
+        continue
+      }
+      if (/^-[oei].+/.test(token)) {
+        i += 1
+        continue
+      }
+      if (token.startsWith("-") && token !== "-") return undefined
+      break
+    }
+    return rest.slice(i).length > 0 ? rest.slice(i) : undefined
+  }
   if (name === "env") {
     let i = 0
     while (i < rest.length) {
@@ -103,9 +149,9 @@ const stripWrapper = (argv: string[]): string[] | undefined => {
 const cFlagIndex = (argv: string[]) => {
   for (let i = 1; i < argv.length; i++) {
     const token = argv[i] ?? ""
-    if (token === "-c" || token === "-lc" || token === "-c-" || token.startsWith("-c") && token.includes("c")) {
-      if (token === "-lc" || token === "-c") return i
-    }
+    if (token.startsWith("--") || token.includes("=")) continue
+    if (token === "-c" || token === "-lc") return i
+    if (token.startsWith("-") && token.slice(1).includes("c")) return i
   }
   return -1
 }
@@ -119,26 +165,30 @@ export const reduce = async (
     return { tag: "opaque", source: classified.source, reason: classified.reason }
   }
   const out: string[][] = []
+  const redirects = [...(classified.redirects ?? [])]
   for (const segment of classified.segments) {
     const reduced = await reduceSegment(segment, input, depth)
     if (reduced.tag !== "segments") return reduced
     out.push(...reduced.segments)
+    if (reduced.redirects?.length) redirects.push(...reduced.redirects)
   }
-  return { tag: "segments", segments: out }
+  return { tag: "segments", segments: out, redirects }
 }
 
 const reduceSegment = async (
-  argv: string[],
+  raw: string[],
   input: { classify: (command: string, shell?: string) => Promise<ClassifyResult>; source?: string },
   depth: number,
 ): Promise<ReduceResult> => {
+  let argv = raw
+  while (argv.length > 0 && isAssignment(argv[0] ?? "")) argv = argv.slice(1)
   if (argv.length === 0) return { tag: "opaque", source: input.source ?? "", reason: "empty" }
   const name = basename(argv[0] ?? "")
   if (DENY_WRAPPERS.has(name)) return { tag: "deny-wrapper", argv0: name }
   if (name === "eval") return { tag: "opaque", source: argv.join(" "), reason: "eval" }
 
-  const interpFlags = OPAQUE_INTERPRETERS[name]
-  if (interpFlags && argv.some((token) => interpFlags.has(token))) {
+  const interpFlags = interpreterFlags(name)
+  if (interpFlags && hasInterpFlag(argv, interpFlags)) {
     return { tag: "opaque", source: argv.join(" "), reason: `${name} script flag` }
   }
 

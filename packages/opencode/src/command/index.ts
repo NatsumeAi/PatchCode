@@ -88,7 +88,7 @@ const layer = Layer.effect(
         get template() {
           return PROMPT_REVIEW.replace("${path}", ctx.worktree)
         },
-        subtask: true,
+        subtask: false,
         hints: hints(PROMPT_REVIEW),
       }
       commands[Default.LOOP] = {

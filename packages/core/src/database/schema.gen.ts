@@ -140,6 +140,16 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`session_compaction_checkpoint\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`created_at\` integer NOT NULL,
+          \`tape_json\` text NOT NULL,
+          \`message_ids_json\` text NOT NULL,
+          CONSTRAINT \`fk_session_compaction_checkpoint_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`message\` (
           \`id\` text PRIMARY KEY,
           \`session_id\` text NOT NULL,
@@ -212,6 +222,8 @@ export default {
           \`summary_diffs\` text,
           \`metadata\` text,
           \`sandbox_profile\` text DEFAULT 'off' NOT NULL,
+          \`hooks_session_start\` text DEFAULT 'pending' NOT NULL,
+          \`plan_mode\` integer DEFAULT 0 NOT NULL,
           \`cost\` real DEFAULT 0 NOT NULL,
           \`tokens_input\` integer DEFAULT 0 NOT NULL,
           \`tokens_output\` integer DEFAULT 0 NOT NULL,
@@ -261,6 +273,9 @@ export default {
       yield* tx.run(`CREATE INDEX \`event_aggregate_type_seq_idx\` ON \`event\` (\`aggregate_id\`,\`type\`,\`seq\`);`)
       yield* tx.run(
         `CREATE UNIQUE INDEX \`permission_project_action_resource_idx\` ON \`permission\` (\`project_id\`,\`action\`,\`resource\`);`,
+      )
+      yield* tx.run(
+        `CREATE INDEX \`session_compaction_checkpoint_session_idx\` ON \`session_compaction_checkpoint\` (\`session_id\`,\`created_at\`);`,
       )
       yield* tx.run(
         `CREATE INDEX \`message_session_time_created_id_idx\` ON \`message\` (\`session_id\`,\`time_created\`,\`id\`);`,

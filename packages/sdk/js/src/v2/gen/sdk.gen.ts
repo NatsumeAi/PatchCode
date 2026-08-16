@@ -422,6 +422,8 @@ import type {
   MemoryImportHistoryErrors,
   MemoryRememberResponses,
   MemoryRememberErrors,
+  SkillsInstallResponses,
+  SkillsInstallErrors,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -1296,6 +1298,11 @@ export class Experimental extends HeyApiClient {
   get memory(): Memory {
     return (this._memory ??= new Memory({ client: this.client }))
   }
+
+  private _skills?: Skills
+  get skills(): Skills {
+    return (this._skills ??= new Skills({ client: this.client }))
+  }
 }
 
 export class Memory extends HeyApiClient {
@@ -1558,6 +1565,45 @@ export class Memory extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<MemoryRememberResponses, MemoryRememberErrors, ThrowOnError>({
       url: "/experimental/memory/remember",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Skills extends HeyApiClient {
+  /**
+   * Install a skill into quarantine
+   *
+   * Fetch an https SKILL.md into quarantine. file: URIs and loopback hosts are rejected.
+   */
+  public install<ThrowOnError extends boolean = false>(
+    parameters: {
+      uri: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "uri" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SkillsInstallResponses, SkillsInstallErrors, ThrowOnError>({
+      url: "/experimental/skills/install",
       ...options,
       ...params,
       headers: {

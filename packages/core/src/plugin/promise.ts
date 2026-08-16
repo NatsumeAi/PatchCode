@@ -85,6 +85,15 @@ export function fromPromise(plugin: Plugin) {
             transform: transform(host.skill),
             reload: () => run(host.skill.reload()),
           },
+          hooks: {
+            register: (handler) =>
+              run(
+                host.hooks.register({
+                  ...handler,
+                  run: (envelope) => Effect.promise(() => Promise.resolve(handler.run(envelope))),
+                }),
+              ),
+          },
         }
 
         yield* Effect.promise(() => Promise.resolve(plugin.setup(context2)))

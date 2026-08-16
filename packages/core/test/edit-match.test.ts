@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { replace } from "../src/tool/edit-match"
+import { replace, isDisproportionateMatch } from "../src/tool/edit-match"
 
 test("exact still wins", () => {
   expect(replace("a b a", "b", "c")).toBe("a c a")
@@ -72,4 +72,10 @@ test("two-line snippet does not rewrite a distant function", () => {
   expect(() => replace(file, old, ["function distant() {", "  return 9"].join("\n"))).toThrow(
     /Could not find oldString/i,
   )
+})
+
+test("disproportionate fuzzy spans are refused", () => {
+  expect(isDisproportionateMatch("a\nb\nc\nd\ne\nf", "a\nb")).toBe(true)
+  expect(isDisproportionateMatch("short", "short")).toBe(false)
+  expect(isDisproportionateMatch("x".repeat(600), "abc\ndef")).toBe(true)
 })

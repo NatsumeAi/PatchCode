@@ -131,9 +131,7 @@ const makeInstance = (sessionID: string): Effect.Effect<Instance> =>
       Effect.provideService(EventBus.Service, eventBus),
       Effect.provideService(TerminalController.Service, terminal),
     )
-    const contextEngine = yield* ContextEngine.make.pipe(
-      Effect.provideService(IterationBudget.Service, budget),
-    )
+    const contextEngine = yield* ContextEngine.make
 
     return {
       sessionID,

@@ -77,6 +77,8 @@ export const Output = Schema.Struct({
   background: Schema.Boolean.pipe(Schema.optional),
   /** Structured result contract: exit state, turn/usage counters, resume handle. */
   structured: Schema.optional(Structured),
+  /** Isolated git worktree id when isolation is worktree. */
+  worktreeId: Schema.String.pipe(Schema.optional),
 })
 
 export interface Host {
@@ -102,6 +104,7 @@ export interface Host {
     readonly sessionID?: string
     readonly background?: boolean
     readonly structured?: Schema.Schema.Type<typeof Structured>
+    readonly worktreeId?: string
   }>
 }
 

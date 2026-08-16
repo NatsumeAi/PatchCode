@@ -15,9 +15,11 @@ import { FileMutation } from "../file-mutation"
 import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { PermissionV2 } from "../permission"
+import { PlanGate } from "../session/plan-gate"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
+import * as EditMatch from "./edit-match"
 
 export const name = "edit"
 
@@ -81,7 +83,7 @@ export const toModelOutput = (output: Output, oldString: string, newString: stri
   ].join("\n")
 
 /** Deferred V2 edit behavior and UX integrations remain visible at the model-facing seam. */
-// TODO: Port V1 fuzzy correction strategies only after exact-edit behavior is established: line-trimmed matching, block-anchor fallback, indentation correction, and similarity-threshold review.
+// TODO: Keep V1 fuzzy strategies in edit-match.ts (line-trimmed, block-anchor, indentation, similarity-threshold); do not reintroduce them inline in edit.ts.
 // TODO: Add formatter integration after V2 formatter runtime exists.
 // TODO: Publish watcher/file-edit events after V2 watcher integration exists.
 // TODO: Add snapshots / undo after design exists.
@@ -110,11 +112,13 @@ const layer = Layer.effectDiscard(
               const unableToEdit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
                 effect.pipe(
                   Effect.mapError((error) =>
-                    error instanceof FileMutation.StaleContentError
-                      ? new ToolFailure({
-                          message: "File changed after permission approval. Read it again before editing.",
-                        })
-                      : new ToolFailure({ message: `Unable to edit ${input.path}` }),
+                    error instanceof PlanGate.Denied
+                      ? new ToolFailure({ message: error.message })
+                      : error instanceof FileMutation.StaleContentError
+                        ? new ToolFailure({
+                            message: "File changed after permission approval. Read it again before editing.",
+                          })
+                        : new ToolFailure({ message: `Unable to edit ${input.path}` }),
                   ),
                 )
 
@@ -158,28 +162,37 @@ const layer = Layer.effectDiscard(
                     source: permissionSource,
                   }),
                 )
+                yield* unableToEdit(
+                  PlanGate.assertMutation({
+                    sessionID: context.sessionID,
+                    kind: "fs",
+                    paths: [target.canonical],
+                  }),
+                )
                 const source = decodeUtf8(yield* unableToEdit(fs.readFile(target.canonical)))
                 const ending = detectLineEnding(source.text)
                 const oldString = convertToLineEnding(input.oldString, ending)
                 const newString = convertToLineEnding(input.newString, ending)
-                const replacements = countOccurrences(source.text, oldString)
+                let replaced = source.text
+                let replacements = countOccurrences(source.text, oldString)
                 if (replacements === 0) {
-                  return yield* new ToolFailure({
-                    message:
-                      "Could not find oldString in the file. It must match exactly, including whitespace and indentation.",
+                  replaced = yield* Effect.try({
+                    try: () => EditMatch.replace(source.text, oldString, newString, input.replaceAll === true),
+                    catch: (cause) =>
+                      new ToolFailure({ message: String(cause instanceof Error ? cause.message : cause) }),
                   })
-                }
-                if (replacements > 1 && input.replaceAll !== true) {
+                  replacements = 1
+                } else if (replacements > 1 && input.replaceAll !== true) {
                   return yield* new ToolFailure({
                     message:
                       "Found multiple exact matches for oldString. Provide more surrounding context or set replaceAll to true.",
                   })
+                } else {
+                  replaced =
+                    input.replaceAll === true
+                      ? source.text.replaceAll(oldString, newString)
+                      : source.text.replace(oldString, newString)
                 }
-
-                const replaced =
-                  input.replaceAll === true
-                    ? source.text.replaceAll(oldString, newString)
-                    : source.text.replace(oldString, newString)
                 const counts = diffLines(source.text, replaced).reduce(
                   (result, item) => ({
                     additions: result.additions + (item.added ? (item.count ?? 0) : 0),
@@ -219,5 +232,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/edit",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, FSUtil.node, PermissionV2.node],
+  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, FSUtil.node, PermissionV2.node, PlanGate.node],
 })

@@ -45,6 +45,7 @@ import { Snapshot } from "./snapshot"
 import { SessionRevert } from "./session/revert"
 import { SessionContextEpoch } from "./session/context-epoch"
 import { PromptTapeStore } from "./session/runner/prompt-tape-store"
+import { CompactionCheckpoint } from "./session/compaction-checkpoint"
 import { copyPrefix, getForkedTitle } from "./session/clone-prefix"
 import { Revert } from "@opencode-ai/schema/revert"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
@@ -204,6 +205,10 @@ export interface Interface {
     resume?: boolean
   }) => Effect.Effect<void, OperationUnavailableError>
   readonly compact: (input: CompactInput) => Effect.Effect<void, NotFoundError | SessionBusyError | SessionRunner.RunError>
+  readonly uncompact: (input: {
+    sessionID: SessionSchema.ID
+    checkpointID?: string
+  }) => Effect.Effect<boolean, NotFoundError | SessionBusyError>
   readonly wait: (
     id: SessionSchema.ID,
     after?: number,
@@ -797,6 +802,15 @@ const layer = Layer.effect(
           Effect.provide(locations.get(session.location)),
         )
       }),
+      uncompact: Effect.fn("V2Session.uncompact")(function* (input) {
+        yield* result.get(input.sessionID)
+        if (yield* occupied(input.sessionID)) {
+          return yield* new SessionBusyError({ sessionID: input.sessionID })
+        }
+        // Restore tape + messages from checkpoint through stores directly. Do
+        // not prompt: SessionV2.prompt resets the loop terminal (user_abort).
+        return yield* CompactionCheckpoint.restore(String(input.sessionID), input.checkpointID)
+      }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID, after) {
         yield* result.get(sessionID)
         return yield* store.wait(sessionID, undefined, after)
@@ -820,6 +834,21 @@ const layer = Layer.effect(
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
         Effect.uninterruptible(
           Effect.gen(function* () {
+            yield* Effect.gen(function* () {
+              const maybeRuntime = yield* Effect.serviceOption(SessionRuntime.Service)
+              if (Option.isSome(maybeRuntime)) {
+                const inst = yield* maybeRuntime.value.getOrCreate(sessionID)
+                yield* inst.terminal.request("user_abort")
+                return
+              }
+              const session = yield* result.get(sessionID)
+              const layer = locations.get(session.location)
+              yield* Effect.gen(function* () {
+                const runtime = yield* SessionRuntime.Service
+                const inst = yield* runtime.getOrCreate(sessionID)
+                yield* inst.terminal.request("user_abort")
+              }).pipe(Effect.provide(layer))
+            }).pipe(Effect.catchCause(() => Effect.void))
             const entry = shells.get(sessionID)
             if (entry) {
               entry.aborted = true

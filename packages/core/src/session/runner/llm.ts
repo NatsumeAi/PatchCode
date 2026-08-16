@@ -30,6 +30,7 @@ import { MemoryPreCompress } from "../../memory/pre-compress-wire"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
+import { Hooks } from "../../hooks"
 import { ToolOutputStore } from "../../tool-output-store"
 import { SessionContextEpoch } from "../context-epoch"
 import { SessionCompaction } from "../compaction"
@@ -64,6 +65,7 @@ import { TerminalController } from "../loop-control/terminal-controller"
 import { GoalStore } from "../loop-control/goal-store"
 import { VerifierBiDirectional, type NextTurnSystemContext } from "./verifier-bi-directional"
 import { ContextEngine } from "./context-engine"
+import { Token } from "../../util/token"
 import { SessionRuntime, type Instance } from "../runtime"
 import { TreeBudget } from "../tree-budget"
 import { SubagentLifecycle } from "../subagent-lifecycle"
@@ -896,9 +898,20 @@ const layer = Layer.effect(
             : compiled.messages,
         },
       })
-      // Token compact path + ContextEngine step-budget proactive path (FULL).
+      // Token compact path + ContextEngine token-window proactive path.
       // When the engine wants a proactive compact, still use compactIfNeeded as the
       // sole real compact executor so overflow recovery semantics stay single-path.
+      const contextWindow = model.route.defaults.limits?.context ?? 0
+      yield* drain.contextEngine.setUsage({
+        tokens: Token.estimate(
+          JSON.stringify({
+            system: request.system,
+            messages: request.compiled?.messages ?? request.messages,
+            tools: request.compiled?.tools ?? request.tools,
+          }),
+        ),
+        window: contextWindow,
+      })
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })) {
         yield* dropTape(session.id)
         yield* flushMemoryIfWired(session.id)
@@ -1457,6 +1470,7 @@ const layer = Layer.effect(
                 status: { type: "idle" },
               })
               .pipe(Effect.catchCause(() => Effect.void))
+            yield* Hooks.fire({ event: "Stop", sessionID: input.sessionID }).pipe(Effect.ignore)
             // SessionIdle lifecycle for subagent contributor hooks
             const lifeOpt = yield* Effect.serviceOption(SubagentLifecycle.Service)
             if (Option.isSome(lifeOpt)) {

@@ -37,3 +37,11 @@ test("python -c is a single bash segment (opaque later at peel)", async () => {
   expect(r.segments).toHaveLength(1)
   expect(r.segments[0]?.[0]).toBe("python")
 })
+
+test("redirect targets are collected", async () => {
+  const r = await classify("ls > src/x.ts", "bash")
+  expect(r.tag).toBe("segments")
+  if (r.tag !== "segments") return
+  expect(r.segments[0]?.[0]).toBe("ls")
+  expect(r.redirects?.some((item) => item.includes("src/x.ts") || item === "src/x.ts")).toBe(true)
+})

@@ -1015,7 +1015,11 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.AgentSwitched, (event) =>
       db
         .update(SessionTable)
-        .set({ agent: event.data.agent, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+        .set({
+          agent: event.data.agent,
+          plan_mode: event.data.agent === "plan" ? 1 : 0,
+          time_updated: DateTime.toEpochMillis(event.data.timestamp),
+        })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
         .pipe(Effect.orDie, Effect.andThen(run(db, events, event))),

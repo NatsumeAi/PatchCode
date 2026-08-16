@@ -191,6 +191,7 @@ export const saveTape = Effect.fn("SessionContextEpoch.saveTape")(function* (
     readonly lastSeq: number
     readonly messageSeqs?: ReadonlyArray<number>
     readonly recall?: string
+    readonly baselineSeq?: number
   } | null,
 ) {
   yield* db
@@ -206,6 +207,7 @@ export const saveTape = Effect.fn("SessionContextEpoch.saveTape")(function* (
             recall: stored.recall ?? "",
           }
         : null,
+      ...(stored?.baselineSeq !== undefined ? { baseline_seq: stored.baselineSeq } : {}),
     })
     .where(eq(SessionContextEpochTable.session_id, sessionID))
     .run()

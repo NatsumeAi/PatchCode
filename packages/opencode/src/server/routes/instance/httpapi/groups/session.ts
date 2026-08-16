@@ -68,6 +68,9 @@ export const SummarizePayload = Schema.Struct({
   modelID: ModelV2.ID,
   auto: Schema.optional(Schema.Boolean),
 })
+export const UncompactPayload = Schema.Struct({
+  checkpointID: Schema.optional(Schema.String),
+})
 const ModelRef = Schema.Struct({
   providerID: ProviderV2.ID,
   modelID: ModelV2.ID,
@@ -126,6 +129,38 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })
+export const JobID = Schema.String
+export const JobInfo = Schema.Struct({
+  id: Schema.String,
+  type: Schema.String,
+  title: Schema.optional(Schema.String),
+  status: Schema.Literals(["running", "completed", "error", "cancelled"]),
+  started_at: Schema.Number,
+  completed_at: Schema.optional(Schema.Number),
+  output: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+})
+export const JobWaitPayload = Schema.Struct({
+  timeout: Schema.optional(Schema.Number),
+})
+export const HooksList = Schema.Struct({
+  loaded: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      origin: Schema.String,
+      file: Schema.String,
+    }),
+  ),
+  untrusted: Schema.Boolean,
+  lastDeny: Schema.optional(
+    Schema.Struct({
+      hookId: Schema.String,
+      event: Schema.String,
+      reason: Schema.String,
+    }),
+  ),
+})
 
 export const SessionPaths = {
   list: root,
@@ -144,6 +179,8 @@ export const SessionPaths = {
   share: `${root}/:sessionID/share`,
   init: `${root}/:sessionID/init`,
   summarize: `${root}/:sessionID/summarize`,
+  uncompact: `${root}/:sessionID/uncompact`,
+  worktreeMerge: `${root}/:sessionID/worktree/:id/merge`,
   prompt: `${root}/:sessionID/message`,
   promptAsync: `${root}/:sessionID/prompt_async`,
   command: `${root}/:sessionID/command`,
@@ -154,6 +191,12 @@ export const SessionPaths = {
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
   updatePart: `${root}/:sessionID/message/:messageID/part/:partID`,
+  jobs: `${root}/:sessionID/jobs`,
+  job: `${root}/:sessionID/jobs/:jobID`,
+  jobWait: `${root}/:sessionID/jobs/:jobID/wait`,
+  jobKill: `${root}/:sessionID/jobs/:jobID/kill`,
+  jobPromote: `${root}/:sessionID/jobs/:jobID/promote`,
+  hooks: `${root}/:sessionID/hooks`,
 } as const
 
 export const SessionApi = HttpApi.make("session")
@@ -365,6 +408,31 @@ export const SessionApi = HttpApi.make("session")
             description: "Generate a concise summary of the session using AI compaction to preserve key information.",
           }),
         ),
+        HttpApiEndpoint.post("uncompact", SessionPaths.uncompact, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: UncompactPayload,
+          success: described(Schema.Boolean, "Restored compaction checkpoint"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError, SessionBusyError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.uncompact",
+            summary: "Uncompact session",
+            description: "Restore the session tape and context epoch from a compaction checkpoint.",
+          }),
+        ),
+        HttpApiEndpoint.post("worktreeMerge", SessionPaths.worktreeMerge, {
+          params: { sessionID: SessionID, id: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Merged worktree"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.worktree.merge",
+            summary: "Merge worktree",
+            description: "Copy isolated worktree changes onto the parent project. Fails if the parent is dirty on the same paths or review gate failed.",
+          }),
+        ),
         HttpApiEndpoint.post("prompt", SessionPaths.prompt, {
           params: { sessionID: SessionID },
           query: WorkspaceRoutingQuery,
@@ -492,6 +560,79 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.get("jobs", SessionPaths.jobs, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(JobInfo), "Session jobs"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.jobs.list",
+            summary: "List session jobs",
+            description: "List background jobs owned by this session.",
+          }),
+        ),
+        HttpApiEndpoint.get("job", SessionPaths.job, {
+          params: { sessionID: SessionID, jobID: JobID },
+          query: WorkspaceRoutingQuery,
+          success: described(JobInfo, "Job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.jobs.get",
+            summary: "Get session job",
+            description: "Get a background job if it belongs to this session.",
+          }),
+        ),
+        HttpApiEndpoint.post("jobWait", SessionPaths.jobWait, {
+          params: { sessionID: SessionID, jobID: JobID },
+          query: WorkspaceRoutingQuery,
+          payload: [HttpApiSchema.NoContent, JobWaitPayload],
+          success: described(JobInfo, "Job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.jobs.wait",
+            summary: "Wait for session job",
+            description: "Wait for a session-owned background job to settle.",
+          }),
+        ),
+        HttpApiEndpoint.post("jobKill", SessionPaths.jobKill, {
+          params: { sessionID: SessionID, jobID: JobID },
+          query: WorkspaceRoutingQuery,
+          success: described(JobInfo, "Job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.jobs.kill",
+            summary: "Kill session job",
+            description: "Cancel a session-owned background job.",
+          }),
+        ),
+        HttpApiEndpoint.post("jobPromote", SessionPaths.jobPromote, {
+          params: { sessionID: SessionID, jobID: JobID },
+          query: WorkspaceRoutingQuery,
+          success: described(JobInfo, "Job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.jobs.promote",
+            summary: "Promote session job",
+            description: "Stop waiting on a foreground bash job without starting a second process.",
+          }),
+        ),
+        HttpApiEndpoint.get("hooks", SessionPaths.hooks, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(HooksList, "Loaded hooks and last deny"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.hooks.list",
+            summary: "List session hooks",
+            description: "List loaded lifecycle hooks and the last deny for this session's location.",
           }),
         ),
       )

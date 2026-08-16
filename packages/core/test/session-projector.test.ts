@@ -255,6 +255,7 @@ describe("SessionProjector", () => {
           directory: "/project",
           title: "test",
           version: "test",
+          plan_mode: 1,
         })
         .run()
         .pipe(Effect.orDie)
@@ -360,8 +361,18 @@ describe("SessionProjector", () => {
       ).toMatchObject({
         agent: "build",
         model,
+        plan_mode: 0,
         time_updated: DateTime.toEpochMillis(created),
       })
+      yield* events.publish(SessionEvent.AgentSwitched, {
+        sessionID,
+        messageID: SessionMessage.ID.create(),
+        timestamp: created,
+        agent: "plan",
+      })
+      expect(
+        yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie),
+      ).toMatchObject({ agent: "plan", plan_mode: 1 })
     }),
   )
 

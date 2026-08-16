@@ -44,6 +44,7 @@ const permission = Layer.succeed(
         ),
       ),
     ask: () => Effect.die("unused"),
+    assertPolicyAsk: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
     forSession: () => Effect.die("unused"),
@@ -202,7 +203,84 @@ describe("ApplyPatchTool", () => {
     ),
   )
 
-  it.live("rejects moves before applying any hunk", () =>
+  it.live("applies mixed add and move hunks", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        const source = path.join(tmp.path, "old.txt")
+        return Effect.promise(() => fs.writeFile(source, "before\n")).pipe(
+          Effect.andThen(
+            withTool(tmp.path, (registry) =>
+              Effect.gen(function* () {
+                const settled = yield* settleTool(
+                  registry,
+                  call(
+                    "*** Begin Patch\n*** Add File: created.txt\n+created\n*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-before\n+after\n*** End Patch",
+                  ),
+                )
+                expect(settled.result).toEqual({
+                  type: "text",
+                  value: "Applied patch sequentially:\nA created.txt\nR old.txt -> moved.txt",
+                })
+                expect(settled.output?.structured).toMatchObject({
+                  applied: [
+                    { type: "add", resource: "created.txt" },
+                    { type: "move", resource: "moved.txt", from: "old.txt", to: "moved.txt" },
+                  ],
+                })
+                expect(assertions).toMatchObject([
+                  {
+                    sessionID,
+                    action: "edit",
+                    resources: ["created.txt", "old.txt", "moved.txt"],
+                    save: ["*"],
+                  },
+                ])
+                expect(yield* exists(path.join(tmp.path, "created.txt"))).toBe(true)
+                expect(yield* Effect.promise(() => fs.readFile(path.join(tmp.path, "created.txt"), "utf8"))).toBe(
+                  "created\n",
+                )
+                expect(yield* exists(source)).toBe(false)
+                expect(yield* Effect.promise(() => fs.readFile(path.join(tmp.path, "moved.txt"), "utf8"))).toBe("after\n")
+              }),
+            ),
+          ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.live("rejects a move onto an existing dest and leaves the source unchanged", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        const source = path.join(tmp.path, "old.txt")
+        const dest = path.join(tmp.path, "moved.txt")
+        return Effect.promise(() => Promise.all([fs.writeFile(source, "before\n"), fs.writeFile(dest, "existing\n")])).pipe(
+          Effect.andThen(
+            withTool(tmp.path, (registry) =>
+              Effect.gen(function* () {
+                expect(
+                  yield* executeTool(
+                    registry,
+                    call("*** Begin Patch\n*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-before\n+after\n*** End Patch"),
+                  ),
+                ).toMatchObject({ type: "error" })
+                expect(yield* Effect.promise(() => fs.readFile(source, "utf8"))).toBe("before\n")
+                expect(yield* Effect.promise(() => fs.readFile(dest, "utf8"))).toBe("existing\n")
+              }),
+            ),
+          ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.live("renames on a move-only identity update", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => {
@@ -215,13 +293,11 @@ describe("ApplyPatchTool", () => {
                 expect(
                   yield* executeTool(
                     registry,
-                    call(
-                      "*** Begin Patch\n*** Add File: created.txt\n+created\n*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-before\n+after\n*** End Patch",
-                    ),
+                    call("*** Begin Patch\n*** Update File: old.txt\n*** Move to: moved.txt\n@@\n before\n*** End Patch"),
                   ),
-                ).toEqual({ type: "error", value: "apply_patch moves are not supported yet" })
-                expect(yield* exists(path.join(tmp.path, "created.txt"))).toBe(false)
-                expect(assertions).toEqual([])
+                ).toMatchObject({ type: "text" })
+                expect(yield* exists(source)).toBe(false)
+                expect(yield* Effect.promise(() => fs.readFile(path.join(tmp.path, "moved.txt"), "utf8"))).toBe("before\n")
               }),
             ),
           ),

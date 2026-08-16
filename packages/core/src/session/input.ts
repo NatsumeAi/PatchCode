@@ -10,6 +10,7 @@ import { SessionMessage } from "./message"
 import { Prompt } from "./prompt"
 import { SessionSchema } from "./schema"
 import { SessionInputTable, SessionMessageTable } from "./sql"
+import { Hooks } from "../hooks"
 
 type DatabaseService = Database.Interface["db"]
 
@@ -51,6 +52,7 @@ export const admit = Effect.fn("SessionInput.admit")(function* (
   const existing = yield* find(db, input.id)
   if (existing !== undefined) return existing
   const timestamp = yield* DateTime.now
+  yield* Hooks.fire({ event: "UserPromptSubmit", sessionID: input.sessionID }).pipe(Effect.ignore)
   return yield* events
     .publish(SessionEvent.PromptAdmitted, {
       messageID: input.id,

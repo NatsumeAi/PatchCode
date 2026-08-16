@@ -5,11 +5,9 @@ import * as Tool from "./tool"
 import path from "path"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { InstanceState } from "@/effect/instance-state"
-import { lazy } from "@/util/lazy"
-import { Language, type Node } from "web-tree-sitter"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import { fileURLToPath } from "url"
+import { classify } from "@opencode-ai/core/exec-policy"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Shell } from "@opencode-ai/core/shell"
@@ -17,6 +15,8 @@ import { ShellID } from "./shell/id"
 
 import * as Truncate from "./truncate"
 import { Plugin } from "@/plugin"
+import { wrapSpawn } from "@opencode-ai/core/sandbox"
+import { classify, decide, loadBuiltin, reduce } from "@opencode-ai/core/exec-policy"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
@@ -81,48 +81,7 @@ type Chunk = {
   size: number
 }
 
-const resolveWasm = (asset: string) => {
-  if (asset.startsWith("file://")) return fileURLToPath(asset)
-  if (asset.startsWith("/") || /^[a-z]:/i.test(asset)) return asset
-  const url = new URL(asset, import.meta.url)
-  return fileURLToPath(url)
-}
-
-function parts(node: Node) {
-  const out: Part[] = []
-  for (let i = 0; i < node.childCount; i++) {
-    const child = node.child(i)
-    if (!child) continue
-    if (child.type === "command_elements") {
-      for (let j = 0; j < child.childCount; j++) {
-        const item = child.child(j)
-        if (!item || item.type === "command_argument_sep" || item.type === "redirection") continue
-        out.push({ type: item.type, text: item.text })
-      }
-      continue
-    }
-    if (
-      child.type !== "command_name" &&
-      child.type !== "command_name_expr" &&
-      child.type !== "word" &&
-      child.type !== "string" &&
-      child.type !== "raw_string" &&
-      child.type !== "concatenation"
-    ) {
-      continue
-    }
-    out.push({ type: child.type, text: child.text })
-  }
-  return out
-}
-
-function source(node: Node) {
-  return (node.parent?.type === "redirected_statement" ? node.parent.text : node.text).trim()
-}
-
-function commands(node: Node) {
-  return node.descendantsOfType("command").filter((child): child is Node => Boolean(child))
-}
+// parser moved to core exec-policy
 
 function unquote(text: string) {
   if (text.length < 2) return text
@@ -254,12 +213,6 @@ function tail(text: string, maxLines: number, maxBytes: number) {
   }
 }
 
-const parse = Effect.fn("ShellTool.parse")(function* (command: string, ps: boolean) {
-  const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
-  if (!tree) throw new Error("Failed to parse command")
-  return tree
-})
-
 const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan, input: { command: string }) {
   if (scan.dirs.size > 0) {
     const directories = Array.from(scan.dirs)
@@ -292,48 +245,39 @@ const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan,
 
 function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
   if (process.platform === "win32" && Shell.ps(shell)) {
-    return ChildProcess.make(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+    return wrapSpawn({
+      class: "workspace-child",
+      command: shell,
+      args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+      cwd,
+      whenUnpinned: "location",
+      location: cwd,
+    }).then((wrapped) =>
+      ChildProcess.make(wrapped.command, wrapped.args, {
+        cwd,
+        env,
+        stdin: "ignore",
+        detached: false,
+      }),
+    )
+  }
+
+  return wrapSpawn({
+    class: "workspace-child",
+    command: shell,
+    args: ["-c", command],
+    cwd,
+    whenUnpinned: "location",
+    location: cwd,
+  }).then((wrapped) =>
+    ChildProcess.make(wrapped.command, wrapped.args, {
       cwd,
       env,
       stdin: "ignore",
-      detached: false,
-    })
-  }
-
-  return ChildProcess.make(command, [], {
-    shell,
-    cwd,
-    env,
-    stdin: "ignore",
-    detached: process.platform !== "win32",
-  })
+      detached: process.platform !== "win32",
+    }),
+  )
 }
-const parser = lazy(async () => {
-  const { Parser } = await import("web-tree-sitter")
-  const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const treePath = resolveWasm(treeWasm)
-  await Parser.init({
-    locateFile() {
-      return treePath
-    },
-  })
-  const { default: bashWasm } = await import("tree-sitter-bash/tree-sitter-bash.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const { default: psWasm } = await import("tree-sitter-powershell/tree-sitter-powershell.wasm" as string, {
-    with: { type: "wasm" },
-  })
-  const bashPath = resolveWasm(bashWasm)
-  const psPath = resolveWasm(psWasm)
-  const [bashLanguage, psLanguage] = await Promise.all([Language.load(bashPath), Language.load(psPath)])
-  const bash = new Parser()
-  bash.setLanguage(bashLanguage)
-  const ps = new Parser()
-  ps.setLanguage(psLanguage)
-  return { bash, ps }
-})
 
 export const ShellTool = Tool.define(
   ShellID.ToolID,
@@ -376,7 +320,7 @@ export const ShellTool = Tool.define(
     })
 
     const collect = Effect.fn("ShellTool.collect")(function* (
-      root: Node,
+      command: string,
       cwd: string,
       ps: boolean,
       shell: string,
@@ -388,14 +332,15 @@ export const ShellTool = Tool.define(
         always: new Set<string>(),
       }
       const shellKind = ShellID.toKind(Shell.name(shell))
+      const classified = yield* Effect.promise(() => classify(command, shell))
+      const segments = classified.tag === "segments" ? classified.segments : [[command]]
 
-      for (const node of commands(root)) {
-        const command = parts(node)
-        const tokens = command.map((item) => item.text)
+      for (const tokens of segments) {
+        const parts = tokens.map((text) => ({ type: "word", text }))
         const cmd = ps || shellKind === "cmd" ? tokens[0]?.toLowerCase() : tokens[0]
 
         if (cmd && (FILES.has(cmd) || (shellKind === "cmd" && CMD_FILES.has(cmd)))) {
-          for (const arg of pathArgs(command, ps, shellKind === "cmd")) {
+          for (const arg of pathArgs(parts, ps, shellKind === "cmd")) {
             const resolved = yield* argPath(arg, cwd, ps, shell)
             yield* Effect.logInfo("resolved path", { arg, resolved })
             if (!resolved || containsPath(resolved, instance)) continue
@@ -405,7 +350,7 @@ export const ShellTool = Tool.define(
         }
 
         if (tokens.length && (!cmd || !CWD.has(cmd))) {
-          scan.patterns.add(source(node))
+          scan.patterns.add(tokens.join(" "))
           scan.always.add(BashArity.prefix(tokens).join(" ") + " *")
         }
       }
@@ -481,7 +426,7 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+          const handle = yield* spawner.spawn(yield* Effect.promise(() => cmd(input.shell, input.command, input.cwd, input.env)))
 
           yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
@@ -617,16 +562,22 @@ export const ShellTool = Tool.define(
               }
               const timeout = params.timeout ?? defaultTimeoutMs
               const ps = Shell.ps(shell)
-              yield* Effect.scoped(
-                Effect.gen(function* () {
-                  const tree = yield* Effect.acquireRelease(parse(params.command, ps), (tree) =>
-                    Effect.sync(() => tree.delete()),
-                  )
-                  const scan = yield* collect(tree.rootNode, cwd, ps, shell, instanceCtx)
-                  if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
-                  yield* ask(ctx, scan, params)
-                }),
+              const classified = yield* Effect.promise(() => classify(params.command, shell))
+              const reduced = yield* Effect.promise(() =>
+                reduce(classified, { classify, depth: 0, source: params.command }),
               )
+              const policy = yield* Effect.promise(() => loadBuiltin())
+              const decision = decide(policy, reduced, {
+                sandboxProfile: process.env.OPENCODE_SANDBOX === "off" ? "off" : "workspace",
+              })
+              if (decision.effect === "deny") {
+                throw new Error(`Command denied by exec policy${decision.reason ? `: ${decision.reason}` : ""}`)
+              }
+              yield* Effect.gen(function* () {
+                const scan = yield* collect(params.command, cwd, ps, shell, instanceCtx)
+                if (!containsPath(cwd, instanceCtx)) scan.dirs.add(cwd)
+                yield* ask(ctx, scan, params)
+              })
 
               return yield* run(
                 {

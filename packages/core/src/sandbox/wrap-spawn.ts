@@ -57,6 +57,107 @@ const isDir = (file: string) => {
 }
 
 const HOME_DENY_NAMES = [".ssh", ".gnupg", ".aws", ".netrc", ".env"]
+const HOME_SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".cache",
+  ".local",
+  ".npm",
+  ".nvm",
+  "Library",
+  ".cargo",
+  ".rustup",
+  "go",
+  "snap",
+])
+const HOME_SECRET_RE = /\.(pem|key)$|(?:^|\/)\.env\.[^/]+$/
+const HOME_SECRET_DEPTH = 3
+const SKIPPED_SECRET_DEPTH = 5
+const SKIPPED_TREE_NAMES = new Set(["node_modules", ".git", ".cache"])
+
+const walkHomeSecrets = (root: string, add: (resolved: string) => void, depth = 0) => {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (entry.name === "." || entry.name === "..") continue
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      if (depth >= HOME_SECRET_DEPTH) continue
+      if (HOME_SKIP_DIRS.has(entry.name)) continue
+      walkHomeSecrets(full, add, depth + 1)
+      continue
+    }
+    if (HOME_SECRET_RE.test(entry.name) || HOME_SECRET_RE.test(full.replaceAll("\\", "/"))) add(path.resolve(full))
+  }
+}
+
+const walkCustomHome = (
+  root: string,
+  add: (resolved: string) => void,
+  globs: readonly string[],
+  depth = 0,
+) => {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (entry.name === "." || entry.name === "..") continue
+    const full = path.join(root, entry.name)
+    if (globMatchAny(globs, full)) add(path.resolve(full))
+    if (entry.isDirectory()) {
+      if (depth >= 6) continue
+      if (entry.name === "node_modules" || entry.name === ".git") continue
+      walkCustomHome(full, add, globs, depth + 1)
+    }
+  }
+}
+
+const walkSecretsInTree = (root: string, add: (resolved: string) => void, depth = 0) => {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (entry.name === "." || entry.name === "..") continue
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      if (depth >= SKIPPED_SECRET_DEPTH) continue
+      walkSecretsInTree(full, add, depth + 1)
+      continue
+    }
+    if (HOME_SECRET_RE.test(entry.name) || HOME_DENY_NAMES.includes(entry.name)) add(path.resolve(full))
+  }
+}
+
+const walkSkippedSecretTrees = (root: string, add: (resolved: string) => void, depth = 0) => {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (entry.name === "." || entry.name === "..") continue
+    if (!entry.isDirectory()) continue
+    const full = path.join(root, entry.name)
+    if (SKIPPED_TREE_NAMES.has(entry.name)) {
+      walkSecretsInTree(full, add)
+      continue
+    }
+    if (depth >= 4) continue
+    if (HOME_SKIP_DIRS.has(entry.name) && entry.name !== ".cache") continue
+    walkSkippedSecretTrees(full, add, depth + 1)
+  }
+}
 
 export async function expandDenyGlobs(input: {
   readonly globs: readonly string[]
@@ -91,8 +192,8 @@ export async function expandDenyGlobs(input: {
         const candidate = path.join(root, name)
         if (exists(candidate)) add(path.resolve(candidate))
       }
-      // Do not walk all of $HOME (`**/*.pem` matches SSL certs and times out wrap).
-      // The Location root still expands the full deny globs, even when it is $HOME.
+      walkHomeSecrets(root, add)
+      walkCustomHome(root, add, input.globs)
       continue
     }
     for (const pattern of input.globs) {
@@ -105,6 +206,7 @@ export async function expandDenyGlobs(input: {
       })) as string[]
       for (const hit of hits) add(path.resolve(hit))
     }
+    walkSkippedSecretTrees(root, add)
   }
   return { files, dirs }
 }
@@ -116,7 +218,8 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
     sessionID: input.sessionID,
     profileName: input.profileName,
     location,
-    whenUnpinned: input.whenUnpinned,
+    whenUnpinned: input.whenUnpinned ?? (platform === "win32" ? "off" : "location"),
+    platform,
   })
   if (resolved.profile.name === "off") {
     return { command: input.command, args: [...input.args] }

@@ -476,7 +476,7 @@ export function replace(content: string, oldString: string, newString: string, r
   throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.")
 }
 
-function isDisproportionateMatch(search: string, oldString: string) {
+export function isDisproportionateMatch(search: string, oldString: string) {
   const oldLines = oldString.split("\n").length
   const searchLines = search.split("\n").length
   if (searchLines >= Math.max(oldLines + 3, oldLines * 2)) return true

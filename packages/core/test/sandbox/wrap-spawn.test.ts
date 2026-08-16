@@ -219,3 +219,62 @@ test("win32 wrapSpawn workspace fails Unsupported without mocking platform globa
   }
   expect(thrown?._tag).toBe("Sandbox.Unsupported")
 })
+
+test("home $HOME pem/key files are overlayed", async () => {
+  if (process.platform !== "linux") return
+  const home = await mkdtemp(path.join(tmpdir(), "oc-home-pem-"))
+  const work = await mkdtemp(path.join(tmpdir(), "oc-work-pem-"))
+  const pem = path.join(home, "secret.pem")
+  try {
+    await writeFile(pem, "PEM\n")
+    const wrapped = await wrapSpawn({
+      class: "workspace-child",
+      command: "/bin/sh",
+      args: ["-c", `cat '${pem}'`],
+      cwd: work,
+      profileName: "workspace",
+      location: work,
+      home,
+    })
+    const overlays: string[] = []
+    for (let i = 0; i < wrapped.args.length; i++) {
+      if (wrapped.args[i] === "--ro-bind" && wrapped.args[i + 1] === "/dev/null") overlays.push(wrapped.args[i + 2] ?? "")
+    }
+    expect(overlays).toContain(pem)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  }
+})
+
+test("deny glob expansion throws GlobOverflow past cap", async () => {
+  const { expandDenyGlobs } = await import("../../src/sandbox/wrap-spawn")
+  const { GlobOverflow } = await import("../../src/sandbox/windows")
+  const root = await mkdtemp(path.join(tmpdir(), "oc-glob-ovf-"))
+  try {
+    await writeFile(path.join(root, "a.pem"), "a")
+    await writeFile(path.join(root, "b.pem"), "b")
+    let thrown: unknown
+    try {
+      await expandDenyGlobs({ globs: ["**/*.pem"], roots: [root], cap: 1 })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(GlobOverflow)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("unpinned unix wrapSpawn uses location default not implicit off", async () => {
+  if (process.platform !== "linux") return
+  const wrapped = await wrapSpawn({
+    class: "workspace-child",
+    command: "/bin/sh",
+    args: ["-c", "true"],
+    cwd: "/tmp",
+    location: "/tmp",
+    home: "/tmp",
+  })
+  expect(wrapped.command).toContain("bwrap")
+})

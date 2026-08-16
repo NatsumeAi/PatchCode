@@ -36,6 +36,7 @@ const permission = Layer.succeed(
           input.action === denyAction ? Effect.fail(new PermissionV2.BlockedError({ rules: [] })) : Effect.void,
         ),
       ),
+    assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
@@ -152,6 +153,37 @@ describe("EditTool", () => {
                 expect(writes).toEqual([yield* Effect.promise(() => fs.realpath(target))])
               }),
             ),
+          ),
+        )
+      },
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ),
+  )
+
+  it.live("matches 2-space oldString against a 4-space-indented file", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => {
+        reset()
+        const target = path.join(tmp.path, "indent.ts")
+        return Effect.promise(() => fs.writeFile(target, "function f() {\n    return 1\n}\n")).pipe(
+          Effect.andThen(
+            withTool(tmp.path, (registry) =>
+              executeTool(
+                registry,
+                call({
+                  path: "indent.ts",
+                  oldString: "function f() {\n  return 1\n}",
+                  newString: "function f() {\n    return 2\n}",
+                }),
+              ),
+            ),
+          ),
+          Effect.andThen((result) =>
+            Effect.gen(function* () {
+              expect(result.type).toBe("text")
+              expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("function f() {\n    return 2\n}\n")
+            }),
           ),
         )
       },
@@ -317,7 +349,7 @@ describe("EditTool", () => {
                 ).toEqual({
                   type: "error",
                   value:
-                    "Could not find oldString in the file. It must match exactly, including whitespace and indentation.",
+                    "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
                 })
                 expect(
                   yield* executeTool(registry, call({ path: "matches.txt", oldString: "same", newString: "after" })),
@@ -423,7 +455,7 @@ test("keeps the locked edit schema, semantics docstring, and deferred TODOs visi
     "absolute external paths retain mutation capability through a separate\n * external_directory approval before edit approval.",
   )
   for (const todo of [
-    "Port V1 fuzzy correction strategies only after exact-edit behavior is established: line-trimmed matching, block-anchor fallback, indentation correction, and similarity-threshold review.",
+    "Keep V1 fuzzy strategies in edit-match.ts (line-trimmed, block-anchor, indentation, similarity-threshold); do not reintroduce them inline in edit.ts.",
     "Add formatter integration after V2 formatter runtime exists.",
     "Publish watcher/file-edit events after V2 watcher integration exists.",
     "Add snapshots / undo after design exists.",

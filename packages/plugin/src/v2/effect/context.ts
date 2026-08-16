@@ -8,6 +8,14 @@ import type { PluginDomain } from "./plugin.js"
 import type { ReferenceHooks } from "./reference.js"
 import type { SkillHooks } from "./skill.js"
 import type { Reload } from "./registration.js"
+import type { Effect } from "effect"
+
+export type HooksHandler = {
+  readonly id: string
+  readonly event: string
+  readonly matcher?: string
+  readonly run: (envelope: unknown) => Effect.Effect<{ readonly _tag: string }>
+}
 
 export interface PluginContext {
   readonly options: PluginOptions
@@ -19,4 +27,7 @@ export interface PluginContext {
   readonly plugin: PluginDomain
   readonly reference: ReferenceHooks & Reload
   readonly skill: SkillHooks & Reload
+  readonly hooks: {
+    readonly register: (handler: HooksHandler) => Effect.Effect<void>
+  }
 }

@@ -75,7 +75,7 @@ const layer = Layer.effect(
           resolvePinned({
             sessionID,
             location: location.directory,
-            whenUnpinned: "off",
+            whenUnpinned: "location",
           }),
         catch: (cause) =>
           cause instanceof Unavailable
@@ -102,7 +102,7 @@ const layer = Layer.effect(
           resolvePinned({
             sessionID,
             location: location.directory,
-            whenUnpinned: "off",
+            whenUnpinned: "location",
           }),
         catch: (cause) =>
           cause instanceof Unavailable

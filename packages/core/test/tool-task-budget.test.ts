@@ -18,6 +18,7 @@ const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
     assert: () => Effect.void,
+    assertPolicyAsk: () => Effect.void,
     evaluate: () => Effect.succeed({ action: "allow", resource: "*", effect: "allow" }),
   } as unknown as PermissionV2.Interface),
 )

@@ -150,7 +150,7 @@ const STRICT_READ = ["/bin", "/sbin", "/usr", "/etc", "/lib", "/lib64", "/dev", 
 export function builtInProfile(name: string, ctx: PathContext): ResolvedProfile {
   const denyGlobs = [...DEFAULT_DENY_GLOBS]
   const denyExceptions = [...DEFAULT_DENY_EXCEPTIONS]
-  const opencodePaths = unique([ctx.data, ctx.cache, ctx.config, ctx.state, ctx.opencodeTmp])
+  const opencodeWritable = unique([ctx.cache, ctx.opencodeTmp])
   const tmpRoots = unique([ctx.tmp, ctx.opencodeTmp, "/tmp", "/var/tmp"])
 
   if (name === "off") {
@@ -170,7 +170,7 @@ export function builtInProfile(name: string, ctx: PathContext): ResolvedProfile 
       name,
       defaultRead: true,
       readRoots: ["/"],
-      writeRoots: unique([ctx.location, ...opencodePaths, ...tmpRoots]),
+      writeRoots: unique([ctx.location, ...opencodeWritable, ...tmpRoots]),
       denyGlobs,
       denyExceptions,
       restrictNetwork: false,
@@ -182,7 +182,7 @@ export function builtInProfile(name: string, ctx: PathContext): ResolvedProfile 
       name,
       defaultRead: true,
       readRoots: ["/"],
-      writeRoots: unique([...opencodePaths, ...tmpRoots]),
+      writeRoots: unique([...opencodeWritable, ...tmpRoots]),
       denyGlobs,
       denyExceptions,
       restrictNetwork: true,
@@ -211,7 +211,10 @@ export function mergeCustom(
 ): ResolvedProfile {
   const baseName = spec.extends && BUILTIN_NAMES.includes(spec.extends as BuiltinName) ? spec.extends : "workspace"
   const base = builtins(baseName, ctx)
-  const deny = [...base.denyGlobs, ...(spec.deny ?? [])]
+  const deny =
+    baseName === "off"
+      ? [...DEFAULT_DENY_GLOBS, ...(spec.deny ?? [])]
+      : [...base.denyGlobs, ...(spec.deny ?? [])]
   const writeRoots = unique([...base.writeRoots, ...(spec.read_write ?? [])])
   return {
     ...base,

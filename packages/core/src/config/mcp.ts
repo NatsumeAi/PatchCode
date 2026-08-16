@@ -45,4 +45,8 @@ export const Server = Schema.Union([Local, Remote]).pipe(Schema.toTaggedUnion("t
 export class Info extends Schema.Class<Info>("ConfigV2.MCP")({
   timeout: Timeout.pipe(Schema.optional),
   servers: Schema.Record(Schema.String, Server).pipe(Schema.optional),
+  deferAfter: PositiveInt.pipe(Schema.optional).annotate({
+    description:
+      "When the number of MCP/dynamic tools exceeds this threshold (default 8), advertise search_tool and use_tool instead of every schema",
+  }),
 }) {}

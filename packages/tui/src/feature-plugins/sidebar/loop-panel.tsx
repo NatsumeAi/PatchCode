@@ -1,6 +1,7 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { HooksStatus } from "../../component/hooks-status"
 
 const id = "internal:sidebar-loop"
 
@@ -119,6 +120,7 @@ export function View(props: { api: TuiPluginApi; session_id: string }) {
               <text fg={theme().textMuted}>terminal: {l().terminal ?? "running"}</text>
               <text fg={theme().textMuted}>breaker: {l().breaker ?? "—"}</text>
               <text fg={theme().textMuted}>subagents: {l().subagents ?? "—"}</text>
+              <HooksStatus />
             </box>
           )}
         </Show>

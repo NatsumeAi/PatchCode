@@ -41,6 +41,8 @@ export const SessionTable = sqliteTable(
     summary_diffs: text({ mode: "json" }).$type<Snapshot.LegacyFileDiff[]>(),
     metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
     sandbox_profile: text().notNull().default("off"),
+    hooks_session_start: text().notNull().default("pending"),
+    plan_mode: integer().notNull().default(0),
     cost: real().notNull().default(0),
     tokens_input: integer().notNull().default(0),
     tokens_output: integer().notNull().default(0),
@@ -181,3 +183,18 @@ export const SessionContextEpochTable = sqliteTable("session_context_epoch", {
     readonly lastSeq: number
   }>(),
 })
+
+export const CompactionCheckpointTable = sqliteTable(
+  "session_compaction_checkpoint",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    created_at: integer().notNull(),
+    tape_json: text().notNull(),
+    message_ids_json: text().notNull(),
+  },
+  (table) => [index("session_compaction_checkpoint_session_idx").on(table.session_id, table.created_at)],
+)

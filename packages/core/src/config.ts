@@ -84,6 +84,24 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   mcp: ConfigMCP.Info.pipe(Schema.optional).annotate({
     description: "MCP server configuration",
   }),
+  browser: Schema.Struct({
+    enabled: Schema.Boolean.pipe(Schema.optional).annotate({
+      description: "Advertise browser_* tools when a Browser.Host is present",
+    }),
+  })
+    .pipe(Schema.optional)
+    .annotate({
+      description: "Minimal browser tool configuration. Default off.",
+    }),
+  tools: Schema.Struct({
+    execute: Schema.Boolean.pipe(Schema.optional).annotate({
+      description: "Advertise the CodeMode execute tool. Default true.",
+    }),
+  })
+    .pipe(Schema.optional)
+    .annotate({
+      description: "Built-in tool advertisement overrides",
+    }),
   compaction: ConfigCompaction.Info.pipe(Schema.optional).annotate({
     description: "Conversation compaction behavior",
   }),

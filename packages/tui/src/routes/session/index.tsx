@@ -159,6 +159,7 @@ const sessionBindingCommands = [
   "session.timeline",
   "session.fork",
   "session.compact",
+  "session.uncompact",
   "session.unshare",
   "session.undo",
   "session.redo",
@@ -185,6 +186,7 @@ const sessionBindingCommands = [
   "session.child.next",
   "session.child.previous",
   "session.expand.all_thinking",
+  "job.promote",
 ] as const
 
 const sessionGlobalBindingCommands = [
@@ -729,6 +731,27 @@ export function Session() {
       },
     },
     {
+      title: "Uncompact session",
+      value: "session.uncompact",
+      category: "Session",
+      slash: {
+        name: "uncompact",
+      },
+      run: async () => {
+        const client = sdk.client.session as { uncompact?: (input: { sessionID: string }) => Promise<unknown> }
+        if (!client.uncompact) {
+          toast.show({
+            variant: "warning",
+            message: "Uncompact HTTP client is not generated yet; POST /session/:id/uncompact",
+            duration: 4000,
+          })
+          return
+        }
+        await client.uncompact({ sessionID: route.sessionID })
+        dialog.clear()
+      },
+    },
+    {
       title: "Unshare session",
       value: "session.unshare",
       category: "Session",
@@ -1261,6 +1284,35 @@ export function Session() {
           sessionID: route.sessionID,
           workspace: project.workspace.current(),
         })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Promote bash job",
+      value: "job.promote",
+      category: "Session",
+      hidden: true,
+      run: () => {
+        const sessionID = route.sessionID
+        const headers: Record<string, string> = { accept: "application/json" }
+        if (sdk.directory) headers["x-opencode-directory"] = encodeURIComponent(sdk.directory)
+        void (async () => {
+          const listed = await sdk.fetch(`${sdk.url}/session/${sessionID}/jobs`, { headers })
+          if (!listed.ok) return
+          const jobs = (await listed.json()) as Array<{
+            id: string
+            type: string
+            status: string
+            metadata?: { background?: unknown }
+          }>
+          for (const job of jobs) {
+            if (job.type !== "bash" || job.status !== "running" || job.metadata?.background === true) continue
+            await sdk.fetch(`${sdk.url}/session/${sessionID}/jobs/${job.id}/promote`, {
+              method: "POST",
+              headers,
+            })
+          }
+        })()
         dialog.clear()
       },
     },

@@ -17,6 +17,7 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { BashTool } from "@opencode-ai/core/tool/bash"
+import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { location } from "./fixture/location"
@@ -47,16 +48,18 @@ let spawnFailure: AppProcess.AppProcessError | undefined
 let spawnHang = false
 let afterPermission = (_input: PermissionV2.AssertInput): Effect.Effect<void> => Effect.void
 
+const permit = (input: PermissionV2.AssertInput) =>
+  Effect.sync(() => assertions.push(input)).pipe(
+    Effect.andThen(Effect.suspend(() => afterPermission(input))),
+    Effect.andThen(
+      input.action === denyAction ? Effect.fail(new PermissionV2.BlockedError({ rules: [] })) : Effect.void,
+    ),
+  )
 const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
-    assert: (input) =>
-      Effect.sync(() => assertions.push(input)).pipe(
-        Effect.andThen(Effect.suspend(() => afterPermission(input))),
-        Effect.andThen(
-          input.action === denyAction ? Effect.fail(new PermissionV2.BlockedError({ rules: [] })) : Effect.void,
-        ),
-      ),
+    assert: permit,
+    assertPolicyAsk: permit,
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
@@ -79,6 +82,7 @@ const appProcess = Layer.succeed(
             ? Stream.concat(Stream.make(spawnResult.output.slice() as Uint8Array), Stream.never)
             : Stream.never
         return Effect.succeed({
+          pid: 4242,
           all: spawnHang ? hangStream : Stream.make(output.slice() as Uint8Array),
           exitCode: spawnHang ? Effect.never : Effect.succeed(spawnResult.exitCode),
         })
@@ -103,10 +107,66 @@ const config = Layer.succeed(
   }),
 )
 
+const jobRows = new Map<string, BackgroundJob.Info>()
+const backgroundJob = Layer.succeed(
+  BackgroundJob.Service,
+  BackgroundJob.Service.of({
+    list: () => Effect.succeed([...jobRows.values()]),
+    get: (id) => Effect.succeed(jobRows.get(id)),
+    start: (input) =>
+      Effect.gen(function* () {
+        const id = input.id ?? "job_mock"
+        const running: BackgroundJob.Info = {
+          id,
+          type: input.type,
+          title: input.title,
+          status: "running",
+          started_at: Date.now(),
+          metadata: input.metadata,
+        }
+        jobRows.set(id, running)
+        const output = yield* input.run
+        const done: BackgroundJob.Info = {
+          ...jobRows.get(id)!,
+          status: "completed",
+          completed_at: Date.now(),
+          output,
+        }
+        jobRows.set(id, done)
+        return running
+      }),
+    patch: (id, metadata) =>
+      Effect.sync(() => {
+        const job = jobRows.get(id)
+        if (job) jobRows.set(id, { ...job, metadata: { ...job.metadata, ...metadata } })
+      }),
+    extend: () => Effect.succeed(false),
+    wait: ({ id }) => Effect.succeed({ timedOut: false, info: jobRows.get(id) }),
+    waitForPromotion: () => Effect.never,
+    promote: (id) =>
+      Effect.sync(() => {
+        const job = jobRows.get(id)
+        if (!job) return undefined
+        const next = { ...job, metadata: { ...job.metadata, background: true } }
+        jobRows.set(id, next)
+        return next
+      }),
+    cancel: (id) =>
+      Effect.sync(() => {
+        const job = jobRows.get(id)
+        if (!job) return undefined
+        const next = { ...job, status: "cancelled" as const, completed_at: Date.now() }
+        jobRows.set(id, next)
+        return next
+      }),
+  }),
+)
+
 const reset = () => {
   assertions.length = 0
   spawns.length = 0
   published.length = 0
+  jobRows.clear()
   denyAction = undefined
   spawnFailure = undefined
   spawnHang = false
@@ -142,6 +202,7 @@ const withTool = <A, E, R>(
           [Location.node, activeLocation],
           [PermissionV2.node, permission],
           [AppProcess.node, processLayer],
+          [BackgroundJob.node, backgroundJob],
           [Config.node, config],
           [EventV2.node, events],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
@@ -171,7 +232,7 @@ describe("BashTool", () => {
           Effect.gen(function* () {
             const definitions = yield* toolDefinitions(registry)
             expect(definitions.map((tool) => tool.name)).toEqual(["bash"])
-            expect(definitions[0]?.inputSchema).not.toHaveProperty("properties.background")
+            expect(definitions[0]?.inputSchema).toHaveProperty("properties.background")
             expect(definitions[0]?.inputSchema).not.toHaveProperty("properties.description")
             expect(definitions[0]?.outputSchema).not.toHaveProperty("properties.output")
             expect(definitions[0]?.outputSchema).not.toHaveProperty("properties.command")
@@ -528,19 +589,10 @@ describe("BashTool", () => {
   )
 })
 
-test("keeps locked deferred parity TODOs visible", async () => {
+test("bash execute uses exec-policy classify/decide and BackgroundJob", async () => {
   const source = await fs.readFile(new URL("../src/tool/bash.ts", import.meta.url), "utf8")
-  for (const todo of [
-    "Port tree-sitter bash / PowerShell parser-based approval reduction.",
-    "Port BashArity reusable command-prefix approvals.",
-    "Replace token-based command-argument external-directory advisories with parser-based detection.",
-    "Restore PowerShell and cmd-specific invocation/path handling on Windows.",
-    "Add plugin shell.env environment augmentation once V2 plugin hooks exist.",
-    "Persist background job status and define restart recovery before exposing remote observation.",
-    "Revisit process-group cleanup and platform coverage with shell-specific tests if current AppProcess semantics do not fully cover it.",
-    "Revisit binary output handling if stdout/stderr decoding is text-only.",
-    "Stream full shell output into managed storage while retaining only a bounded in-memory preview.",
-  ]) {
-    expect(source).toContain(`TODO: ${todo}`)
-  }
+  expect(source).toContain("execPolicy.decideCommand")
+  expect(source).toContain("jobs.start")
+  expect(source).toContain("sandbox.wrapSpawn")
+  expect(source).not.toContain("TODO: Port tree-sitter bash")
 })

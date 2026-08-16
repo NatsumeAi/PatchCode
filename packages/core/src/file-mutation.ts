@@ -29,6 +29,12 @@ export interface RemoveInput {
   readonly target: Target
 }
 
+export interface RenameInput {
+  readonly from: Target
+  readonly to: Target
+  readonly expected?: Uint8Array
+}
+
 export class StaleContentError extends Schema.TaggedErrorClass<StaleContentError>()("FileMutation.StaleContentError", {
   path: Schema.String,
 }) {}
@@ -51,6 +57,13 @@ export interface RemoveResult {
   readonly existed: boolean
 }
 
+export interface RenameResult {
+  readonly operation: "rename"
+  readonly from: string
+  readonly to: string
+  readonly resource: string
+}
+
 export interface Interface {
   /** Create without replacing an existing target. */
   readonly create: (input: WriteInput) => Effect.Effect<WriteResult, TargetExistsError | FSUtil.Error>
@@ -62,6 +75,9 @@ export interface Interface {
     input: ConditionalWriteInput,
   ) => Effect.Effect<WriteResult, StaleContentError | FSUtil.Error>
   readonly remove: (input: RemoveInput) => Effect.Effect<RemoveResult, FSUtil.Error>
+  readonly rename: (
+    input: RenameInput,
+  ) => Effect.Effect<RenameResult, TargetExistsError | StaleContentError | FSUtil.Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileMutation") {}
@@ -168,7 +184,48 @@ const layer = Layer.effect(
       ),
     )
 
-    return Service.of({ create, write, writeTextPreservingBom, writeIfUnchanged, remove })
+    const withBothLocks =
+      (from: Target, to: Target) =>
+      <A, E, R>(effect: Effect.Effect<A, E, R>) => {
+        if (from.canonical === to.canonical) return withTargetLock(from)(effect)
+        const [first, second] = from.canonical < to.canonical ? [from, to] : [to, from]
+        return withTargetLock(first)(withTargetLock(second)(effect))
+      }
+
+    const rename = Effect.fn("FileMutation.rename")((input: RenameInput) =>
+      withBothLocks(input.from, input.to)(
+        Effect.gen(function* () {
+          if (yield* fs.exists(input.to.canonical)) {
+            return yield* new TargetExistsError({ path: input.to.canonical })
+          }
+          const current = yield* fs.readFile(input.from.canonical)
+          if (input.expected && !sameBytes(current, input.expected)) {
+            return yield* new StaleContentError({ path: input.from.canonical })
+          }
+          yield* fs.ensureDir(dirname(input.to.canonical))
+          yield* fs.rename(input.from.canonical, input.to.canonical).pipe(
+            Effect.catchIf(isExdev, () =>
+              Effect.gen(function* () {
+                yield* fs.writeFile(input.to.canonical, current, { flag: "wx" }).pipe(
+                  Effect.catchReason("PlatformError", "AlreadyExists", () =>
+                    Effect.fail(new TargetExistsError({ path: input.to.canonical })),
+                  ),
+                )
+                yield* fs.remove(input.from.canonical)
+              }),
+            ),
+          )
+          return {
+            operation: "rename" as const,
+            from: input.from.canonical,
+            to: input.to.canonical,
+            resource: input.to.resource,
+          }
+        }),
+      ),
+    )
+
+    return Service.of({ create, write, writeTextPreservingBom, writeIfUnchanged, remove, rename })
   }),
 )
 
@@ -189,6 +246,18 @@ function hasUtf8Bom(content: Uint8Array) {
 function sameBytes(left: Uint8Array, right: Uint8Array) {
   if (left.length !== right.length) return false
   return left.every((byte, index) => byte === right[index])
+}
+
+function isExdev(error: { readonly _tag?: string; readonly reason?: { readonly _tag?: string; readonly cause?: unknown } }) {
+  if (error._tag !== "PlatformError") return false
+  const reason = error.reason
+  if (!reason || reason._tag !== "Unknown") return false
+  return Boolean(
+    reason.cause &&
+      typeof reason.cause === "object" &&
+      "code" in reason.cause &&
+      (reason.cause as { code: unknown }).code === "EXDEV",
+  )
 }
 
 export const locationLayer = layer

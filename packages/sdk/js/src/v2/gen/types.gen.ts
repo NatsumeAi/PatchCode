@@ -8355,6 +8355,29 @@ export type MemoryRememberErrors = {
   400: unknown
 }
 
+export type SkillsInstallResult = {
+  name: string
+  state: "quarantine"
+  sha256: string
+  directory: string
+}
+
+export type SkillsInstallResponses = {
+  /**
+   * Skill quarantined
+   */
+  200: SkillsInstallResult
+}
+
+export type SkillsInstallResponse = SkillsInstallResponses[keyof SkillsInstallResponses]
+
+export type SkillsInstallErrors = {
+  /**
+   * Invalid request
+   */
+  400: unknown
+}
+
 export type WorktreeRemoveResponses = {
   /**
    * Worktree removed

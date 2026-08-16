@@ -157,6 +157,15 @@ export const MemoryRememberPayload = Schema.Struct({
 export const MemoryRememberResponse = Schema.Struct({
   filename: Schema.String,
 }).annotate({ identifier: "MemoryRememberResponse" })
+export const SkillsInstallPayload = Schema.Struct({
+  uri: Schema.String,
+}).annotate({ identifier: "SkillsInstallPayload" })
+export const SkillsInstallResponse = Schema.Struct({
+  name: Schema.String,
+  state: Schema.Literal("quarantine"),
+  sha256: Schema.String,
+  directory: Schema.String,
+}).annotate({ identifier: "SkillsInstallResponse" })
 
 export const ExperimentalPaths = {
   capabilities: "/experimental/capabilities",
@@ -178,6 +187,7 @@ export const ExperimentalPaths = {
   memoryImport: "/experimental/memory/import",
   memoryImportHistory: "/experimental/memory/import-history",
   memoryRemember: "/experimental/memory/remember",
+  skillsInstall: "/experimental/skills/install",
 } as const
 
 export const ExperimentalApi = HttpApi.make("experimental")
@@ -409,6 +419,19 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "Remember a note",
             description:
               "Write an append-only memory note (same path as memory_add_note) without an LLM round-trip. Used by the TUI /remember command.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillsInstall", ExperimentalPaths.skillsInstall, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillsInstallPayload,
+          success: described(SkillsInstallResponse, "Skill quarantined"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skills.install",
+            summary: "Install a skill into quarantine",
+            description:
+              "Fetch an https SKILL.md into quarantine. file: URIs and loopback hosts are rejected. Same loopback/password rules as memory mutations.",
           }),
         ),
         HttpApiEndpoint.get("resource", ExperimentalPaths.resource, {

@@ -47,6 +47,15 @@ describe("session sandbox pin", () => {
     }),
   )
 
+  it.effect("OPENCODE_SANDBOX=off is stored", () =>
+    Effect.gen(function* () {
+      process.env.OPENCODE_SANDBOX = "off"
+      const session = yield* SessionV2.Service
+      const created = yield* session.create({ location })
+      expect(created.sandboxProfile).toBe("off")
+    }),
+  )
+
   it.effect("OPENCODE_SANDBOX=workspace is stored", () =>
     Effect.gen(function* () {
       process.env.OPENCODE_SANDBOX = "workspace"

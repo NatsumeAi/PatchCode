@@ -44,5 +44,8 @@ export const migrations = (
     import("./migration/20260812140000_session_message_fts"),
     import("./migration/20260814051600_add_epoch_prompt_tape"),
     import("./migration/20260815180000_add_session_sandbox_profile"),
+    import("./migration/20260815234338_bright_violations"),
+    import("./migration/20260816004506_watery_darwin"),
+    import("./migration/20260816005001_wealthy_clea"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

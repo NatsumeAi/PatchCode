@@ -4,6 +4,7 @@ import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
 import { useSync } from "../context/sync"
 import { For, Match, Switch, Show, createMemo } from "solid-js"
+import { HooksStatus } from "./hooks-status"
 
 export type DialogStatusProps = {}
 
@@ -163,6 +164,7 @@ export function DialogStatus() {
           </For>
         </box>
       </Show>
+      <HooksStatus />
     </box>
   )
 }

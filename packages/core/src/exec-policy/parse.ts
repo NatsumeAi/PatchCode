@@ -5,7 +5,7 @@ import { Language, type Node, Parser } from "web-tree-sitter"
 
 export type ClassifyResult =
   | { tag: "opaque"; source: string; reason: string }
-  | { tag: "segments"; segments: string[][] }
+  | { tag: "segments"; segments: string[][]; redirects?: string[] }
 
 const WORD_ONLY = new Set([
   "program",
@@ -92,6 +92,34 @@ const commandTokens = (node: Node) => {
   return tokens
 }
 
+const redirectTargets = (root: Node) => {
+  const out: string[] = []
+  const visit = (node: Node) => {
+    if (node.type === "file_redirect" || node.type === "redirection") {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i)
+        if (!child) continue
+        if (
+          child.type === "word" ||
+          child.type === "string" ||
+          child.type === "raw_string" ||
+          child.type === "concatenation" ||
+          child.type === "number"
+        ) {
+          const text = unquote(child.text)
+          if (text && text !== ">" && text !== ">>" && text !== "<" && text !== ">&") out.push(text)
+        }
+      }
+    }
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i)
+      if (child) visit(child)
+    }
+  }
+  visit(root)
+  return out
+}
+
 type Parsers = { bash: Parser; ps: Parser }
 
 let parsers: Promise<Parsers> | undefined
@@ -154,5 +182,5 @@ export const classify = async (command: string, shell = "bash"): Promise<Classif
   const commands = root.descendantsOfType("command").filter((child): child is Node => Boolean(child))
   const segments = commands.map(commandTokens).filter((segment) => segment.length > 0)
   if (segments.length === 0) return { tag: "opaque", source: command, reason: "no commands" }
-  return { tag: "segments", segments }
+  return { tag: "segments", segments, redirects: redirectTargets(root) }
 }

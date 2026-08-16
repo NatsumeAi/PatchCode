@@ -494,6 +494,16 @@ export namespace Compaction {
   })
   export type Delta = typeof Delta.Type
 
+  export const Checkpoint = Event.define({
+    type: "session.next.compaction.checkpoint",
+    schema: {
+      ...Base,
+      id: Schema.String,
+      tokens: Schema.Number.pipe(optional),
+    },
+  })
+  export type Checkpoint = typeof Checkpoint.Type
+
   export const Ended = Event.define({
     type: "session.next.compaction.ended",
     ...options,
@@ -536,6 +546,19 @@ export const Sandbox = Event.define({
     class: Schema.String.pipe(optional),
     reason: Schema.String,
     backend: Schema.String.pipe(optional),
+  },
+})
+
+export const Hook = Event.define({
+  type: "session.hook",
+  schema: {
+    sessionID: SessionID,
+    event: Schema.String,
+    hookId: Schema.String,
+    source: Schema.String,
+    decision: Schema.String,
+    elapsedMs: Schema.Number,
+    reason: Schema.String.pipe(optional),
   },
 })
 
@@ -605,11 +628,13 @@ export const Definitions = Event.inventory(
   Retried,
   Compaction.Started,
   Compaction.Delta,
+  Compaction.Checkpoint,
   Compaction.Ended,
   RevertEvent.Staged,
   RevertEvent.Cleared,
   RevertEvent.Committed,
   Sandbox,
+  Hook,
 )
 
 export const Durable = Schema.Union(DurableDefinitions, { mode: "oneOf" })

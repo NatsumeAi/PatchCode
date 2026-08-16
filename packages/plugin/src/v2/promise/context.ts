@@ -9,6 +9,13 @@ import type { ReferenceHooks } from "./reference.js"
 import type { SkillHooks } from "./skill.js"
 import type { Reload } from "./registration.js"
 
+export type HooksHandler = {
+  readonly id: string
+  readonly event: string
+  readonly matcher?: string
+  readonly run: (envelope: unknown) => Promise<{ readonly _tag: string }> | { readonly _tag: string }
+}
+
 export interface PluginContext {
   readonly options: PluginOptions
   readonly agent: AgentHooks & Reload
@@ -19,4 +26,7 @@ export interface PluginContext {
   readonly plugin: PluginDomain
   readonly reference: ReferenceHooks & Reload
   readonly skill: SkillHooks & Reload
+  readonly hooks: {
+    readonly register: (handler: HooksHandler) => Promise<void>
+  }
 }

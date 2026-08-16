@@ -336,7 +336,7 @@ const hostLayer = Layer.effect(
 
           if (Object.keys(record).length === 0) return
 
-          yield* tools.register(record).pipe(Scope.provide(scope), Effect.orDie)
+          yield* tools.register(record, { source: "dynamic" }).pipe(Scope.provide(scope), Effect.orDie)
           yield* Effect.logInfo("DynamicTools registered", {
             directory,
             count: Object.keys(record).length,

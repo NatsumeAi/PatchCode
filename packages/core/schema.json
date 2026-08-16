@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "810d271c-4fce-4216-a0ca-2cad26cb1906",
+  "id": "c01a4b10-43d2-47aa-bf59-675ec654be70",
   "prevIds": [
-    "6fe74a19-0680-4215-8667-57238d797525"
+    "8605b47d-3645-4e48-bd63-0461e6e597e4"
   ],
   "ddl": [
     {
@@ -52,6 +52,10 @@
     },
     {
       "name": "project",
+      "entityType": "tables"
+    },
+    {
+      "name": "session_compaction_checkpoint",
       "entityType": "tables"
     },
     {
@@ -894,6 +898,56 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tape_json",
+      "entityType": "columns",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "message_ids_json",
+      "entityType": "columns",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
       "table": "message"
     },
     {
@@ -1337,6 +1391,36 @@
       "table": "session"
     },
     {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'off'",
+      "generated": null,
+      "name": "sandbox_profile",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'pending'",
+      "generated": null,
+      "name": "hooks_session_start",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "plan_mode",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
       "type": "real",
       "notNull": true,
       "autoincrement": false,
@@ -1692,6 +1776,21 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_session_compaction_checkpoint_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "session_compaction_checkpoint"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_message_session_id_session_id_fk",
       "entityType": "fks",
       "table": "message"
@@ -1926,6 +2025,15 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "session_compaction_checkpoint_pk",
+      "table": "session_compaction_checkpoint",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "message_pk",
       "table": "message",
       "entityType": "pks"
@@ -2077,6 +2185,24 @@
       "name": "permission_project_action_resource_idx",
       "entityType": "indexes",
       "table": "permission"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "session_compaction_checkpoint_session_idx",
+      "entityType": "indexes",
+      "table": "session_compaction_checkpoint"
     },
     {
       "columns": [

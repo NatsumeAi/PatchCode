@@ -7,10 +7,14 @@ import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
 import { FSUtil } from "./fs-util"
-import { PermissionV2 } from "./permission"
+import { Global } from "./global"
+import { Location } from "./location"
+import { evaluate as evaluatePermission } from "./permission/evaluate"
 import { AbsolutePath } from "./schema"
 import { SkillDiscovery } from "./skill/discovery"
+import { SkillLock } from "./skill/lock"
 import { State } from "./state"
+import { Trust } from "./trust"
 import { scanForThreatsInScope } from "./memory/scan"
 
 export const DirectorySource = Skill.DirectorySource
@@ -29,7 +33,7 @@ export const Info = Skill.Info
 export type Info = Skill.Info
 
 export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
-  skills.filter((skill) => PermissionV2.evaluate("skill", skill.name, agent.permissions).effect !== "deny")
+  skills.filter((skill) => evaluatePermission("skill", skill.name, agent.permissions).effect !== "deny")
 
 const Frontmatter = Schema.Struct({
   name: Schema.String.pipe(Schema.optional),
@@ -59,6 +63,9 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const discovery = yield* SkillDiscovery.Service
     const fs = yield* FSUtil.Service
+    const globalOpt = yield* Effect.serviceOption(Global.Service)
+    const locationOpt = yield* Effect.serviceOption(Location.Service)
+    const configDir = globalOpt._tag === "Some" ? globalOpt.value.config : Global.Path.config
 
     const state = State.create<Data, Draft>({
       initial: () => ({ sources: [] }),
@@ -118,11 +125,36 @@ const layer = Layer.effect(
     const cache = new Map<string, Info[]>()
     const list = Effect.fn("SkillV2.list")(function* () {
       const skills = new Map<string, Info>()
+      const quarantined = yield* Effect.promise(() => SkillLock.quarantinedNames(configDir))
+      const locationDir = locationOpt._tag === "Some" ? String(locationOpt.value.directory) : undefined
+      const projectTrusted =
+        locationDir === undefined ? true : yield* Effect.promise(() => Trust.isTrusted(locationDir, { configDir }))
+      const skipProject = (source: Source) => {
+        if (source.type !== "directory" || !locationDir) return false
+        const dir = String(source.path)
+        if (!FSUtil.contains(locationDir, dir)) return false
+        if (!dir.includes(`${path.sep}.opencode${path.sep}`) && !dir.endsWith(`${path.sep}.opencode`)) return false
+        return !projectTrusted
+      }
       for (const source of state.get().sources) {
+        if (skipProject(source)) continue
         const key = Source.key(source)
         const loaded = cache.get(key) ?? (yield* load(source))
         cache.set(key, loaded)
-        for (const skill of loaded) skills.set(skill.name, skill)
+        for (const skill of loaded) {
+          if (quarantined.has(skill.name)) continue
+          skills.set(skill.name, skill)
+        }
+      }
+      const lock = yield* Effect.promise(() => SkillLock.read(configDir))
+      for (const row of lock.skills) {
+        if (row.state !== "active" || skills.has(row.name)) continue
+        const directory = AbsolutePath.make(path.join(SkillLock.skillsDir(configDir), row.name))
+        const loaded = yield* load(DirectorySource.make({ type: "directory", path: directory }))
+        for (const skill of loaded) {
+          if (quarantined.has(skill.name)) continue
+          skills.set(skill.name, skill)
+        }
       }
       return Array.from(skills.values())
     })
@@ -138,4 +170,8 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillDiscovery.node, FSUtil.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [SkillDiscovery.node, FSUtil.node, Global.node, Location.node],
+})

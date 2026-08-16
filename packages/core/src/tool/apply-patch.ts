@@ -10,6 +10,7 @@ import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { Patch } from "../patch"
 import { PermissionV2 } from "../permission"
+import { PlanGate } from "../session/plan-gate"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -23,9 +24,11 @@ export const Input = Schema.Struct({
 })
 
 export const Applied = Schema.Struct({
-  type: Schema.Literals(["add", "update", "delete"]),
+  type: Schema.Literals(["add", "update", "delete", "move"]),
   resource: Schema.String,
   target: Schema.String,
+  from: Schema.String.pipe(Schema.optional),
+  to: Schema.String.pipe(Schema.optional),
 })
 
 export const Output = Schema.Struct({
@@ -37,9 +40,12 @@ export type Output = typeof Output.Type
 export const toModelOutput = (output: Output) =>
   [
     "Applied patch sequentially:",
-    ...output.applied.map(
-      (item) => `${item.type === "add" ? "A" : item.type === "delete" ? "D" : "M"} ${item.resource}`,
-    ),
+    ...output.applied.map((item) => {
+      if (item.type === "add") return `A ${item.resource}`
+      if (item.type === "delete") return `D ${item.resource}`
+      if (item.type === "move") return `R ${item.from} -> ${item.to}`
+      return `M ${item.resource}`
+    }),
   ].join("\n")
 
 type Prepared =
@@ -50,6 +56,7 @@ type Prepared =
     })
   | (Extract<Patch.Hunk, { readonly type: "update" }> & {
       readonly target: LocationMutation.Target
+      readonly destTarget?: LocationMutation.Target
       readonly source: Uint8Array
       readonly content: string
       readonly before: string
@@ -69,7 +76,7 @@ const layer = Layer.effectDiscard(
         [name]: Tool.withPermission(
           Tool.make({
             description:
-              "Apply one patch containing add, update, and delete file operations. All targets are resolved and approved before target contents are read. Operations apply sequentially; if a later operation fails, earlier operations remain applied and the failure reports them explicitly. Moves and atomic rollback are not supported yet.",
+              "Apply one patch containing add, update, delete, and move file operations. All targets are resolved and approved before target contents are read. Operations apply sequentially; if a later operation fails, earlier operations remain applied and the failure reports them explicitly. Atomic rollback is not supported yet.",
             input: Input,
             output: Output,
             toModelOutput: ({ output }) => [{ type: "text", text: toModelOutput(output) }],
@@ -94,17 +101,35 @@ const layer = Layer.effectDiscard(
                   catch: (cause) => new ToolFailure({ message: `apply_patch verification failed: ${String(cause)}` }),
                 })
                 if (hunks.length === 0) return yield* new ToolFailure({ message: "patch rejected: empty patch" })
-                const move = hunks.find((hunk) => hunk.type === "update" && hunk.movePath !== undefined)
-                if (move) return yield* new ToolFailure({ message: "apply_patch moves are not supported yet" })
 
-                const targets: Array<{ readonly hunk: Patch.Hunk; readonly target: LocationMutation.Target }> = []
-                for (const hunk of hunks)
-                  targets.push({
-                    hunk,
-                    target: yield* mutation.resolve({ path: hunk.path, kind: "file", forWrite: true, sessionID: context.sessionID }),
+                const targets: Array<{
+                  readonly hunk: Patch.Hunk
+                  readonly target: LocationMutation.Target
+                  readonly destTarget?: LocationMutation.Target
+                }> = []
+                for (const hunk of hunks) {
+                  const target = yield* mutation.resolve({
+                    path: hunk.path,
+                    kind: "file",
+                    forWrite: true,
+                    sessionID: context.sessionID,
                   })
+                  const destTarget =
+                    hunk.type === "update" && hunk.movePath !== undefined
+                      ? yield* mutation.resolve({
+                          path: hunk.movePath,
+                          kind: "file",
+                          forWrite: true,
+                          sessionID: context.sessionID,
+                        })
+                      : undefined
+                  targets.push({ hunk, target, destTarget })
+                }
+                const resolved = targets.flatMap(({ target, destTarget }) =>
+                  destTarget ? [target, destTarget] : [target],
+                )
                 const externalDirectories = new Map<string, LocationMutation.ExternalDirectoryAuthorization>()
-                for (const { target } of targets) {
+                for (const target of resolved) {
                   const external = target.externalDirectory
                   if (external) externalDirectories.set(external.resource, external)
                 }
@@ -118,15 +143,20 @@ const layer = Layer.effectDiscard(
                 }
                 yield* permission.assert({
                   action: "edit",
-                  resources: [...new Set(targets.map(({ target }) => target.resource))],
+                  resources: [...new Set(resolved.map((target) => target.resource))],
                   save: ["*"],
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source,
                 })
+                yield* PlanGate.assertMutation({
+                  sessionID: context.sessionID,
+                  kind: "fs",
+                  paths: [...new Set(resolved.map((target) => target.canonical))],
+                })
 
                 const prepared: Prepared[] = []
-                for (const { hunk, target } of targets) {
+                for (const { hunk, target, destTarget } of targets) {
                   yield* Effect.gen(function* () {
                     if (hunk.type === "add") {
                       prepared.push({
@@ -147,9 +177,12 @@ const layer = Layer.effectDiscard(
                       return
                     }
                     const update = Patch.derive(hunk.path, hunk.chunks, original)
+                    const moved =
+                      destTarget !== undefined && destTarget.canonical !== target.canonical ? destTarget : undefined
                     prepared.push({
                       ...hunk,
                       target,
+                      destTarget: moved,
                       source,
                       content: Patch.joinBom(update.content, update.bom),
                       before,
@@ -179,6 +212,35 @@ const layer = Layer.effectDiscard(
                         applied.push({ type: change.type, resource: result.resource, target: result.target })
                         return
                       }
+                      if (change.destTarget) {
+                        if (yield* fs.exists(change.destTarget.canonical)) {
+                          return yield* new FileMutation.TargetExistsError({ path: change.destTarget.canonical })
+                        }
+                        const nextBytes = new TextEncoder().encode(change.content)
+                        const unchanged =
+                          change.source.length === nextBytes.length &&
+                          change.source.every((byte, index) => byte === nextBytes[index])
+                        if (!unchanged) {
+                          yield* files.writeIfUnchanged({
+                            target: change.target,
+                            expected: change.source,
+                            content: change.content,
+                          })
+                        }
+                        const result = yield* files.rename({
+                          from: change.target,
+                          to: change.destTarget,
+                          expected: unchanged ? change.source : nextBytes,
+                        })
+                        applied.push({
+                          type: "move",
+                          resource: result.resource,
+                          target: result.to,
+                          from: change.target.resource,
+                          to: change.destTarget.resource,
+                        })
+                        return
+                      }
                       const result = yield* files.writeIfUnchanged({
                         target: change.target,
                         expected: change.source,
@@ -189,7 +251,15 @@ const layer = Layer.effectDiscard(
                   { discard: true },
                 )
                 return { applied, files: patchFiles }
-              }).pipe(Effect.mapError((error) => (error instanceof ToolFailure ? error : fail("patch"))))
+              }).pipe(
+                Effect.mapError((error) =>
+                  error instanceof ToolFailure
+                    ? error
+                    : error instanceof PlanGate.Denied
+                      ? new ToolFailure({ message: error.message })
+                      : fail("patch"),
+                ),
+              )
             },
           }),
           "edit",
@@ -202,10 +272,11 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/apply-patch",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, FSUtil.node, PermissionV2.node],
+  deps: [ToolRegistry.node, LocationMutation.node, FileMutation.node, FSUtil.node, PermissionV2.node, PlanGate.node],
 })
 
 function patchFile(change: Prepared): typeof FileDiff.Info.Type {
+  const resource = change.type === "update" && change.destTarget ? change.destTarget.resource : change.target.resource
   const counts = diffLines(change.before, change.after).reduce(
     (result, item) => ({
       additions: result.additions + (item.added ? (item.count ?? 0) : 0),
@@ -214,8 +285,8 @@ function patchFile(change: Prepared): typeof FileDiff.Info.Type {
     { additions: 0, deletions: 0 },
   )
   return {
-    file: change.target.resource,
-    patch: createTwoFilesPatch(change.target.resource, change.target.resource, change.before, change.after),
+    file: resource,
+    patch: createTwoFilesPatch(change.target.resource, resource, change.before, change.after),
     status: change.type === "add" ? "added" : change.type === "delete" ? "deleted" : "modified",
     ...counts,
   }

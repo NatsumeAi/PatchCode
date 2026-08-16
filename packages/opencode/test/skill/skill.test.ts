@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer } from "effect"
 import { Skill } from "../../src/skill"
@@ -13,6 +13,33 @@ import { provideInstance, provideTmpdirInstance, testInstanceStoreLayer, tmpdir 
 import { testEffect } from "../lib/effect"
 import path from "path"
 import fs from "fs/promises"
+
+const provideTrustedProject = <A, E, R>(
+  self: (path: string) => Effect.Effect<A, E, R>,
+  options?: { git?: boolean },
+) =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const configDir = path.join(dir, ".oc-cfg")
+        const previous = process.env.OPENCODE_CONFIG_DIR
+        yield* Effect.promise(async () => {
+          const { Trust } = await import("@opencode-ai/core/trust")
+          await fs.mkdir(configDir, { recursive: true })
+          process.env.OPENCODE_CONFIG_DIR = configDir
+          await Trust.grant(dir, { configDir })
+        })
+        return yield* self(dir).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+              else process.env.OPENCODE_CONFIG_DIR = previous
+            }),
+          ),
+        )
+      }),
+    options,
+  )
 
 const node = LayerNode.compile(CrossSpawnSpawner.node)
 
@@ -92,7 +119,7 @@ describe("skill", () => {
   )
 
   it.live("discovers skills from .opencode/skill/ directory", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -123,7 +150,7 @@ Instructions here.
   )
 
   it.live("returns skill directories from Skill.dirs", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         withHome(
           dir,
@@ -152,7 +179,7 @@ description: Skill for dirs test.
   )
 
   it.live("discovers multiple skills from .opencode/skill/ directory", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -191,7 +218,7 @@ description: Second test skill.
   )
 
   it.live("skips skills with missing frontmatter", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -212,7 +239,7 @@ Just some content without YAML frontmatter.
   )
 
   it.live("discovers skills without descriptions", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -243,7 +270,7 @@ Instructions here.
   )
 
   it.live("discovers skills from .claude/skills/ directory", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -295,7 +322,7 @@ description: A skill in the .claude/skills directory.
   )
 
   it.live("returns empty array when no skills exist", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       () =>
         Effect.gen(function* () {
           const skill = yield* Skill.Service
@@ -306,7 +333,7 @@ description: A skill in the .claude/skills directory.
   )
 
   it.live("fails with typed error when requiring a missing skill", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       () =>
         Effect.gen(function* () {
           const skill = yield* Skill.Service
@@ -337,7 +364,7 @@ description: A skill in the .claude/skills directory.
   )
 
   it.live("discovers skills from .agents/skills/ directory", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -405,7 +432,7 @@ This skill is loaded from the global home directory.
   )
 
   it.live("discovers skills from both .claude/skills/ and .agents/skills/", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -444,7 +471,7 @@ description: A skill in the .agents/skills directory.
   )
 
   itWithoutClaudeCodeSkills.live("skips Claude Code skills when disabled", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -481,7 +508,7 @@ description: A skill in the .agents/skills directory.
   )
 
   itWithoutExternalSkills.live("skips external skill directories when disabled", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -528,7 +555,7 @@ description: A skill in the .opencode/skill directory.
   )
 
   it.live("properly resolves directories that skills live in", () =>
-    provideTmpdirInstance(
+    provideTrustedProject(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
@@ -582,4 +609,32 @@ description: A skill in the .opencode/skills directory.
       { git: true },
     ),
   )
+
+  it.live("skips project .opencode skills when the directory is not trusted", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() =>
+          Bun.write(
+            path.join(dir, ".opencode", "skills", "secret", "SKILL.md"),
+            `---
+name: secret
+description: hidden
+---
+# secret
+`,
+          ),
+        )
+        const skill = yield* Skill.Service
+        expect((yield* skill.all()).map((item) => item.name)).not.toContain("secret")
+      }),
+    ),
+  )
+})
+
+describe("W8h V1 skill lock", () => {
+  test("quarantine and project Trust gates exist", async () => {
+    const src = await Bun.file(new URL("../../src/skill/index.ts", import.meta.url)).text()
+    expect(src).toContain("SkillLock.quarantinedNames")
+    expect(src).toContain("Trust.isTrusted")
+  })
 })

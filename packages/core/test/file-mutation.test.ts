@@ -9,6 +9,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { PlatformError } from "effect"
 import { location } from "./fixture/location"
 import { tmpdir } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
@@ -345,6 +346,134 @@ describe("FileMutation", () => {
           yield* Deferred.succeed(releaseFirst, undefined)
           yield* Fiber.join(first)
           yield* Fiber.join(second)
+        }).pipe(provide(directory, filesystem))
+      }),
+    ),
+  )
+
+  it.live("renames a file onto a missing dest", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const fromPath = path.join(directory, "from.txt")
+        yield* Effect.promise(() => fs.writeFile(fromPath, "payload"))
+        const mutation = yield* LocationMutation.Service
+        const files = yield* FileMutation.Service
+        const from = yield* mutation.resolve({ path: "from.txt" })
+        const to = yield* mutation.resolve({ path: "nested/to.txt" })
+
+        expect(yield* files.rename({ from, to })).toEqual({
+          operation: "rename",
+          from: from.canonical,
+          to: to.canonical,
+          resource: "nested/to.txt",
+        })
+        expect(yield* Effect.promise(() => fs.readFile(to.canonical, "utf8"))).toBe("payload")
+        expect(
+          yield* Effect.promise(() =>
+            fs.stat(fromPath).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        ).toBe(false)
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("rejects rename when dest already exists and does not touch source", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const fromPath = path.join(directory, "from.txt")
+        const toPath = path.join(directory, "to.txt")
+        yield* Effect.promise(() => Promise.all([fs.writeFile(fromPath, "source"), fs.writeFile(toPath, "dest")]))
+        const mutation = yield* LocationMutation.Service
+        const files = yield* FileMutation.Service
+        const from = yield* mutation.resolve({ path: "from.txt" })
+        const to = yield* mutation.resolve({ path: "to.txt" })
+
+        expect(yield* files.rename({ from, to }).pipe(Effect.flip)).toMatchObject({
+          _tag: "FileMutation.TargetExistsError",
+          path: to.canonical,
+        })
+        expect(yield* Effect.promise(() => fs.readFile(fromPath, "utf8"))).toBe("source")
+        expect(yield* Effect.promise(() => fs.readFile(toPath, "utf8"))).toBe("dest")
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("rejects rename when expected bytes are stale", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const fromPath = path.join(directory, "from.txt")
+        yield* Effect.promise(() => fs.writeFile(fromPath, "current"))
+        const mutation = yield* LocationMutation.Service
+        const files = yield* FileMutation.Service
+        const from = yield* mutation.resolve({ path: "from.txt" })
+        const to = yield* mutation.resolve({ path: "to.txt" })
+
+        expect(
+          yield* files.rename({ from, to, expected: new TextEncoder().encode("older") }).pipe(Effect.flip),
+        ).toMatchObject({
+          _tag: "FileMutation.StaleContentError",
+          path: from.canonical,
+        })
+        expect(yield* Effect.promise(() => fs.readFile(fromPath, "utf8"))).toBe("current")
+        expect(
+          yield* Effect.promise(() =>
+            fs.stat(to.canonical).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        ).toBe(false)
+      }).pipe(provide(directory)),
+    ),
+  )
+
+  it.live("falls back to copy and unlink when rename reports EXDEV", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const fromPath = path.join(directory, "from.txt")
+        yield* Effect.promise(() => fs.writeFile(fromPath, "payload"))
+        const filesystem = Layer.effect(
+          FSUtil.Service,
+          Effect.gen(function* () {
+            const filesystem = yield* FSUtil.Service
+            return FSUtil.Service.of({
+              ...filesystem,
+              rename: () =>
+                Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "Unknown",
+                    module: "FileSystem",
+                    method: "rename",
+                    syscall: "rename",
+                    pathOrDescriptor: fromPath,
+                    cause: Object.assign(new Error("cross-device link not permitted"), { code: "EXDEV" }),
+                  }),
+                ),
+            })
+          }),
+        ).pipe(Layer.provide(LayerNode.compile(FSUtil.node)))
+
+        yield* Effect.gen(function* () {
+          const mutation = yield* LocationMutation.Service
+          const files = yield* FileMutation.Service
+          const from = yield* mutation.resolve({ path: "from.txt" })
+          const to = yield* mutation.resolve({ path: "to.txt" })
+          expect(yield* files.rename({ from, to })).toMatchObject({
+            operation: "rename",
+            resource: "to.txt",
+          })
+          expect(yield* Effect.promise(() => fs.readFile(to.canonical, "utf8"))).toBe("payload")
+          expect(
+            yield* Effect.promise(() =>
+              fs.stat(fromPath).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
         }).pipe(provide(directory, filesystem))
       }),
     ),

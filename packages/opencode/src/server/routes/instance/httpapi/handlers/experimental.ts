@@ -15,6 +15,7 @@ import { Effect, Option } from "effect"
 import { join } from "path"
 import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { SkillInstall } from "@opencode-ai/core/skill/install"
 import { resolveRoots } from "@opencode-ai/core/memory/storage"
 import { resolveScopedFile } from "@opencode-ai/core/memory/paths"
 import { collectHealth } from "@opencode-ai/core/memory/health"
@@ -45,6 +46,8 @@ import {
   MemoryRememberResponse,
   MemorySessionLogDeleteQuery,
   SessionListQuery,
+  SkillsInstallPayload,
+  SkillsInstallResponse,
   ToolListQuery,
   WorktreeApiError,
 } from "../groups/experimental"
@@ -409,6 +412,26 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       )
     })
+
+    const installSkill = Effect.fn("ExperimentalHttpApi.skillsInstall")(function* (ctx: {
+      payload: typeof SkillsInstallPayload.Type
+    }) {
+      yield* assertMemoryMutationAllowed()
+      const uri = ctx.payload.uri.trim()
+      if (SkillInstall.rejectReason(uri)) return yield* new HttpApiError.BadRequest({})
+      const body = yield* Effect.tryPromise({
+        try: async () => {
+          const response = await fetch(uri)
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          return await response.text()
+        },
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      return yield* Effect.tryPromise({
+        try: () => SkillInstall.quarantine({ uri, body, configDir: Global.Path.config }),
+        catch: () => new HttpApiError.BadRequest({}),
+      }).pipe(Effect.map((result) => result satisfies typeof SkillsInstallResponse.Type))
+    })
     return handlers
       .handle("capabilities", capabilities)
       .handle("console", getConsole)
@@ -431,5 +454,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("memoryImport", importMemoryPack)
       .handle("memoryImportHistory", importExternalHistoryLog)
       .handle("memoryRemember", rememberNote)
+      .handle("skillsInstall", installSkill)
   }),
 )

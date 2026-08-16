@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { loadBuiltin } from "../../src/exec-policy/load"
+import { loadBuiltin, longestPrefix } from "../../src/exec-policy/load"
 import { decide, decideAsync } from "../../src/exec-policy/decide"
 
 const policy = await loadBuiltin()
@@ -45,7 +45,10 @@ test("metadata curl deny", () => {
 })
 
 test("load-time match fixtures pass", async () => {
-  await loadBuiltin()
+  const loaded = await loadBuiltin()
+  expect(longestPrefix(["git", "status"], loaded.rules)?.effect).toBe("allow")
+  expect(longestPrefix(["sudo", "ls"], loaded.rules)?.effect).toBe("deny")
+  expect(longestPrefix(["mkfs.ext4", "/dev/sda"], loaded.rules)?.effect).toBe("deny")
 })
 
 test("basename git allowed only for listed realpath", async () => {
@@ -70,5 +73,49 @@ test("basename git allowed only for listed realpath", async () => {
         { resolve: async () => "/tmp/evil/git" },
       )
     ).effect,
+  ).toBe("deny")
+  expect(
+    (
+      await decideAsync(
+        pinned,
+        { tag: "segments", segments: [["/tmp/evil/git", "status"]] },
+        { resolve: async () => "/tmp/evil/git", sandboxProfile: "off" },
+      )
+    ).effect,
   ).toBe("ask")
+})
+
+test("rm -Rf / and long opts are deny", () => {
+  expect(decide(policy, { tag: "segments", segments: [["rm", "-Rf", "/"]] }).effect).toBe("deny")
+  expect(decide(policy, { tag: "segments", segments: [["rm", "--recursive", "--force", "/"]] }).effect).toBe("deny")
+})
+
+test("git reset --hard is deny", () => {
+  expect(decide(policy, { tag: "segments", segments: [["git", "reset", "--hard"]] }).effect).toBe("deny")
+})
+
+test("relative ./ls is not the system allow rule", () => {
+  expect(decide(policy, { tag: "segments", segments: [["./ls"]] }).effect).not.toBe("allow")
+  expect(decide(policy, { tag: "segments", segments: [["/tmp/ls"]] }).effect).not.toBe("allow")
+})
+
+test("bare ls resolved to /tmp/ls is not the system allow rule", async () => {
+  expect(
+    (
+      await decideAsync(policy, { tag: "segments", segments: [["ls"]] }, { resolve: async () => "/tmp/ls" })
+    ).effect,
+  ).not.toBe("allow")
+  expect(
+    (
+      await decideAsync(policy, { tag: "segments", segments: [["ls"]] }, { resolve: async () => "/usr/bin/ls" })
+    ).effect,
+  ).toBe("allow")
+})
+
+test("curl -o /tmp/out example.com is not metadata deny", () => {
+  const r = decide(policy, {
+    tag: "segments",
+    segments: [["curl", "-o", "/tmp/out", "https://example.com"]],
+  })
+  expect(r.effect).not.toBe("deny")
 })

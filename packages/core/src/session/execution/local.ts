@@ -7,6 +7,7 @@ import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { SessionExecution } from "../execution"
 import { TaskTool } from "../../tool/task"
+import { Hooks } from "../../hooks"
 
 /** Current-process routing for implicit-local Locations. Future remote placement belongs here. */
 const layer = Layer.effect(
@@ -25,9 +26,11 @@ const layer = Layer.effect(
       drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
-        let effect = SessionRunner.Service.use((runner) => runner.run({ sessionID, force })).pipe(
-          Effect.provide(locations.get(session.location)),
-        )
+        let effect = Effect.gen(function* () {
+          const gated = yield* Hooks.fireSessionStart(sessionID)
+          if (gated._tag === "Deny") return
+          return yield* SessionRunner.Service.use((runner) => runner.run({ sessionID, force }))
+        }).pipe(Effect.provide(locations.get(session.location)))
         if (holder.current) {
           effect = effect.pipe(Effect.provideService(SessionExecution.Service, holder.current))
         }

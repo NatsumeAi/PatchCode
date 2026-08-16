@@ -20,6 +20,7 @@ export const CommandExecute = Event.define({
         "session.share",
         "session.interrupt",
         "session.compact",
+        "session.uncompact",
         "session.page.up",
         "session.page.down",
         "session.line.up",

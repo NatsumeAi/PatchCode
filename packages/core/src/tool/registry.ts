@@ -8,10 +8,25 @@ import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
 import { ToolOutputStore } from "../tool-output-store"
 import { Wildcard } from "../util/wildcard"
+import { Config } from "../config"
 import { ApplicationTools } from "./application-tools"
+import { BrowserHost } from "./browser-host"
 import { definition, permission, settle, validateName, type AnyTool, type RegistrationError } from "./tool"
 import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
+import { Hooks } from "../hooks"
+
+export const SEARCH_TOOL = "search_tool"
+export const USE_TOOL = "use_tool"
+export const EXECUTE_TOOL = "execute"
+const BROWSER_TOOLS = new Set(["browser_navigate", "browser_snapshot", "browser_act"])
+const DEFER_AFTER_DEFAULT = 8
+
+export type DynamicHit = {
+  readonly name: string
+  readonly description: string
+  readonly server: string
+}
 
 export type ExecuteInput = {
   readonly sessionID: SessionSchema.ID
@@ -26,7 +41,11 @@ export interface Interface {
     capability?: "read-only" | "read-write" | "execute" | "all"
   }) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
-  readonly register: (tools: Readonly<Record<string, AnyTool>>) => Effect.Effect<void, RegistrationError, Scope.Scope>
+  readonly register: (
+    tools: Readonly<Record<string, AnyTool>>,
+    options?: Tools.RegisterOptions,
+  ) => Effect.Effect<void, RegistrationError, Scope.Scope>
+  readonly searchDynamic: (query: string, limit?: number) => Effect.Effect<ReadonlyArray<DynamicHit>>
 }
 
 export interface Materialization {
@@ -47,7 +66,11 @@ const registryLayer = Layer.effect(
   Effect.gen(function* () {
     const applications = yield* ApplicationTools.Service
     const resources = yield* ToolOutputStore.Service
-    type Registration = { readonly identity: object; readonly tool: AnyTool }
+    type Registration = {
+      readonly identity: object
+      readonly tool: AnyTool
+      readonly source: "builtin" | "dynamic"
+    }
     const local = new Map<string, Array<{ readonly token: object; readonly registration: Registration }>>()
 
     const settleWith = Effect.fn("ToolRegistry.settle")(function* (input: ExecuteInput, advertised?: object) {
@@ -62,11 +85,27 @@ const registryLayer = Layer.effect(
         }
       if (advertised && registration.identity !== advertised)
         return { result: { type: "error" as const, value: `Stale tool call: ${input.call.name}` } }
+      const hooksOpt = yield* Effect.serviceOption(Hooks.Service)
+      if (Option.isSome(hooksOpt)) {
+        const gated = yield* hooksOpt.value.ensureSessionStart(input.sessionID)
+        if (gated._tag === "Deny")
+          return { result: { type: "error" as const, value: "session blocked by SessionStart hook" } }
+        if (input.call.name !== "bash" && input.call.name !== USE_TOOL) {
+          const decision = yield* hooksOpt.value.dispatch({
+            event: "PreToolUse",
+            sessionID: input.sessionID,
+            toolName: input.call.name,
+            toolInput: input.call.input,
+          })
+          if (decision._tag === "Deny")
+            return { result: { type: "error" as const, value: `Hook denied: ${decision.reason}` } }
+        }
+      }
       // Execute stays interruptible (bash collect / task host Effect.never).
       // bound() and the return value must not be in that restored region:
       // a sticky cancel after execute catches interrupt would otherwise
       // drop Success and leave the tool `running`.
-      return yield* Effect.uninterruptibleMask((restore) =>
+      const settlement = yield* Effect.uninterruptibleMask((restore) =>
         restore(
           settle(registration.tool, input.call, {
             sessionID: input.sessionID,
@@ -101,18 +140,52 @@ const registryLayer = Layer.effect(
           }),
         ),
       )
+      if (Option.isSome(hooksOpt)) {
+        const failed = "result" in settlement && settlement.result.type === "error"
+        yield* hooksOpt.value
+          .dispatch({
+            event: failed ? "PostToolUseFailure" : "PostToolUse",
+            sessionID: input.sessionID,
+            toolName: input.call.name,
+            toolInput: input.call.input,
+          })
+          .pipe(Effect.ignore)
+      }
+      return settlement
     })
 
     return Service.of({
-      register: Effect.fn("ToolRegistry.register")(function* (tools) {
+      searchDynamic: Effect.fn("ToolRegistry.searchDynamic")(function* (query: string, limit = 10) {
+        const items: DynamicHit[] = []
+        for (const [name, entries] of local) {
+          const registration = entries.at(-1)?.registration
+          if (!registration || registration.source !== "dynamic") continue
+          const def = definition(name, registration.tool)
+          items.push({
+            name,
+            description: def.description ?? "",
+            server: name.includes("_") ? name.slice(0, name.indexOf("_")) : "mcp",
+          })
+        }
+        const needle = query.trim().toLowerCase()
+        const matched =
+          needle.length === 0
+            ? items
+            : items.filter(
+                (item) => item.name.toLowerCase().includes(needle) || item.description.toLowerCase().includes(needle),
+              )
+        return limit <= 0 ? matched : matched.slice(0, limit)
+      }),
+      register: Effect.fn("ToolRegistry.register")(function* (tools, options?: Tools.RegisterOptions) {
         const entries = Object.entries(tools)
         if (entries.length === 0) return
         yield* Effect.forEach(entries, ([name]) => validateName(name), { discard: true })
+        const source = options?.source ?? "builtin"
         yield* Effect.uninterruptible(
           Effect.gen(function* () {
             const token = {}
             for (const [name, tool] of entries)
-              local.set(name, [...(local.get(name) ?? []), { token, registration: { identity: {}, tool } }])
+              local.set(name, [...(local.get(name) ?? []), { token, registration: { identity: {}, tool, source } }])
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => {
                 for (const [name] of entries) {
@@ -127,7 +200,10 @@ const registryLayer = Layer.effect(
       }),
       materialize: Effect.fn("ToolRegistry.materialize")(function* (agent = {}) {
         const permissions = agent.permissions ?? []
-        const registrations = new Map(applications.entries())
+        const registrations = new Map<string, Registration>()
+        for (const [name, entry] of applications.entries()) {
+          registrations.set(name, { ...entry, source: "builtin" })
+        }
         for (const [name, entries] of local) {
           const registration = entries.at(-1)?.registration
           if (registration) registrations.set(name, registration)
@@ -139,9 +215,29 @@ const registryLayer = Layer.effect(
             if (!capabilityAllows(name, agent.capability)) registrations.delete(name)
           }
         }
-        const definitions = Array.from(registrations, ([name, registration]) => definition(name, registration.tool))
+        const configOpt = yield* Effect.serviceOption(Config.Service)
+        const configEntries = Option.isSome(configOpt) ? yield* configOpt.value.entries() : []
+        const deferAfter = Config.latest(configEntries, "mcp")?.deferAfter ?? DEFER_AFTER_DEFAULT
+        const executeEnabled = Config.latest(configEntries, "tools")?.execute !== false
+        const browserEnabled = Config.latest(configEntries, "browser")?.enabled === true
+        const browserHost = yield* Effect.serviceOption(BrowserHost.HostService)
+        const dynamicCount = [...registrations.values()].filter((item) => item.source === "dynamic").length
+        const defer = dynamicCount > deferAfter
+        const advertised = new Map(registrations)
+        for (const name of Array.from(advertised.keys())) {
+          const registration = advertised.get(name)
+          if (!registration) continue
+          if (name === SEARCH_TOOL || name === USE_TOOL) {
+            if (!defer) advertised.delete(name)
+            continue
+          }
+          if (registration.source === "dynamic" && defer) advertised.delete(name)
+          if (name === EXECUTE_TOOL && !executeEnabled) advertised.delete(name)
+          if (BROWSER_TOOLS.has(name) && (!browserEnabled || Option.isNone(browserHost))) advertised.delete(name)
+        }
+        const definitions = Array.from(advertised, ([name, registration]) => definition(name, registration.tool))
         // Restore V1 describeTask: append callable subagent catalog to task tool description.
-        if (registrations.has("task")) {
+        if (advertised.has("task")) {
           const appendix = yield* describeTaskAgents(permissions)
           if (appendix) {
             const idx = definitions.findIndex((item) => item.name === "task")
@@ -216,13 +312,13 @@ const layer = Layer.effect(
  */
 function capabilityAllows(toolName: string, capability: "read-only" | "read-write" | "execute" | "all"): boolean {
   if (capability === "all") return true
-  const WRITE_TOOLS = new Set(["edit", "write", "apply_patch", "bash", "memory_add_note"])
+  const WRITE_TOOLS = new Set(["edit", "write", "apply_patch", "bash", "memory_add_note", "execute"])
   if (capability === "read-only") {
     if (WRITE_TOOLS.has(toolName)) return false
     return true
   }
   if (capability === "read-write") {
-    if (toolName === "bash") return false
+    if (toolName === "bash" || toolName === "execute") return false
     return true
   }
   // execute: bash allowed, file mutation denied

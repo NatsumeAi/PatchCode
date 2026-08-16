@@ -143,8 +143,10 @@ export async function resolvePinned(input: {
   readonly profileName?: string
   readonly location: string
   readonly whenUnpinned?: "off" | "location"
+  readonly platform?: string
 }): Promise<ResolveResult> {
-  const whenUnpinned = input.whenUnpinned ?? "off"
+  const platform = input.platform ?? process.platform
+  const whenUnpinned = input.whenUnpinned ?? (platform === "win32" ? "off" : "location")
   const name =
     input.profileName ??
     (input.sessionID ? pinnedProfile(input.sessionID) : undefined) ??

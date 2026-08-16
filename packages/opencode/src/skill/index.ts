@@ -123,6 +123,15 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
 
   if (!isSkillFrontmatter(md.data)) return
 
+  const quarantined = yield* Effect.promise(async () => {
+    const mod = (await import("@opencode-ai/core/skill/" + "lock")) as typeof import("@opencode-ai/core/skill/lock")
+    return mod.SkillLock.quarantinedNames(process.env.OPENCODE_CONFIG_DIR?.trim() || undefined)
+  })
+  if (quarantined.has(md.data.name)) {
+    yield* Effect.logWarning("skill skipped: quarantine", { name: md.data.name, skill: match })
+    return
+  }
+
   // W5: context-scope threat scan at skill load/install — reject injection
   // patterns so skills cannot plant system-prompt overrides into the agent.
   const body = `${md.data.name}\n${md.data.description ?? ""}\n${md.content}`
@@ -219,7 +228,21 @@ const discoverSkills = Effect.fnUntraced(function* (
   }
 
   const configDirs = yield* config.directories()
+  const configDir = process.env.OPENCODE_CONFIG_DIR?.trim() || global.config
+  const trusted = yield* Effect.promise(async () => {
+    const mod = (await import("@opencode-ai/core/" + "trust")) as typeof import("@opencode-ai/core/trust")
+    return mod.Trust.isTrusted(directory, { configDir })
+  })
+  const underProjectOpencode = (dir: string) => {
+    const resolved = path.resolve(dir)
+    const roots = [path.resolve(directory), path.resolve(worktree)]
+    return roots.some((root) => {
+      const oc = path.join(root, ".opencode")
+      return resolved === oc || resolved.startsWith(oc + path.sep)
+    })
+  }
   for (const dir of configDirs) {
+    if (underProjectOpencode(dir) && !trusted) continue
     yield* scan(state, dir, OPENCODE_SKILL_PATTERN)
   }
 

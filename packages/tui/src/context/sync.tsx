@@ -126,6 +126,11 @@ export const {
       }
       formatter: FormatterStatus[]
       vcs: VcsInfo | undefined
+      hooks: {
+        loaded: { id: string; origin?: string; file?: string }[]
+        untrusted: boolean
+        lastDeny?: { hookId: string; event: string; reason: string }
+      }
     }>({
       provider_next: {
         all: [],
@@ -156,6 +161,10 @@ export const {
       mcp_resource: {},
       formatter: [],
       vcs: undefined,
+      hooks: {
+        loaded: [],
+        untrusted: false,
+      },
     })
 
     const event = useEvent()
@@ -601,6 +610,39 @@ export const {
               session.time.updated = event.properties.timestamp
             }),
           )
+          break
+        }
+
+        case "session.hook": {
+          const props = event.properties as {
+            event?: string
+            hookId?: string
+            source?: string
+            decision?: string
+            reason?: string
+          }
+          if (props.source === "hooks.untrusted" || props.event === "untrusted") {
+            setStore("hooks", "untrusted", true)
+          }
+          if (props.source === "hooks.list" && typeof props.reason === "string") {
+            const ids = props.reason
+              .split(",")
+              .map((id) => id.trim())
+              .filter(Boolean)
+            setStore(
+              "hooks",
+              "loaded",
+              ids.map((id) => ({ id })),
+            )
+            if (props.decision !== "untrusted") setStore("hooks", "untrusted", false)
+          }
+          if (props.decision === "deny") {
+            setStore("hooks", "lastDeny", {
+              hookId: props.hookId ?? "",
+              event: props.event ?? "",
+              reason: props.reason ?? "",
+            })
+          }
           break
         }
 

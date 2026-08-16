@@ -105,6 +105,7 @@ export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: string) => Effect.Effect<Info | undefined>
   readonly start: (input: StartInput) => Effect.Effect<Info>
+  readonly patch: (id: string, metadata: Record<string, unknown>) => Effect.Effect<void>
   readonly extend: (input: ExtendInput) => Effect.Effect<boolean>
   readonly wait: (input: WaitInput) => Effect.Effect<WaitResult>
   readonly waitForPromotion: (id: string) => Effect.Effect<Info, PromotionTimeoutError>
@@ -144,6 +145,19 @@ function sessionIdFrom(info: Info): string | undefined {
 /** Job ids this process is actually running — do not reap these as crash leftovers. */
 const liveJobIds = new Set<string>()
 
+function rowMetadata(row: { metadata?: Record<string, unknown> | string | null }): Record<string, unknown> | undefined {
+  const raw = row.metadata
+  if (!raw) return undefined
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      return undefined
+    }
+  }
+  return raw
+}
+
 function rowToInfo(row: typeof BackgroundJobTable.$inferSelect): Info {
   return {
     id: row.id,
@@ -176,42 +190,53 @@ export const make = Effect.gen(function* () {
   const touchDurable = (info: Info, heartbeat = true): Effect.Effect<void> => {
     if (!db) return Effect.void
     const now = Date.now()
-    return db
-      .insert(BackgroundJobTable)
-      .values({
-        id: info.id,
-        type: info.type,
-        status: info.status,
-        title: info.title,
-        session_id: sessionIdFrom(info),
-        started_at: info.started_at,
-        heartbeat_at: heartbeat ? now : info.started_at,
-        completed_at: info.completed_at,
-        error: info.error,
-        output: info.output,
-        metadata: info.metadata,
-      })
-      .onConflictDoUpdate({
-        target: BackgroundJobTable.id,
-        set: {
+    return Effect.gen(function* () {
+      const existing = yield* getDurable(info.id)
+      const prev = existing?.metadata ?? {}
+      const incoming = info.metadata ?? {}
+      const metadata = {
+        ...prev,
+        ...incoming,
+        ...(prev.pid && incoming.pid === undefined ? { pid: prev.pid } : {}),
+        ...(prev.pgid && incoming.pgid === undefined ? { pgid: prev.pgid } : {}),
+      }
+      yield* db
+        .insert(BackgroundJobTable)
+        .values({
+          id: info.id,
           type: info.type,
           status: info.status,
           title: info.title,
           session_id: sessionIdFrom(info),
           started_at: info.started_at,
-          ...(heartbeat ? { heartbeat_at: now } : {}),
+          heartbeat_at: heartbeat ? now : info.started_at,
           completed_at: info.completed_at,
           error: info.error,
           output: info.output,
-          metadata: info.metadata,
-        },
-      })
-      .run()
-      .pipe(
-        Effect.orDie,
-        Effect.asVoid,
-        Effect.catch(() => Effect.void),
-      )
+          metadata,
+        })
+        .onConflictDoUpdate({
+          target: BackgroundJobTable.id,
+          set: {
+            type: info.type,
+            status: info.status,
+            title: info.title,
+            session_id: sessionIdFrom(info),
+            started_at: info.started_at,
+            ...(heartbeat ? { heartbeat_at: now } : {}),
+            completed_at: info.completed_at,
+            error: info.error,
+            output: info.output,
+            metadata,
+          },
+        })
+        .run()
+        .pipe(
+          Effect.orDie,
+          Effect.asVoid,
+          Effect.catch(() => Effect.void),
+        )
+    })
   }
 
   const getDurable = (id: string): Effect.Effect<Info | undefined> => {
@@ -244,9 +269,27 @@ export const make = Effect.gen(function* () {
       const stale = leftover.filter((row) => !liveJobIds.has(row.id))
       const reaped: Info[] = []
       for (const row of stale) {
+        if (row.type === "bash") {
+          const meta = rowMetadata(row)
+          const pid = Number(meta?.pgid ?? meta?.pid)
+          if (Number.isFinite(pid) && pid > 1) {
+            yield* Effect.sync(() => {
+              try {
+                process.kill(-pid, "SIGKILL")
+              } catch {
+                try {
+                  process.kill(pid, "SIGKILL")
+                } catch {
+                  // already gone
+                }
+              }
+            })
+          }
+        }
+        const error = row.type === "bash" ? "lost-after-crash" : "stale-after-crash"
         yield* db
           .update(BackgroundJobTable)
-          .set({ status: "error", completed_at: now, error: "stale-after-crash" })
+          .set({ status: "error", completed_at: now, error })
           .where(eq(BackgroundJobTable.id, row.id))
           .run()
           .pipe(Effect.orDie)
@@ -255,7 +298,7 @@ export const make = Effect.gen(function* () {
             ...row,
             status: "error",
             completed_at: now,
-            error: "stale-after-crash",
+            error,
           }),
         )
       }
@@ -264,6 +307,7 @@ export const make = Effect.gen(function* () {
         if (Option.isSome(eventsOpt)) {
           const events = eventsOpt.value
           for (const row of stale) {
+            if (row.type === "bash") continue
             const parent = row.session_id
             if (!parent) continue
             yield* events
@@ -277,6 +321,11 @@ export const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignore)
           }
+        }
+        const { notifyJobFinished } = yield* Effect.promise(() => import("./session/job-complete"))
+        for (const info of reaped) {
+          if (info.type !== "bash") continue
+          yield* notifyJobFinished(info).pipe(Effect.ignore)
         }
       }
       return reaped
@@ -383,6 +432,22 @@ export const make = Effect.gen(function* () {
     if (job) return snapshot(job)
     // After crash/reap, live map is empty — fall back to durable ledger.
     return yield* getDurable(id)
+  })
+
+  const patch: Interface["patch"] = Effect.fn("BackgroundJob.patch")(function* (id, metadata) {
+    const next = yield* SynchronizedRef.modify(state.jobs, (jobs): readonly [Info | undefined, Map<string, Active>] => {
+      const job = jobs.get(id)
+      if (!job) return [undefined, jobs]
+      const updated = {
+        ...job,
+        info: {
+          ...job.info,
+          metadata: { ...job.info.metadata, ...metadata },
+        },
+      }
+      return [snapshot(updated), new Map(jobs).set(id, updated)]
+    })
+    if (next) yield* touchDurable(next, true).pipe(Effect.forkIn(state.scope), Effect.asVoid)
   })
 
   const start: Interface["start"] = Effect.fn("BackgroundJob.start")(function* (input) {
@@ -572,7 +637,7 @@ export const make = Effect.gen(function* () {
     return result.info
   })
 
-  return Service.of({ list, get, start, extend, wait, waitForPromotion, promote, cancel })
+  return Service.of({ list, get, start, patch, extend, wait, waitForPromotion, promote, cancel })
 })
 
 const layer = Layer.effect(Service, make)
