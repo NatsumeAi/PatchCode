@@ -813,15 +813,15 @@ export function reduceSubagentData(input: {
     event.type === "message.updated" ||
     event.type === "message.part.delta" ||
     event.type === "permission.asked" ||
-    event.type === "permission.v2.asked" ||
+    event.type === "permission.asked" ||
     event.type === "permission.replied" ||
-    event.type === "permission.v2.replied" ||
+    event.type === "permission.replied" ||
     event.type === "question.asked" ||
-    event.type === "question.v2.asked" ||
+    event.type === "question.asked" ||
     event.type === "question.replied" ||
-    event.type === "question.v2.replied" ||
+    event.type === "question.replied" ||
     event.type === "question.rejected" ||
-    event.type === "question.v2.rejected" ||
+    event.type === "question.rejected" ||
     event.type === "session.error" ||
     event.type === "session.status"
       ? event.properties.sessionID

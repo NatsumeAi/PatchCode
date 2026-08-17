@@ -4,7 +4,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { WebSearchTool } from "@opencode-ai/core/tool/websearch"
@@ -68,7 +68,7 @@ interface Request {
 }
 
 const requests: Request[] = []
-const assertions: PermissionV2.AssertInput[] = []
+const assertions: Permission.AssertInput[] = []
 let responseBody = payload("search results")
 let makeResponse = () => new Response(responseBody, { status: 200 })
 let config: WebSearchTool.Config = { enableExa: false, enableParallel: false }
@@ -93,8 +93,8 @@ const http = Layer.succeed(
   ),
 )
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: (input) => Effect.sync(() => assertions.push(input)),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -128,7 +128,7 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, WebSearchTool.configNode, WebSearchTool.node]),
     [
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
       [LayerNodePlatform.httpClient, http],
       [WebSearchTool.configNode, websearchConfig],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],

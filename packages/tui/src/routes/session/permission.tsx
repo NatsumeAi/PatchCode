@@ -19,7 +19,7 @@ import { usePathFormatter } from "../../context/path-format"
 
 type PermissionStage = "permission" | "always" | "reject"
 
-/** One reply path: session runner tools use PermissionV2 only. */
+/** One reply path: session runner tools use Permission only. */
 function replyPermission(
   sdk: ReturnType<typeof useSDK>,
   request: PermissionRequest,

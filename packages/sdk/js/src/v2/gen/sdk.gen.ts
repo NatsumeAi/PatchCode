@@ -128,8 +128,8 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
-  PermissionV2Reply,
-  PermissionV2Source,
+  PermissionReply,
+  PermissionSource,
   ProjectCommands,
   ProjectCurrentErrors,
   ProjectCurrentResponses,
@@ -174,7 +174,7 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
-  QuestionV2Reply,
+  QuestionReply,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -5545,7 +5545,7 @@ export class Permission2 extends HeyApiClient {
       metadata?: {
         [key: string]: unknown
       }
-      source?: PermissionV2Source
+      source?: PermissionSource
       agent?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -5626,7 +5626,7 @@ export class Permission2 extends HeyApiClient {
     parameters: {
       sessionID: string
       requestID: string
-      reply?: PermissionV2Reply
+      reply?: PermissionReply
       message?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -5694,7 +5694,7 @@ export class Question2 extends HeyApiClient {
     parameters: {
       sessionID: string
       requestID: string
-      questionV2Reply: QuestionV2Reply
+      questionReply: QuestionReply
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5705,7 +5705,7 @@ export class Question2 extends HeyApiClient {
           args: [
             { in: "path", key: "sessionID" },
             { in: "path", key: "requestID" },
-            { key: "questionV2Reply", map: "body" },
+            { key: "questionReply", map: "body" },
           ],
         },
       ],

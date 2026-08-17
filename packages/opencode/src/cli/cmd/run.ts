@@ -846,7 +846,7 @@ export const RunCommand = effectCmd({
               break
             }
 
-            if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
+            if (event.type === "permission.asked") {
               const permission = event.properties
               await settlePermission(
                 permission.id,

@@ -6,7 +6,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
@@ -29,7 +29,7 @@ const it = testEffect(
       SessionStore.node,
       PermissionSaved.node,
       AgentV2.node,
-      PermissionV2.node,
+      Permission.node,
     ]),
     [[Location.node, current]],
   ),
@@ -60,7 +60,7 @@ describe("missing AgentV2 is deny", () => {
         .run()
         .pipe(Effect.orDie)
 
-      const service = yield* PermissionV2.Service
+      const service = yield* Permission.Service
       const blocked = yield* service
         .assert({
           sessionID: SessionV2.ID.make("ses_missing_agent"),
@@ -69,7 +69,7 @@ describe("missing AgentV2 is deny", () => {
           agent: AgentV2.ID.make("ghost"),
         })
         .pipe(Effect.flip)
-      expect(blocked).toBeInstanceOf(PermissionV2.BlockedError)
+      expect(blocked).toBeInstanceOf(Permission.BlockedError)
     }),
   )
 })

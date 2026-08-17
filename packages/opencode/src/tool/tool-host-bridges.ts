@@ -26,7 +26,7 @@ import {
   toLegacyRule,
   toCurrentRule,
 } from "@opencode-ai/core/session/subagent-permissions"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { SubagentLifecycle } from "@opencode-ai/core/session/subagent-lifecycle"
 import { MemoryDelegation } from "@opencode-ai/core/memory/delegation-wire"
 import os from "os"
@@ -243,7 +243,7 @@ const taskHostLayer = Layer.effect(
     const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
     const runtimeOpt = yield* Effect.serviceOption(SessionRuntime.Service)
     const personaStoreOpt = yield* Effect.serviceOption(PersonaStore.Service)
-    const permissionOpt = yield* Effect.serviceOption(PermissionV2.Service)
+    const permissionOpt = yield* Effect.serviceOption(Permission.Service)
     const lifecycleOpt = yield* Effect.serviceOption(SubagentLifecycle.Service)
     const scope = yield* Scope.Scope
     const db = database.db
@@ -566,7 +566,7 @@ const taskHostLayer = Layer.effect(
             }
           } else {
             const rules = parentPermission.map((rule) => toCurrentRule(rule))
-            if (PermissionV2.evaluate("task", input.subagentType, rules).effect === "deny") {
+            if (Permission.evaluate("task", input.subagentType, rules).effect === "deny") {
               return yield* Effect.die(new Error(`Permission denied: task (${input.subagentType})`))
             }
           }

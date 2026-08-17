@@ -1,4 +1,4 @@
-export * as PermissionV2 from "./permission"
+export * as Permission from "./permission"
 
 import { makeLocationNode } from "./effect/app-node"
 import { Context, Deferred, Effect as EffectRuntime, Layer, Option, Schema } from "effect"
@@ -43,35 +43,35 @@ export const AssertInput = Schema.Struct({
   id: ID.pipe(Schema.optional),
   ...RequestFields,
   agent: AgentV2.ID.pipe(Schema.optional),
-}).annotate({ identifier: "PermissionV2.AssertInput" })
+}).annotate({ identifier: "Permission.AssertInput" })
 export type AssertInput = typeof AssertInput.Type
 
 export const ReplyInput = Schema.Struct({
   requestID: ID,
   reply: Reply,
   message: Schema.String.pipe(Schema.optional),
-}).annotate({ identifier: "PermissionV2.ReplyInput" })
+}).annotate({ identifier: "Permission.ReplyInput" })
 export type ReplyInput = typeof ReplyInput.Type
 
 export const AskResult = Schema.Struct({
   id: ID,
   effect: Permission.Effect,
-}).annotate({ identifier: "PermissionV2.AskResult" })
+}).annotate({ identifier: "Permission.AskResult" })
 export type AskResult = typeof AskResult.Type
 
 export const Event = Permission.Event
 
-export class DeclinedError extends Schema.TaggedErrorClass<DeclinedError>()("PermissionV2.DeclinedError", {}) {}
+export class DeclinedError extends Schema.TaggedErrorClass<DeclinedError>()("Permission.DeclinedError", {}) {}
 
-export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("PermissionV2.CorrectedError", {
+export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("Permission.CorrectedError", {
   feedback: Schema.String,
 }) {}
 
-export class BlockedError extends Schema.TaggedErrorClass<BlockedError>()("PermissionV2.BlockedError", {
+export class BlockedError extends Schema.TaggedErrorClass<BlockedError>()("Permission.BlockedError", {
   rules: Permission.Ruleset,
 }) {}
 
-export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("PermissionV2.NotFoundError", {
+export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Permission.NotFoundError", {
   requestID: ID,
 }) {}
 
@@ -89,7 +89,7 @@ export interface Interface {
   readonly list: () => EffectRuntime.Effect<ReadonlyArray<Request>>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Permission") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
 interface Pending {
   readonly request: Request
@@ -97,10 +97,6 @@ interface Pending {
   readonly policyAsk: boolean
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
 }
-
-// One pending table per process. HTTP reply and the runner drain can land
-// on different LocationServiceMap instances; request IDs are globally unique.
-const pending = new Map<ID, Pending>()
 
 const layer = Layer.effect(
   Service,
@@ -110,16 +106,14 @@ const layer = Layer.effect(
     const agents = yield* AgentV2.Service
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
-    const owned = new Set<ID>()
+    const pending = new Map<ID, Pending>()
 
     yield* EffectRuntime.addFinalizer(() =>
       EffectRuntime.forEach(
-        [...owned],
-        (id) => {
-          const item = pending.get(id)
-          pending.delete(id)
-          owned.delete(id)
-          return item ? Deferred.fail(item.deferred, new DeclinedError()) : EffectRuntime.void
+        [...pending.values()],
+        (item) => {
+          pending.delete(item.request.id)
+          return Deferred.fail(item.deferred, new DeclinedError())
         },
         { discard: true },
       ),
@@ -131,7 +125,7 @@ const layer = Layer.effect(
       )
     })
 
-    const configured = EffectRuntime.fn("PermissionV2.configured")(function* (
+    const configured = EffectRuntime.fn("Permission.configured")(function* (
       sessionID: SessionSchema.ID,
       agentID?: AgentV2.ID,
     ) {
@@ -198,7 +192,6 @@ const layer = Layer.effect(
           const item = { request, agent, policyAsk, deferred }
           if (pending.has(request.id)) return yield* EffectRuntime.die(`Duplicate pending permission ID: ${request.id}`)
           pending.set(request.id, item)
-          owned.add(request.id)
           yield* events
             .publish(Event.Asked, request, {
               location: {
@@ -210,7 +203,6 @@ const layer = Layer.effect(
               EffectRuntime.onError(() =>
                 EffectRuntime.sync(() => {
                   pending.delete(request.id)
-                  owned.delete(request.id)
                 }),
               ),
             )
@@ -218,14 +210,14 @@ const layer = Layer.effect(
         }),
       )
 
-    const ask = EffectRuntime.fn("PermissionV2.ask")(function* (input: AssertInput) {
+    const ask = EffectRuntime.fn("Permission.ask")(function* (input: AssertInput) {
       const result = yield* evaluateInput(input)
       const value = request(input)
       if (result.effect === "ask") yield* create(value, input.agent)
       return { id: value.id, effect: result.effect }
     })
 
-    const assert = EffectRuntime.fn("PermissionV2.assert")((input: AssertInput) =>
+    const assert = EffectRuntime.fn("Permission.assert")((input: AssertInput) =>
       EffectRuntime.uninterruptibleMask((restore) =>
         EffectRuntime.gen(function* () {
           const result = yield* evaluateInput(input)
@@ -242,7 +234,7 @@ const layer = Layer.effect(
           if (result.effect === "allow") return
           const item = yield* create(request(input), input.agent)
           return yield* restore(Deferred.await(item.deferred)).pipe(
-            EffectRuntime.catchTag("PermissionV2.DeclinedError", (error) => EffectRuntime.die(error)),
+            EffectRuntime.catchTag("Permission.DeclinedError", (error) => EffectRuntime.die(error)),
             EffectRuntime.ensuring(
               EffectRuntime.sync(() => {
                 pending.delete(item.request.id)
@@ -253,7 +245,7 @@ const layer = Layer.effect(
       ),
     )
 
-    const assertPolicyAsk = EffectRuntime.fn("PermissionV2.assertPolicyAsk")((input: AssertInput) =>
+    const assertPolicyAsk = EffectRuntime.fn("Permission.assertPolicyAsk")((input: AssertInput) =>
       EffectRuntime.uninterruptibleMask((restore) =>
         EffectRuntime.gen(function* () {
           const result = yield* evaluatePolicyAsk(input)
@@ -270,7 +262,7 @@ const layer = Layer.effect(
           if (result.effect === "allow") return
           const item = yield* create(request(input), input.agent, true)
           return yield* restore(Deferred.await(item.deferred)).pipe(
-            EffectRuntime.catchTag("PermissionV2.DeclinedError", (error) => EffectRuntime.die(error)),
+            EffectRuntime.catchTag("Permission.DeclinedError", (error) => EffectRuntime.die(error)),
             EffectRuntime.ensuring(
               EffectRuntime.sync(() => {
                 pending.delete(item.request.id)
@@ -281,7 +273,7 @@ const layer = Layer.effect(
       ),
     )
 
-    const reply = EffectRuntime.fn("PermissionV2.reply")((input: ReplyInput) =>
+    const reply = EffectRuntime.fn("Permission.reply")((input: ReplyInput) =>
       EffectRuntime.uninterruptible(
         EffectRuntime.gen(function* () {
           const existing = pending.get(input.requestID)
@@ -372,15 +364,15 @@ const layer = Layer.effect(
       ),
     )
 
-    const list = EffectRuntime.fn("PermissionV2.list")(function* () {
+    const list = EffectRuntime.fn("Permission.list")(function* () {
       return Array.from(pending.values(), (item) => item.request)
     })
 
-    const get = EffectRuntime.fn("PermissionV2.get")(function* (id: ID) {
+    const get = EffectRuntime.fn("Permission.get")(function* (id: ID) {
       return pending.get(id)?.request
     })
 
-    const forSession = EffectRuntime.fn("PermissionV2.forSession")(function* (sessionID: SessionSchema.ID) {
+    const forSession = EffectRuntime.fn("Permission.forSession")(function* (sessionID: SessionSchema.ID) {
       return Array.from(pending.values(), (item) => item.request).filter((request) => request.sessionID === sessionID)
     })
 

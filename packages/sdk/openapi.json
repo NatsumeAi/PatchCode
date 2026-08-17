@@ -12766,7 +12766,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/PermissionV2Request"
+                        "$ref": "#/components/schemas/PermissionRequest"
                       }
                     }
                   },
@@ -12956,7 +12956,7 @@
                           "pattern": "^per"
                         },
                         "effect": {
-                          "$ref": "#/components/schemas/PermissionV2Effect"
+                          "$ref": "#/components/schemas/PermissionEffect"
                         }
                       },
                       "required": ["id", "effect"],
@@ -13038,7 +13038,7 @@
                     "type": "object"
                   },
                   "source": {
-                    "$ref": "#/components/schemas/PermissionV2Source"
+                    "$ref": "#/components/schemas/PermissionSource"
                   },
                   "agent": {
                     "type": "string"
@@ -13084,7 +13084,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/PermissionV2Request"
+                        "$ref": "#/components/schemas/PermissionRequest"
                       }
                     }
                   },
@@ -13176,7 +13176,7 @@
                   "type": "object",
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/PermissionV2Request"
+                      "$ref": "#/components/schemas/PermissionRequest"
                     }
                   },
                   "required": ["data"],
@@ -13315,7 +13315,7 @@
                 "type": "object",
                 "properties": {
                   "reply": {
-                    "$ref": "#/components/schemas/PermissionV2Reply"
+                    "$ref": "#/components/schemas/PermissionReply"
                   },
                   "message": {
                     "type": "string"
@@ -14556,7 +14556,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/QuestionV2Request"
+                        "$ref": "#/components/schemas/QuestionRequest"
                       }
                     }
                   },
@@ -14624,7 +14624,7 @@
                     "data": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/QuestionV2Request"
+                        "$ref": "#/components/schemas/QuestionRequest"
                       }
                     }
                   },
@@ -14758,7 +14758,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/QuestionV2Reply"
+                "$ref": "#/components/schemas/QuestionReply"
               }
             }
           },
@@ -15410,10 +15410,10 @@
             "$ref": "#/components/schemas/EventReferenceUpdated"
           },
           {
-            "$ref": "#/components/schemas/EventPermissionV2Asked"
+            "$ref": "#/components/schemas/EventPermissionAsked"
           },
           {
-            "$ref": "#/components/schemas/EventPermissionV2Replied"
+            "$ref": "#/components/schemas/EventPermissionReplied"
           },
           {
             "$ref": "#/components/schemas/EventPluginAdded"
@@ -15437,13 +15437,13 @@
             "$ref": "#/components/schemas/EventPtyDeleted"
           },
           {
-            "$ref": "#/components/schemas/EventQuestionV2Asked"
+            "$ref": "#/components/schemas/EventQuestionAsked"
           },
           {
-            "$ref": "#/components/schemas/EventQuestionV2Replied"
+            "$ref": "#/components/schemas/EventQuestionReplied"
           },
           {
-            "$ref": "#/components/schemas/EventQuestionV2Rejected"
+            "$ref": "#/components/schemas/EventQuestionRejected"
           },
           {
             "$ref": "#/components/schemas/EventTodoUpdated"
@@ -19245,7 +19245,7 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["permission.v2.asked"]
+                    "enum": ["permission.asked"]
                   },
                   "properties": {
                     "type": "object",
@@ -19277,7 +19277,7 @@
                         "type": "object"
                       },
                       "source": {
-                        "$ref": "#/components/schemas/PermissionV2Source"
+                        "$ref": "#/components/schemas/PermissionSource"
                       }
                     },
                     "required": ["id", "sessionID", "action", "resources"],
@@ -19296,7 +19296,7 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["permission.v2.replied"]
+                    "enum": ["permission.replied"]
                   },
                   "properties": {
                     "type": "object",
@@ -19310,7 +19310,7 @@
                         "pattern": "^per"
                       },
                       "reply": {
-                        "$ref": "#/components/schemas/PermissionV2Reply"
+                        "$ref": "#/components/schemas/PermissionReply"
                       }
                     },
                     "required": ["sessionID", "requestID", "reply"],
@@ -19514,7 +19514,7 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["question.v2.asked"]
+                    "enum": ["question.asked"]
                   },
                   "properties": {
                     "type": "object",
@@ -19530,12 +19530,12 @@
                       "questions": {
                         "type": "array",
                         "items": {
-                          "$ref": "#/components/schemas/QuestionV2Info"
+                          "$ref": "#/components/schemas/QuestionInfo"
                         },
                         "description": "Questions to ask"
                       },
                       "tool": {
-                        "$ref": "#/components/schemas/QuestionV2Tool"
+                        "$ref": "#/components/schemas/QuestionTool"
                       }
                     },
                     "required": ["id", "sessionID", "questions"],
@@ -19554,7 +19554,7 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["question.v2.replied"]
+                    "enum": ["question.replied"]
                   },
                   "properties": {
                     "type": "object",
@@ -19570,7 +19570,7 @@
                       "answers": {
                         "type": "array",
                         "items": {
-                          "$ref": "#/components/schemas/QuestionV2Answer"
+                          "$ref": "#/components/schemas/QuestionAnswer"
                         }
                       }
                     },
@@ -19590,7 +19590,7 @@
                   },
                   "type": {
                     "type": "string",
-                    "enum": ["question.v2.rejected"]
+                    "enum": ["question.rejected"]
                   },
                   "properties": {
                     "type": "object",
@@ -24133,10 +24133,10 @@
             "$ref": "#/components/schemas/ReferenceUpdated"
           },
           {
-            "$ref": "#/components/schemas/PermissionV2Asked"
+            "$ref": "#/components/schemas/PermissionAsked"
           },
           {
-            "$ref": "#/components/schemas/PermissionV2Replied"
+            "$ref": "#/components/schemas/PermissionReplied"
           },
           {
             "$ref": "#/components/schemas/PluginAdded"
@@ -24160,13 +24160,13 @@
             "$ref": "#/components/schemas/PtyDeleted"
           },
           {
-            "$ref": "#/components/schemas/QuestionV2Asked"
+            "$ref": "#/components/schemas/QuestionAsked"
           },
           {
-            "$ref": "#/components/schemas/QuestionV2Replied"
+            "$ref": "#/components/schemas/QuestionReplied"
           },
           {
-            "$ref": "#/components/schemas/QuestionV2Rejected"
+            "$ref": "#/components/schemas/QuestionRejected"
           },
           {
             "$ref": "#/components/schemas/TodoUpdated"
@@ -24734,7 +24734,7 @@
         "required": ["messageID"],
         "additionalProperties": false
       },
-      "PermissionV2Source": {
+      "PermissionSource": {
         "type": "object",
         "properties": {
           "type": {
@@ -24751,11 +24751,11 @@
         "required": ["type", "messageID", "callID"],
         "additionalProperties": false
       },
-      "PermissionV2Reply": {
+      "PermissionReply": {
         "type": "string",
         "enum": ["once", "always", "reject"]
       },
-      "QuestionV2Option": {
+      "QuestionOption": {
         "type": "object",
         "properties": {
           "label": {
@@ -24770,7 +24770,7 @@
         "required": ["label", "description"],
         "additionalProperties": false
       },
-      "QuestionV2Info": {
+      "QuestionInfo": {
         "type": "object",
         "properties": {
           "question": {
@@ -24784,7 +24784,7 @@
           "options": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/QuestionV2Option"
+              "$ref": "#/components/schemas/QuestionOption"
             },
             "description": "Available choices"
           },
@@ -24798,7 +24798,7 @@
         "required": ["question", "header", "options"],
         "additionalProperties": false
       },
-      "QuestionV2Tool": {
+      "QuestionTool": {
         "type": "object",
         "properties": {
           "messageID": {
@@ -24811,7 +24811,7 @@
         "required": ["messageID", "callID"],
         "additionalProperties": false
       },
-      "QuestionV2Answer": {
+      "QuestionAnswer": {
         "type": "array",
         "items": {
           "type": "string"
@@ -27149,11 +27149,11 @@
           }
         ]
       },
-      "PermissionV2Effect": {
+      "PermissionEffect": {
         "type": "string",
         "enum": ["allow", "deny", "ask"]
       },
-      "PermissionV2Rule": {
+      "PermissionRule": {
         "type": "object",
         "properties": {
           "action": {
@@ -27163,16 +27163,16 @@
             "type": "string"
           },
           "effect": {
-            "$ref": "#/components/schemas/PermissionV2Effect"
+            "$ref": "#/components/schemas/PermissionEffect"
           }
         },
         "required": ["action", "resource", "effect"],
         "additionalProperties": false
       },
-      "PermissionV2Ruleset": {
+      "PermissionRuleset": {
         "type": "array",
         "items": {
-          "$ref": "#/components/schemas/PermissionV2Rule"
+          "$ref": "#/components/schemas/PermissionRule"
         }
       },
       "AgentV2Info": {
@@ -27208,7 +27208,7 @@
             "exclusiveMinimum": 0
           },
           "permissions": {
-            "$ref": "#/components/schemas/PermissionV2Ruleset"
+            "$ref": "#/components/schemas/PermissionRuleset"
           }
         },
         "required": ["id", "request", "mode", "hidden", "permissions"],
@@ -30560,7 +30560,7 @@
           }
         ]
       },
-      "PermissionV2Request": {
+      "PermissionRequest": {
         "type": "object",
         "properties": {
           "id": {
@@ -30590,7 +30590,7 @@
             "type": "object"
           },
           "source": {
-            "$ref": "#/components/schemas/PermissionV2Source"
+            "$ref": "#/components/schemas/PermissionSource"
           }
         },
         "required": ["id", "sessionID", "action", "resources"],
@@ -31826,7 +31826,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "PermissionV2Asked": {
+      "PermissionAsked": {
         "type": "object",
         "properties": {
           "id": {
@@ -31838,7 +31838,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["permission.v2.asked"]
+            "enum": ["permission.asked"]
           },
           "durable": {
             "type": "object",
@@ -31889,7 +31889,7 @@
                 "type": "object"
               },
               "source": {
-                "$ref": "#/components/schemas/PermissionV2Source"
+                "$ref": "#/components/schemas/PermissionSource"
               }
             },
             "required": ["id", "sessionID", "action", "resources"],
@@ -31899,7 +31899,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "PermissionV2Replied": {
+      "PermissionReplied": {
         "type": "object",
         "properties": {
           "id": {
@@ -31911,7 +31911,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["permission.v2.replied"]
+            "enum": ["permission.replied"]
           },
           "durable": {
             "type": "object",
@@ -31944,7 +31944,7 @@
                 "pattern": "^per"
               },
               "reply": {
-                "$ref": "#/components/schemas/PermissionV2Reply"
+                "$ref": "#/components/schemas/PermissionReply"
               }
             },
             "required": ["sessionID", "requestID", "reply"],
@@ -32293,7 +32293,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "QuestionV2Asked": {
+      "QuestionAsked": {
         "type": "object",
         "properties": {
           "id": {
@@ -32305,7 +32305,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.asked"]
+            "enum": ["question.asked"]
           },
           "durable": {
             "type": "object",
@@ -32340,12 +32340,12 @@
               "questions": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/QuestionV2Info"
+                  "$ref": "#/components/schemas/QuestionInfo"
                 },
                 "description": "Questions to ask"
               },
               "tool": {
-                "$ref": "#/components/schemas/QuestionV2Tool"
+                "$ref": "#/components/schemas/QuestionTool"
               }
             },
             "required": ["id", "sessionID", "questions"],
@@ -32355,7 +32355,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "QuestionV2Replied": {
+      "QuestionReplied": {
         "type": "object",
         "properties": {
           "id": {
@@ -32367,7 +32367,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.replied"]
+            "enum": ["question.replied"]
           },
           "durable": {
             "type": "object",
@@ -32402,7 +32402,7 @@
               "answers": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/QuestionV2Answer"
+                  "$ref": "#/components/schemas/QuestionAnswer"
                 }
               }
             },
@@ -32413,7 +32413,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "QuestionV2Rejected": {
+      "QuestionRejected": {
         "type": "object",
         "properties": {
           "id": {
@@ -32425,7 +32425,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.rejected"]
+            "enum": ["question.rejected"]
           },
           "durable": {
             "type": "object",
@@ -33680,7 +33680,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "QuestionV2Request": {
+      "QuestionRequest": {
         "type": "object",
         "properties": {
           "id": {
@@ -33694,24 +33694,24 @@
           "questions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/QuestionV2Info"
+              "$ref": "#/components/schemas/QuestionInfo"
             },
             "description": "Questions to ask"
           },
           "tool": {
-            "$ref": "#/components/schemas/QuestionV2Tool"
+            "$ref": "#/components/schemas/QuestionTool"
           }
         },
         "required": ["id", "sessionID", "questions"],
         "additionalProperties": false
       },
-      "QuestionV2Reply": {
+      "QuestionReply": {
         "type": "object",
         "properties": {
           "answers": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/QuestionV2Answer"
+              "$ref": "#/components/schemas/QuestionAnswer"
             },
             "description": "User answers in order of questions (each answer is an array of selected labels)"
           }
@@ -35619,7 +35619,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventPermissionV2Asked": {
+      "EventPermissionAsked": {
         "type": "object",
         "properties": {
           "id": {
@@ -35628,7 +35628,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["permission.v2.asked"]
+            "enum": ["permission.asked"]
           },
           "properties": {
             "type": "object",
@@ -35660,7 +35660,7 @@
                 "type": "object"
               },
               "source": {
-                "$ref": "#/components/schemas/PermissionV2Source"
+                "$ref": "#/components/schemas/PermissionSource"
               }
             },
             "required": ["id", "sessionID", "action", "resources"],
@@ -35670,7 +35670,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventPermissionV2Replied": {
+      "EventPermissionReplied": {
         "type": "object",
         "properties": {
           "id": {
@@ -35679,7 +35679,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["permission.v2.replied"]
+            "enum": ["permission.replied"]
           },
           "properties": {
             "type": "object",
@@ -35693,7 +35693,7 @@
                 "pattern": "^per"
               },
               "reply": {
-                "$ref": "#/components/schemas/PermissionV2Reply"
+                "$ref": "#/components/schemas/PermissionReply"
               }
             },
             "required": ["sessionID", "requestID", "reply"],
@@ -35888,7 +35888,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventQuestionV2Asked": {
+      "EventQuestionAsked": {
         "type": "object",
         "properties": {
           "id": {
@@ -35897,7 +35897,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.asked"]
+            "enum": ["question.asked"]
           },
           "properties": {
             "type": "object",
@@ -35913,12 +35913,12 @@
               "questions": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/QuestionV2Info"
+                  "$ref": "#/components/schemas/QuestionInfo"
                 },
                 "description": "Questions to ask"
               },
               "tool": {
-                "$ref": "#/components/schemas/QuestionV2Tool"
+                "$ref": "#/components/schemas/QuestionTool"
               }
             },
             "required": ["id", "sessionID", "questions"],
@@ -35928,7 +35928,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventQuestionV2Replied": {
+      "EventQuestionReplied": {
         "type": "object",
         "properties": {
           "id": {
@@ -35937,7 +35937,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.replied"]
+            "enum": ["question.replied"]
           },
           "properties": {
             "type": "object",
@@ -35953,7 +35953,7 @@
               "answers": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/QuestionV2Answer"
+                  "$ref": "#/components/schemas/QuestionAnswer"
                 }
               }
             },
@@ -35964,7 +35964,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventQuestionV2Rejected": {
+      "EventQuestionRejected": {
         "type": "object",
         "properties": {
           "id": {
@@ -35973,7 +35973,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["question.v2.rejected"]
+            "enum": ["question.rejected"]
           },
           "properties": {
             "type": "object",

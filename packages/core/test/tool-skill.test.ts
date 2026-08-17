@@ -4,7 +4,7 @@ import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SkillV2 } from "@opencode-ai/core/skill"
@@ -40,14 +40,14 @@ describe("SkillTool", () => {
             content: "# Effect\n\nGuidance",
           }
           let current = [info]
-          const assertions: PermissionV2.AssertInput[] = []
+          const assertions: Permission.AssertInput[] = []
           let deny = false
           const permission = Layer.succeed(
-            PermissionV2.Service,
-            PermissionV2.Service.of({
+            Permission.Service,
+            Permission.Service.of({
               assert: (input) =>
                 Effect.sync(() => assertions.push(input)).pipe(
-                  Effect.andThen(deny ? Effect.fail(new PermissionV2.BlockedError({ rules: [] })) : Effect.void),
+                  Effect.andThen(deny ? Effect.fail(new Permission.BlockedError({ rules: [] })) : Effect.void),
                 ),
               ask: () => Effect.die("unused"),
               assertPolicyAsk: () => Effect.die("unused"),
@@ -69,7 +69,7 @@ describe("SkillTool", () => {
           const skillToolLayer = AppNodeBuilder.build(
             LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, SkillTool.node]),
             [
-              [PermissionV2.node, permission],
+              [Permission.node, permission],
               [SkillV2.node, skills],
               [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
             ],

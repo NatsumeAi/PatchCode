@@ -7,7 +7,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
 import { InstallationVersion } from "../installation/version"
 import { PositiveInt } from "../schema"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
 import { collectBoundedResponseBody } from "./http-body"
@@ -179,7 +179,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const http = yield* HttpClient.HttpClient
     const config = yield* ConfigService
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
 
     yield* tools
       .register({
@@ -241,5 +241,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/websearch",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, LayerNodePlatform.httpClient, configNode],
+  deps: [ToolRegistry.node, Permission.node, LayerNodePlatform.httpClient, configNode],
 })

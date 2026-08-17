@@ -13,7 +13,7 @@ import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { BackgroundJob } from "../background-job"
 import { ExecPolicy } from "../exec-policy/service"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { Sandbox } from "../sandbox"
 import { Shell } from "../shell"
 import { Hooks } from "../hooks"
@@ -139,7 +139,7 @@ const layer = Layer.effectDiscard(
     const appProcess = yield* AppProcess.Service
     const jobs = yield* BackgroundJob.Service
     const config = yield* Config.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const execPolicy = yield* ExecPolicy.Service
     const sandbox = yield* Sandbox.Service
     const events = yield* EventV2.Service
@@ -272,7 +272,7 @@ const layer = Layer.effectDiscard(
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source,
-                }).pipe(Effect.catchTag("PermissionV2.BlockedError", () => denyTool))
+                }).pipe(Effect.catchTag("Permission.BlockedError", () => denyTool))
               } else {
                 yield* permission.assert({
                   action: name,
@@ -281,7 +281,7 @@ const layer = Layer.effectDiscard(
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source,
-                }).pipe(Effect.catchTag("PermissionV2.BlockedError", () => denyTool))
+                }).pipe(Effect.catchTag("Permission.BlockedError", () => denyTool))
               }
               // PreToolUse (W5): after permission, before wrapSpawn. W2 deny does not reach here.
               const hooksOpt = yield* Effect.serviceOption(Hooks.Service)
@@ -583,7 +583,7 @@ export const node = makeLocationNode({
     AppProcess.node,
     BackgroundJob.node,
     Config.node,
-    PermissionV2.node,
+    Permission.node,
     ExecPolicy.node,
     Sandbox.node,
     EventV2.node,

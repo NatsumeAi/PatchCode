@@ -13,7 +13,7 @@ import type { ACPSession } from "./session"
 import { pendingToolCall, toLocations, type ToolInput } from "./tool"
 import { Effect } from "effect"
 
-type PermissionAskedEvent = Extract<Event, { type: "permission.asked" | "permission.v2.asked" }>
+type PermissionAskedEvent = Extract<Event, { type: "permission.asked" }>
 type Reply = "once" | "always" | "reject"
 type Connection = Partial<Pick<AgentSideConnection, "requestPermission" | "writeTextFile">>
 
@@ -66,7 +66,7 @@ export class Handler {
   ) {}
 
   handle(event: PermissionAskedEvent) {
-    if (event.type !== "permission.asked" && event.type !== "permission.v2.asked") return
+    if (event.type !== "permission.asked") return
     const permission = requestFromEvent(event)
     const previous = this.queues.get(permission.sessionID) ?? Promise.resolve()
     const next = previous

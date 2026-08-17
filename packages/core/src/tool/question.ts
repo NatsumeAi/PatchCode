@@ -3,8 +3,8 @@ export * as QuestionTool from "./question"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
-import { PermissionV2 } from "../permission"
-import { QuestionV2 } from "../question"
+import { Permission } from "../permission"
+import { Question } from "../question"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -23,17 +23,17 @@ Usage notes:
 - If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label`
 
 export const Input = Schema.Struct({
-  questions: Schema.Array(QuestionV2.Prompt).annotate({ description: "Questions to ask" }),
+  questions: Schema.Array(Question.Prompt).annotate({ description: "Questions to ask" }),
 })
 
 export const Output = Schema.Struct({
-  answers: Schema.Array(QuestionV2.Answer),
+  answers: Schema.Array(Question.Answer),
 })
 export type Output = typeof Output.Type
 
 export const toModelOutput = (
-  questions: ReadonlyArray<QuestionV2.Prompt>,
-  answers: ReadonlyArray<QuestionV2.Answer>,
+  questions: ReadonlyArray<Question.Prompt>,
+  answers: ReadonlyArray<Question.Answer>,
 ) => {
   const formatted = questions
     .map(
@@ -47,8 +47,8 @@ export const toModelOutput = (
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const question = yield* QuestionV2.Service
-    const permission = yield* PermissionV2.Service
+    const question = yield* Question.Service
+    const permission = yield* Permission.Service
 
     yield* tools
       .register({
@@ -90,5 +90,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/question",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, QuestionV2.node],
+  deps: [ToolRegistry.node, Permission.node, Question.node],
 })

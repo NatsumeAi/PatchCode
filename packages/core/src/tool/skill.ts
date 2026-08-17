@@ -6,7 +6,7 @@ import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
 import { SkillV2 } from "../skill"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -59,7 +59,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const fs = yield* FSUtil.Service
     const skills = yield* SkillV2.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     yield* tools
       .register({
         [name]: Tool.make({
@@ -105,5 +105,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill",
   layer,
-  deps: [ToolRegistry.node, FSUtil.node, SkillV2.node, PermissionV2.node],
+  deps: [ToolRegistry.node, FSUtil.node, SkillV2.node, Permission.node],
 })

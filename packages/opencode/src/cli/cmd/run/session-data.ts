@@ -1082,7 +1082,7 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return out(data, commits)
   }
 
-  if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
+  if (event.type === "permission.asked") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
@@ -1091,7 +1091,7 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return queueOut(data, commits)
   }
 
-  if (event.type === "permission.replied" || event.type === "permission.v2.replied") {
+  if (event.type === "permission.replied") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
@@ -1103,7 +1103,7 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return queueOut(data, commits)
   }
 
-  if (event.type === "question.asked" || event.type === "question.v2.asked") {
+  if (event.type === "question.asked") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
@@ -1115,8 +1115,8 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
   if (
     event.type === "question.replied" ||
     event.type === "question.rejected" ||
-    event.type === "question.v2.replied" ||
-    event.type === "question.v2.rejected"
+    event.type === "question.replied" ||
+    event.type === "question.rejected"
   ) {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)

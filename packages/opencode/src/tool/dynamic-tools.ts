@@ -9,7 +9,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { DynamicTools } from "@opencode-ai/core/tool/dynamic"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { Tools } from "@opencode-ai/core/tool/tools"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { Location } from "@opencode-ai/core/location"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import type { ToolDefinition } from "@opencode-ai/plugin"
@@ -81,7 +81,7 @@ function isZodType(value: unknown): value is z.ZodType {
 
 function assertPermission(action: string, context: Tool.Context) {
   return Effect.gen(function* () {
-    const permission = yield* Effect.serviceOption(PermissionV2.Service)
+    const permission = yield* Effect.serviceOption(Permission.Service)
     if (Option.isNone(permission)) return
     yield* permission.value
       .assert({
@@ -195,7 +195,7 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
         }
 
         const bridge = yield* EffectBridge.make()
-        const permission = yield* Effect.serviceOption(PermissionV2.Service)
+        const permission = yield* Effect.serviceOption(Permission.Service)
         const pluginCtx = {
           sessionID: String(context.sessionID),
           messageID: String(context.assistantMessageID),

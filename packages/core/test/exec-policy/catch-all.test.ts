@@ -6,7 +6,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PermissionTable } from "@opencode-ai/core/permission/sql"
 import { Project } from "@opencode-ai/core/project"
@@ -31,7 +31,7 @@ const it = testEffect(
       SessionStore.node,
       PermissionSaved.node,
       AgentV2.node,
-      PermissionV2.node,
+      Permission.node,
     ]),
     [[Location.node, current]],
   ),
@@ -70,7 +70,7 @@ describe("assertPolicyAsk ignores catch-all allow", () => {
       )
       yield* db.delete(PermissionTable).where(eq(PermissionTable.project_id, Project.ID.global)).run().pipe(Effect.orDie)
 
-      const service = yield* PermissionV2.Service
+      const service = yield* Permission.Service
       const events = yield* EventV2.Service
       const input = {
         sessionID: SessionV2.ID.make("ses_catch_all"),
@@ -78,15 +78,15 @@ describe("assertPolicyAsk ignores catch-all allow", () => {
         resources: ["curl https://x"],
         save: ["curl https://x"],
         agent: AgentV2.ID.make("build"),
-      } satisfies PermissionV2.AssertInput
+      } satisfies Permission.AssertInput
 
       yield* service.assert(input)
       expect(yield* service.list()).toEqual([])
 
-      const asked = yield* Deferred.make<PermissionV2.Request>()
+      const asked = yield* Deferred.make<Permission.Request>()
       const unsubscribe = yield* events.listen((event) =>
-        event.type === PermissionV2.Event.Asked.type
-          ? Deferred.succeed(asked, event.data as PermissionV2.Request).pipe(Effect.asVoid)
+        event.type === Permission.Event.Asked.type
+          ? Deferred.succeed(asked, event.data as Permission.Request).pipe(Effect.asVoid)
           : Effect.void,
       )
       yield* Effect.addFinalizer(() => unsubscribe)

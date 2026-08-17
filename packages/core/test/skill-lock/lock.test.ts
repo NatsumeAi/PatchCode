@@ -10,7 +10,7 @@ import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SkillV2 } from "@opencode-ai/core/skill"
@@ -50,8 +50,8 @@ const http = Layer.succeed(
 )
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -85,7 +85,7 @@ describe("W8h skills lock", () => {
         ]),
         [
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [Location.node, active],
           [Global.node, global],
           [LayerNodePlatform.httpClient, http],
@@ -176,7 +176,7 @@ describe("W8h skills lock", () => {
         ]),
         [
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [Location.node, active],
           [Global.node, global],
           [LayerNodePlatform.httpClient, http],
@@ -226,7 +226,7 @@ describe("W8h skills lock", () => {
         LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, SkillInstallTool.node]),
         [
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [Location.node, active],
           [Global.node, global],
           [LayerNodePlatform.httpClient, http],

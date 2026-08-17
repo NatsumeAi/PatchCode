@@ -2,7 +2,7 @@ import type {
   AgentListOutput,
   ModelDefaultOutput,
   ModelListOutput,
-  PermissionV2Request,
+  PermissionRequest,
   ProviderListOutput,
 } from "@opencode-ai/client/promise"
 import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
@@ -36,7 +36,7 @@ export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Ag
   }))
 }
 
-export function normalizePermissionRequest(input: PermissionV2Request | PermissionRequest): PermissionRequest {
+export function normalizePermissionRequest(input: PermissionRequest | PermissionRequest): PermissionRequest {
   if ("permission" in input) return input
   return {
     id: input.id,

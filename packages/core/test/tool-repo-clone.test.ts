@@ -7,7 +7,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { RepositoryCache } from "@opencode-ai/core/repository-cache"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { RepoCloneTool } from "@opencode-ai/core/tool/repo-clone"
@@ -37,8 +37,8 @@ const cache = Layer.mock(RepositoryCache.Service, {
 })
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -54,7 +54,7 @@ const it = testEffect(
     LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, LocationMutation.node, RepoCloneTool.node]),
     [
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
       [Location.node, tempLocationLayer],
       [RepositoryCache.node, cache],
     ],

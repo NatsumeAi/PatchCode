@@ -8,7 +8,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { BuiltInTools } from "@opencode-ai/core/tool/builtins"
@@ -22,17 +22,17 @@ import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, toolDefinitions } from "./lib/tool"
 
 const sessionID = SessionV2.ID.make("ses_list_dir_tool_test")
-const assertions: PermissionV2.AssertInput[] = []
+const assertions: Permission.AssertInput[] = []
 const listCalls: ReadToolFileSystem.PageInput[] = []
 let allow = true
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: (input) =>
       Effect.sync(() => {
         assertions.push(input)
-      }).pipe(Effect.andThen(allow ? Effect.void : Effect.fail(new PermissionV2.BlockedError({ rules: [] })))),
+      }).pipe(Effect.andThen(allow ? Effect.void : Effect.fail(new Permission.BlockedError({ rules: [] })))),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
@@ -68,7 +68,7 @@ const withLiveTool = <A, E, R>(directory: string, body: (registry: ToolRegistry.
         [
           [FSUtil.node, LayerNode.compile(FSUtil.node)],
           [Location.node, activeLocation],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
         ],
       ),
@@ -128,7 +128,7 @@ const withMockedTool = <A, E, R>(body: (registry: ToolRegistry.Interface) => Eff
           [LocationMutation.node, mutation],
           [FSUtil.node, LayerNode.compile(FSUtil.node)],
           [Location.node, locationLayer],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
         ],
       ),

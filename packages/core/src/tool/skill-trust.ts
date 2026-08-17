@@ -7,7 +7,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { scanForThreatsInScope } from "../memory/scan"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { SkillV2 } from "../skill"
 import { SkillLock } from "../skill/lock"
 import { ToolRegistry } from "./registry"
@@ -29,7 +29,7 @@ const Output = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const skills = yield* SkillV2.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
@@ -76,5 +76,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill-trust",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, SkillV2.node, FSUtil.node, Global.node],
+  deps: [ToolRegistry.node, Permission.node, SkillV2.node, FSUtil.node, Global.node],
 })

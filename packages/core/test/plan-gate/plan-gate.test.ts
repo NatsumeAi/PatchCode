@@ -13,7 +13,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { FileMutation } from "@opencode-ai/core/file-mutation"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -47,8 +47,8 @@ describe("W8b isPlanPath", () => {
 })
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.void,
     ask: () => Effect.die("unused"),
@@ -117,7 +117,7 @@ describe("W8b PlanGate mutations", () => {
             ]),
             [
               [Location.node, current],
-              [PermissionV2.node, permission],
+              [Permission.node, permission],
               [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
             ],
           )
@@ -204,7 +204,7 @@ describe("W8b PlanGate mutations", () => {
             ]),
             [
               [Location.node, current],
-              [PermissionV2.node, permission],
+              [Permission.node, permission],
               [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
             ],
           )
@@ -263,7 +263,7 @@ describe("W8b PlanGate mutations", () => {
             SessionStore.node,
             PermissionSaved.node,
             AgentV2.node,
-            PermissionV2.node,
+            Permission.node,
             ToolRegistry.node,
             ToolRegistry.toolsNode,
             LocationMutation.node,

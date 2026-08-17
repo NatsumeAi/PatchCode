@@ -5,7 +5,7 @@ import fs from "fs/promises"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -21,8 +21,8 @@ import { toolIdentity, executeTool, settleTool, toolDefinitions } from "../lib/t
 
 const sessionID = SessionV2.ID.make("ses_memory_tools_test")
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.succeed(undefined),
     assertPolicyAsk: () => Effect.succeed(undefined),
     ask: () => Effect.die("unused"),
@@ -47,7 +47,7 @@ const withTool = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
         [
           [Location.node, activeLocation],
           [Global.node, Global.layerWith({ data: `${directory}/global` })],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
         ],
       ),

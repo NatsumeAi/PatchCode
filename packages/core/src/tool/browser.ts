@@ -4,7 +4,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Option, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { denyHost } from "../net/deny-host"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { BrowserHost } from "./browser-host"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -39,7 +39,7 @@ const ActOutput = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const captured = yield* Effect.serviceOption(BrowserHost.HostService)
 
     const hostOf = () =>
@@ -125,5 +125,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/browser",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node],
+  deps: [ToolRegistry.node, Permission.node],
 })

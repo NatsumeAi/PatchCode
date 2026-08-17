@@ -8,7 +8,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -24,16 +24,16 @@ import { toolIdentity, executeTool } from "../lib/tool"
 
 const sessionID = SessionV2.ID.make("ses_hooks_bash")
 const spawns: Array<{ command: string }> = []
-const assertions: PermissionV2.AssertInput[] = []
+const assertions: Permission.AssertInput[] = []
 
-const permit = (input: PermissionV2.AssertInput) =>
+const permit = (input: Permission.AssertInput) =>
   Effect.sync(() => {
     assertions.push(input)
   })
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: permit,
     assertPolicyAsk: permit,
     ask: () => Effect.die("unused"),
@@ -164,7 +164,7 @@ const run = (directory: string, hooks: Layer.Layer<Hooks.Service>) =>
                 Location.Service.of(location({ directory: AbsolutePath.make(directory) })),
               ),
             ],
-            [PermissionV2.node, permission],
+            [Permission.node, permission],
             [AppProcess.node, appProcess],
             [BackgroundJob.node, backgroundJob],
             [Config.node, config],

@@ -8,7 +8,7 @@ import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { Catalog } from "@opencode-ai/core/catalog"
@@ -51,8 +51,8 @@ const cassette =
 const executor = RequestExecutor.layer.pipe(Layer.provide(cassette))
 const client = LLMClient.layer.pipe(Layer.provide(executor))
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: (input) => (input.action === "doom_loop" ? Effect.void : Effect.die("unused")),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -100,7 +100,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [SkillGuidance.node, skillGuidance],
   [ReferenceGuidance.node, referenceGuidance],
   [Config.node, config],
-  [PermissionV2.node, permission],
+  [Permission.node, permission],
   [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
 ])
 const execution = Layer.effect(
@@ -138,7 +138,7 @@ const it = testEffect(
     ]),
     [
       [LayerNodePlatform.llmClient, client],
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
       [SessionRunnerModel.node, models],
       [Catalog.node, catalogStub],

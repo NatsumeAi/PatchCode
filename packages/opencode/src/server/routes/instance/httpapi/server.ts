@@ -90,10 +90,9 @@ import { sessionHandlers } from "./handlers/session"
 import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { handlers } from "@opencode-ai/server/handlers"
-import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { appLocationServiceMap } from "@/effect/location-map"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
-import { TaskTool } from "@opencode-ai/core/tool/task"
-import { BashTool } from "@opencode-ai/core/tool/bash"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { layer as locationLayer } from "@opencode-ai/server/location"
 import { sessionLocationLayer } from "@opencode-ai/server/middleware/session-location"
@@ -260,11 +259,6 @@ const app = LayerNode.group([
 export function createRoutes(
   corsOptions?: CorsOptions,
 ): Layer.Layer<never, EffectConfig.ConfigError, RouteRequirements> {
-  const locationServiceMapV2 = buildLocationServiceMap([
-    [TaskTool.hostNode, ToolHostBridges.taskHostNode],
-    [BashTool.hostNode, ToolHostBridges.bashHostNode],
-  ])
-
   return Layer.mergeAll(
     rootApiRoutes,
     eventApiRoutes,
@@ -280,7 +274,7 @@ export function createRoutes(
       corsVaryFix,
       fenceLayer,
       cors(corsOptions),
-      AppNodeBuilderInstance.build(MoveSession.node, [[LocationServiceMap.node, locationServiceMapV2]]),
+      AppNodeBuilderInstance.build(MoveSession.node, [[LocationServiceMap.node, appLocationServiceMap]]),
       HttpServer.layerServices,
     ]),
     Layer.provide(Layer.succeed(CorsConfig)(corsOptions)),
@@ -289,15 +283,15 @@ export function createRoutes(
     Layer.provide(PtyEnvironment.layer),
     Layer.provide(
       AppNodeBuilderInstance.build(SessionV2.node, [
-        [LocationServiceMap.node, locationServiceMapV2],
+        [LocationServiceMap.node, appLocationServiceMap],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
     ),
-    Layer.provide(locationServiceMapV2),
+    Layer.provide(appLocationServiceMap),
 
     Layer.provide(
       AppNodeBuilderInstance.build(app, [
-        [LocationServiceMap.node, locationServiceMapV2],
+        [LocationServiceMap.node, appLocationServiceMap],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),
     ),

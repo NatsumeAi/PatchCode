@@ -4,7 +4,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Cause, Context, DateTime, Effect, Layer, Option, Schema } from "effect"
 import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
 import { EventV2 } from "../event"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -178,7 +178,7 @@ export const hostNode = makeGlobalNode({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const events = yield* EventV2.Service
     // Capture the host at build time: the location graph is hoisted and
     // Layer.provide only exposes the host to node layers while they build —
@@ -309,5 +309,5 @@ export const node = makeLocationNode({
   // execute-time serviceOption alone would never resolve — the host must be a
   // compile-time dependency of this node so hoist lifts it into the location
   // environment. App graphs replace hostNode with the real bridge.
-  deps: [ToolRegistry.node, PermissionV2.node, hostNode, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, hostNode, EventV2.node],
 })

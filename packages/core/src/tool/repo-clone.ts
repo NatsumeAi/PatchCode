@@ -7,7 +7,7 @@ import path from "node:path"
 import { makeLocationNode } from "../effect/app-node"
 import { LocationMutation } from "../location-mutation"
 import { denyHost } from "../net/deny-host"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { Repository } from "../repository"
 import { RepositoryCache } from "../repository-cache"
 import { ToolRegistry } from "./registry"
@@ -35,7 +35,7 @@ const Output = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const cache = yield* RepositoryCache.Service
     const mutation = yield* LocationMutation.Service
 
@@ -113,5 +113,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/repo-clone",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, RepositoryCache.node, LocationMutation.node],
+  deps: [ToolRegistry.node, Permission.node, RepositoryCache.node, LocationMutation.node],
 })

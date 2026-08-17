@@ -8,7 +8,7 @@ import { FileSystem } from "../filesystem"
 import { FSUtil } from "../fs-util"
 import { Image } from "../image"
 import { LocationMutation } from "../location-mutation"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { AbsolutePath } from "../schema"
 import { LspTool } from "./lsp"
 import { ReadToolFileSystem } from "./read-filesystem"
@@ -113,7 +113,7 @@ const layer = Layer.effectDiscard(
     const reader = yield* ReadToolFileSystem.Service
     const mutation = yield* LocationMutation.Service
     const image = yield* Image.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const fs = yield* FSUtil.Service
     const lsp = yield* Effect.serviceOption(LspTool.HostService)
 
@@ -254,7 +254,7 @@ export const node = makeLocationNode({
     ReadToolFileSystem.node,
     LocationMutation.node,
     Image.node,
-    PermissionV2.node,
+    Permission.node,
     FSUtil.node,
   ],
 })

@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { BrowserHost } from "@opencode-ai/core/tool/browser-host"
 import { BrowserTool } from "@opencode-ai/core/tool/browser"
@@ -35,8 +35,8 @@ const host = Layer.succeed(
 )
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -67,7 +67,7 @@ const withHost = testEffect(
   Layer.mergeAll(
     AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, BrowserTool.node]), [
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
     ]),
     host,
     enabled,
@@ -78,7 +78,7 @@ const withoutHost = testEffect(
   Layer.mergeAll(
     AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, BrowserTool.node]), [
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
     ]),
     disabled,
   ),

@@ -71,8 +71,7 @@ export class Subscription {
   async handle(event: Event) {
     switch (event.type) {
       case "permission.asked":
-      case "permission.v2.asked":
-        this.permission.handle(event as Extract<Event, { type: "permission.asked" | "permission.v2.asked" }>)
+        this.permission.handle(event as Extract<Event, { type: "permission.asked" }>)
         return
       case "session.next.text.delta":
         return this.handleLiveTextDelta(event)

@@ -11,7 +11,7 @@ import { useBindings, useOpencodeModeStack } from "../../keymap"
 
 const QUESTION_MODE = "question"
 
-/** One reply path: session runner tools use QuestionV2 only. */
+/** One reply path: session runner tools use Question only. */
 function replyQuestion(
   sdk: ReturnType<typeof useSDK>,
   request: QuestionRequest,
@@ -21,7 +21,7 @@ function replyQuestion(
   return sdk.client.v2.session.question.reply({
     sessionID: request.sessionID,
     requestID: request.id,
-    questionV2Reply: { answers },
+    questionReply: { answers },
   })
 }
 

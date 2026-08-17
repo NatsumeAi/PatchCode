@@ -11,7 +11,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
@@ -28,7 +28,7 @@ import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/to
 
 const sessionID = SessionV2.ID.make("ses_bash_tool_test")
 pinSession(sessionID, "off")
-const assertions: PermissionV2.AssertInput[] = []
+const assertions: Permission.AssertInput[] = []
 const spawns: Array<{
   readonly command: string
   readonly cwd?: string
@@ -49,18 +49,18 @@ let spawnResult: AppProcess.RunResult = {
 }
 let spawnFailure: AppProcess.AppProcessError | undefined
 let spawnHang = false
-let afterPermission = (_input: PermissionV2.AssertInput): Effect.Effect<void> => Effect.void
+let afterPermission = (_input: Permission.AssertInput): Effect.Effect<void> => Effect.void
 
-const permit = (input: PermissionV2.AssertInput) =>
+const permit = (input: Permission.AssertInput) =>
   Effect.sync(() => assertions.push(input)).pipe(
     Effect.andThen(Effect.suspend(() => afterPermission(input))),
     Effect.andThen(
-      input.action === denyAction ? Effect.fail(new PermissionV2.BlockedError({ rules: [] })) : Effect.void,
+      input.action === denyAction ? Effect.fail(new Permission.BlockedError({ rules: [] })) : Effect.void,
     ),
   )
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: permit,
     assertPolicyAsk: permit,
     ask: () => Effect.die("unused"),
@@ -209,7 +209,7 @@ const withTool = <A, E, R>(
         LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, LocationMutation.node, BashTool.node]),
         [
           [Location.node, activeLocation],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [AppProcess.node, processLayer],
           [BackgroundJob.node, backgroundJob],
           [Config.node, config],

@@ -8,7 +8,7 @@ import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2Bridge } from "@/event-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { BackgroundJob } from "@/background/job"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
@@ -969,13 +969,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PermissionResponsePayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      const requestID = PermissionV2.ID.create(String(ctx.params.permissionID))
+      const requestID = Permission.ID.create(String(ctx.params.permissionID))
       yield* withLocation(
         ctx.params.sessionID,
         Effect.gen(function* () {
-          const permission = yield* PermissionV2.Service
+          const permission = yield* Permission.Service
           yield* permission.reply({ requestID, reply: ctx.payload.response }).pipe(
-            Effect.catchTag("PermissionV2.NotFoundError", (error) =>
+            Effect.catchTag("Permission.NotFoundError", (error) =>
               Effect.fail(
                 new PermissionNotFoundError({
                   requestID: String(error.requestID),

@@ -4,7 +4,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { LocationMutation } from "../location-mutation"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { AbsolutePath } from "../schema"
 import { ReadToolFileSystem } from "./read-filesystem"
 import { ToolRegistry } from "./registry"
@@ -32,7 +32,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const reader = yield* ReadToolFileSystem.Service
     const mutation = yield* LocationMutation.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
 
     yield* tools
       .register({
@@ -94,5 +94,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/list-dir",
   layer,
-  deps: [ToolRegistry.node, ReadToolFileSystem.node, LocationMutation.node, PermissionV2.node],
+  deps: [ToolRegistry.node, ReadToolFileSystem.node, LocationMutation.node, Permission.node],
 })

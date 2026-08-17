@@ -19,9 +19,9 @@ import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
 import { Location } from "../../location"
 import { ModelV2 } from "../../model"
-import { PermissionV2 } from "../../permission"
+import { Permission } from "../../permission"
 import { ProviderV2 } from "../../provider"
-import { QuestionV2 } from "../../question"
+import { Question } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
 import { MemoryRecall } from "../../memory/recall"
@@ -514,7 +514,7 @@ const layer = Layer.effect(
       cause.reasons.some(
         (reason) =>
           Cause.isDieReason(reason) &&
-          (reason.defect instanceof PermissionV2.DeclinedError || reason.defect instanceof QuestionV2.RejectedError),
+          (reason.defect instanceof Permission.DeclinedError || reason.defect instanceof Question.RejectedError),
       )
     const continueLoopOnDeny = Effect.fn("SessionRunner.continueLoopOnDeny")(function* () {
       const cfg = yield* config.entries().pipe(Effect.catch(() => Effect.succeed([] as Config.Entry[])))
@@ -1148,7 +1148,7 @@ const layer = Layer.effect(
             let assistantText = ""
             let reasoningText = ""
             if (String(model.provider).includes("gitlab")) {
-              const permissionOpt = yield* Effect.serviceOption(PermissionV2.Service)
+              const permissionOpt = yield* Effect.serviceOption(Permission.Service)
               GitLabWorkflow.install({
                 sessionID: String(session.id),
                 systemPrompt: tape.system,

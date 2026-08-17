@@ -11,7 +11,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PermissionTable } from "@opencode-ai/core/permission/sql"
 import { AppProcess } from "@opencode-ai/core/process"
@@ -76,7 +76,7 @@ const withTool = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
           SessionStore.node,
           PermissionSaved.node,
           AgentV2.node,
-          PermissionV2.node,
+          Permission.node,
           ToolRegistry.node,
           ToolRegistry.toolsNode,
           LocationMutation.node,
@@ -181,12 +181,12 @@ describe("bash exec-policy gate", () => {
         return withTool(tmp.path, (registry) =>
           Effect.gen(function* () {
             yield* setup(tmp.path)
-            const permission = yield* PermissionV2.Service
+            const permission = yield* Permission.Service
             const events = yield* EventV2.Service
-            const asked = yield* Deferred.make<PermissionV2.Request>()
+            const asked = yield* Deferred.make<Permission.Request>()
             const unsubscribe = yield* events.listen((event) =>
-              event.type === PermissionV2.Event.Asked.type
-                ? Deferred.succeed(asked, event.data as PermissionV2.Request).pipe(Effect.asVoid)
+              event.type === Permission.Event.Asked.type
+                ? Deferred.succeed(asked, event.data as Permission.Request).pipe(Effect.asVoid)
                 : Effect.void,
             )
             yield* Effect.addFinalizer(() => unsubscribe)
@@ -235,12 +235,12 @@ describe("bash exec-policy gate", () => {
             yield* setup(tmp.path)
             const { db } = yield* Database.Service
             yield* db.delete(PermissionTable).where(eq(PermissionTable.project_id, Project.ID.global)).run().pipe(Effect.orDie)
-            const permission = yield* PermissionV2.Service
+            const permission = yield* Permission.Service
             const events = yield* EventV2.Service
-            const asked = yield* Deferred.make<PermissionV2.Request>()
+            const asked = yield* Deferred.make<Permission.Request>()
             const unsubscribe = yield* events.listen((event) =>
-              event.type === PermissionV2.Event.Asked.type
-                ? Deferred.succeed(asked, event.data as PermissionV2.Request).pipe(Effect.asVoid)
+              event.type === Permission.Event.Asked.type
+                ? Deferred.succeed(asked, event.data as Permission.Request).pipe(Effect.asVoid)
                 : Effect.void,
             )
             yield* Effect.addFinalizer(() => unsubscribe)

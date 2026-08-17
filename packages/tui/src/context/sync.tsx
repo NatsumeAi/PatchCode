@@ -181,7 +181,7 @@ export const {
       hydratingSessions.get(sessionID)?.parts.add(partID)
     }
 
-    /** Map PermissionV2.Request → PermissionRequest shape the existing prompt UI uses. */
+    /** Map Permission.Request → PermissionRequest shape the existing prompt UI uses. */
     const toPermissionRequest = (props: {
       id: string
       sessionID: string
@@ -471,13 +471,11 @@ export const {
         case "server.instance.disposed":
           void bootstrap()
           break
-        case "permission.replied":
-        case "permission.v2.replied": {
+        case "permission.replied": {
           removePermission(event.properties.sessionID, event.properties.requestID)
           break
         }
 
-        case "permission.v2.asked":
         case "permission.asked": {
           const raw = event.properties as {
             id: string
@@ -510,9 +508,7 @@ export const {
         }
 
         case "question.replied":
-        case "question.rejected":
-        case "question.v2.replied":
-        case "question.v2.rejected": {
+        case "question.rejected": {
           const props = event.properties as { sessionID: string; requestID: string }
           const requests = store.question[props.sessionID]
           if (!requests) break
@@ -528,8 +524,7 @@ export const {
           break
         }
 
-        case "question.asked":
-        case "question.v2.asked": {
+        case "question.asked": {
           const request = event.properties as QuestionRequest
           upsertQuestion(request)
           break

@@ -6,8 +6,8 @@ import { DateTime, Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { EventV2 } from "../event"
 import { Location } from "../location"
-import { PermissionV2 } from "../permission"
-import { QuestionV2 } from "../question"
+import { Permission } from "../permission"
+import { Question } from "../question"
 import { SessionEvent } from "../session/event"
 import { SessionMessage } from "../session/message"
 import { ToolRegistry } from "./registry"
@@ -41,8 +41,8 @@ export const Output = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const question = yield* QuestionV2.Service
-    const permission = yield* PermissionV2.Service
+    const question = yield* Question.Service
+    const permission = yield* Permission.Service
     const location = yield* Location.Service
     const events = yield* EventV2.Service
 
@@ -83,7 +83,7 @@ const layer = Layer.effectDiscard(
                   tool: { messageID: context.assistantMessageID, callID: context.toolCallID },
                 })
                 .pipe(
-                  Effect.catchTag("QuestionV2.RejectedError", () =>
+                  Effect.catchTag("Question.RejectedError", () =>
                     Effect.fail(new ToolFailure({ message: "User declined switching to plan agent" })),
                   ),
                 )
@@ -113,5 +113,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/plan-enter",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, QuestionV2.node, Location.node, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, Question.node, Location.node, EventV2.node],
 })

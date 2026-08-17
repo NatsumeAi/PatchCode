@@ -22,7 +22,7 @@ import { MemoryConsolidation } from "./memory/consolidate"
 import { MemoryDelegation } from "./memory/delegation-wire"
 import { MemoryRecall } from "./memory/recall"
 import { LocationServiceMap } from "./location-service-map"
-import { PermissionV2 } from "./permission"
+import { Permission } from "./permission"
 import { Hooks } from "./hooks"
 import { PlanGate } from "./session/plan-gate"
 import { PluginV2 } from "./plugin"
@@ -30,7 +30,7 @@ import { PluginInternal } from "./plugin/internal"
 import { Policy } from "./policy"
 import { ProjectCopy } from "./project/copy"
 import { Pty } from "./pty"
-import { QuestionV2 } from "./question"
+import { Question } from "./question"
 import { Reference } from "./reference"
 import { ReferenceGuidance } from "./reference/guidance"
 import * as SessionRunnerLLM from "./session/runner/llm"
@@ -80,7 +80,7 @@ export const locationServices = LayerNode.group([
   MemoryRecall.node,
   LocationMutation.node,
   FileMutation.node,
-  PermissionV2.node,
+  Permission.node,
   Hooks.node,
   PlanGate.node,
   ToolOutputStore.node,
@@ -90,7 +90,7 @@ export const locationServices = LayerNode.group([
   SkillGuidance.node,
   ReferenceGuidance.node,
   SessionTodo.node,
-  QuestionV2.node,
+  Question.node,
   ReadToolFileSystem.node,
   BuiltInTools.node,
   // After built-ins so dynamic MCP/plugin tools overlay cleanly.

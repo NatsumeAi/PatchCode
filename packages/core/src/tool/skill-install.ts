@@ -6,7 +6,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
 import { Global } from "../global"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { SkillInstall } from "../skill/install"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -28,7 +28,7 @@ const Output = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const http = yield* HttpClient.HttpClient
     const global = yield* Global.Service
 
@@ -85,5 +85,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill-install",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, Global.node, LayerNodePlatform.httpClient],
+  deps: [ToolRegistry.node, Permission.node, Global.node, LayerNodePlatform.httpClient],
 })

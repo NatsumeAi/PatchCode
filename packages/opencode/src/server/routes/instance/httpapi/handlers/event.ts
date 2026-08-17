@@ -38,9 +38,9 @@ function eventResponse(events: EventV2.Interface) {
         // the instance directory (TUI already sees them via /global/event).
         if (
           event.type === "permission.asked" ||
-          event.type === "permission.v2.asked" ||
+          event.type === "permission.asked" ||
           event.type === "permission.replied" ||
-          event.type === "permission.v2.replied"
+          event.type === "permission.replied"
         )
           return true
         return (

@@ -4,7 +4,7 @@ import { TaskTool } from "../src/tool/task"
 import { ToolRegistry } from "../src/tool/registry"
 import { SubagentRegistry } from "../src/session/subagent-registry"
 import { SessionSchema } from "../src/session/schema"
-import { PermissionV2 } from "../src/permission"
+import { Permission } from "../src/permission"
 import { settleTool, toolIdentity } from "./lib/tool"
 import { location } from "./fixture/location"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -15,12 +15,12 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 const sessionID = SessionSchema.ID.make("ses_task_budget_test")
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.void,
     evaluate: () => Effect.succeed({ action: "allow", resource: "*", effect: "allow" }),
-  } as unknown as PermissionV2.Interface),
+  } as unknown as Permission.Interface),
 )
 
 const registryLayer = (active: number) =>
@@ -59,7 +59,7 @@ const withTool = (active: number) => {
         LayerNode.group([ToolRegistry.node, TaskTool.node]),
         [
           [Location.node, activeLocation],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [SubagentRegistry.node, registryLayer(active)],
         ],
       ),

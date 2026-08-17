@@ -12,7 +12,7 @@ import { ModelV2 } from "../../model"
 import { ConfigAgentV1 } from "../legacy/agent"
 import { ConfigMigrateV1 } from "../legacy/migrate"
 import { Global } from "../../global"
-import { PermissionV2 } from "../../permission"
+import { Permission } from "../../permission"
 import type { LocationMutation } from "../../location-mutation"
 import type { ReadTool } from "../../tool/read"
 import type { EditTool } from "../../tool/edit"
@@ -224,7 +224,7 @@ function applyInheritance(documents: readonly Config.Document[]): Map<string, Co
   return new Map(Array.from(resolved.entries()).filter(([name]) => inheriting.has(name)))
 }
 
-function expandPermissions(rules: PermissionV2.Ruleset, home: string): PermissionV2.Ruleset {
+function expandPermissions(rules: Permission.Ruleset, home: string): Permission.Ruleset {
   // Expand only resources tools resolve as filesystem paths. Bash resources are raw shell text:
   // rewriting `$HOME/private/**` would miss `$HOME/private/key`, and safe expansion needs shell-aware parsing.
   return rules.map((rule) =>

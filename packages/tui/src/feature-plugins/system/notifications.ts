@@ -40,15 +40,12 @@ const tui: TuiPlugin = async (api) => {
     notify(api, event.properties.sessionID, "Question needs input", "question")
   }
   api.event.on("question.asked", onQuestionAsked)
-  api.event.on("question.v2.asked", onQuestionAsked)
 
   const onQuestionClosed = (event: { properties: { requestID: string } }) => {
     questions.delete(event.properties.requestID)
   }
   api.event.on("question.replied", onQuestionClosed)
   api.event.on("question.rejected", onQuestionClosed)
-  api.event.on("question.v2.replied", onQuestionClosed)
-  api.event.on("question.v2.rejected", onQuestionClosed)
 
   api.event.on("permission.asked", (event) => {
     if (permissions.has(event.properties.id)) return

@@ -50,16 +50,11 @@ import { SessionV2 } from "@opencode-ai/core/session"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
 import { TaskTool } from "@opencode-ai/core/tool/task"
-import { BashTool } from "@opencode-ai/core/tool/bash"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { MemoryDrainWatcher } from "@opencode-ai/core/memory/drain-watcher"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
-import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
-
-const locationServiceMapV2 = buildLocationServiceMap([
-  [TaskTool.hostNode, ToolHostBridges.taskHostNode],
-  [BashTool.hostNode, ToolHostBridges.bashHostNode],
-])
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { appLocationServiceMap } from "./location-map"
 
 export const AppLayer = AppNodeBuilderInstance.build(
   LayerNode.group([
@@ -110,12 +105,12 @@ export const AppLayer = AppNodeBuilderInstance.build(
     MemoryDrainWatcher.node,
   ]),
   [
-    [LocationServiceMap.node, locationServiceMapV2],
+    [LocationServiceMap.node, appLocationServiceMap],
     [SessionExecution.node, SessionExecutionLocal.node],
     [TaskTool.hostNode, ToolHostBridges.taskHostNode],
   ],
 ).pipe(
-  Layer.provide(locationServiceMapV2),
+  Layer.provide(appLocationServiceMap),
   Layer.provideMerge(AppNodeBuilderInstance.build(Ripgrep.node)),
   Layer.provideMerge(LLMClient.layer.pipe(Layer.provide(RequestExecutor.fetchLayer))),
   Layer.provideMerge(Observability.layer),

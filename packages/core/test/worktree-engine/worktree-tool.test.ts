@@ -5,7 +5,7 @@ import path from "node:path"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -22,8 +22,8 @@ const skipWin = process.platform === "win32"
 const sessionID = SessionV2.ID.make("ses_worktree_tool")
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.void,
     ask: () => Effect.die("unused"),
@@ -61,7 +61,7 @@ const run = (directory: string, action: "diff" | "merge" | "discard", id: string
             Location.Service.of(location({ directory: AbsolutePath.make(directory) })),
           ),
         ],
-        [PermissionV2.node, permission],
+        [Permission.node, permission],
         [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
       ]),
     ),

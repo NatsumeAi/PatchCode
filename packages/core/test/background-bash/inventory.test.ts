@@ -11,7 +11,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
@@ -91,7 +91,7 @@ const withTool = <A, E, R>(directory: string, body: () => Effect.Effect<A, E, R>
           SessionStore.node,
           PermissionSaved.node,
           AgentV2.node,
-          PermissionV2.node,
+          Permission.node,
           ToolRegistry.node,
           ToolRegistry.toolsNode,
           LocationMutation.node,

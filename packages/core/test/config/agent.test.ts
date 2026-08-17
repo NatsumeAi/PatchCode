@@ -9,7 +9,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { ConfigMigrateV1 } from "@opencode-ai/core/config/legacy/migrate"
 import { tmpdir } from "../fixture/tmpdir"
@@ -23,13 +23,13 @@ describe("ConfigAgentPlugin.Plugin", () => {
   it.effect("matches POSIX paths against home-relative permissions", () =>
     Effect.gen(function* () {
       const permissions = yield* loadHomePermissions("/home/test")
-      expect(PermissionV2.evaluate("external_directory", "/home/test/p/opencode/src/*", permissions).effect).toBe(
+      expect(Permission.evaluate("external_directory", "/home/test/p/opencode/src/*", permissions).effect).toBe(
         "allow",
       )
-      expect(PermissionV2.evaluate("external_directory", "/home/test/cache/files/*", permissions).effect).toBe("deny")
-      expect(PermissionV2.evaluate("external_directory", "/some/~/path", permissions).effect).toBe("deny")
-      expect(PermissionV2.evaluate("external_directory", "$HOMELESS/private/*", permissions).effect).toBe("deny")
-      expect(PermissionV2.evaluate("bash", "$HOME/private/key", permissions).effect).toBe("deny")
+      expect(Permission.evaluate("external_directory", "/home/test/cache/files/*", permissions).effect).toBe("deny")
+      expect(Permission.evaluate("external_directory", "/some/~/path", permissions).effect).toBe("deny")
+      expect(Permission.evaluate("external_directory", "$HOMELESS/private/*", permissions).effect).toBe("deny")
+      expect(Permission.evaluate("bash", "$HOME/private/key", permissions).effect).toBe("deny")
     }),
   )
 
@@ -37,9 +37,9 @@ describe("ConfigAgentPlugin.Plugin", () => {
     Effect.gen(function* () {
       const permissions = yield* loadHomePermissions("C:\\Users\\test")
       expect(
-        PermissionV2.evaluate("external_directory", "C:\\Users\\test\\p\\opencode\\src\\*", permissions).effect,
+        Permission.evaluate("external_directory", "C:\\Users\\test\\p\\opencode\\src\\*", permissions).effect,
       ).toBe("allow")
-      expect(PermissionV2.evaluate("external_directory", "C:\\Users\\test\\cache\\files\\*", permissions).effect).toBe(
+      expect(Permission.evaluate("external_directory", "C:\\Users\\test\\cache\\files\\*", permissions).effect).toBe(
         "deny",
       )
     }),
@@ -108,8 +108,8 @@ describe("ConfigAgentPlugin.Plugin", () => {
         { action: "read", resource: "*", effect: "allow" },
         { action: "bash", resource: "git *", effect: "allow" },
       ])
-      expect(PermissionV2.evaluate("bash", "git status", buildAgent.permissions).effect).toBe("allow")
-      expect(PermissionV2.evaluate("bash", "bun test", buildAgent.permissions).effect).toBe("ask")
+      expect(Permission.evaluate("bash", "git status", buildAgent.permissions).effect).toBe("allow")
+      expect(Permission.evaluate("bash", "bun test", buildAgent.permissions).effect).toBe("ask")
 
       const reviewer = yield* agents.get(AgentV2.ID.make("reviewer"))
       if (!reviewer) throw new Error("expected configured reviewer agent")
@@ -125,7 +125,7 @@ describe("ConfigAgentPlugin.Plugin", () => {
         { action: "edit", resource: "*", effect: "deny" },
         { action: "read", resource: "*", effect: "deny" },
       ])
-      expect(PermissionV2.evaluate("read", "README.md", reviewer.permissions).effect).toBe("deny")
+      expect(Permission.evaluate("read", "README.md", reviewer.permissions).effect).toBe("deny")
       expect((yield* agents.get(AgentV2.ID.make("late")))?.permissions).toEqual([
         { action: "bash", resource: "*", effect: "ask" },
         { action: "read", resource: "*", effect: "allow" },

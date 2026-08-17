@@ -9,7 +9,7 @@ import { FSUtil } from "../fs-util"
 import { LocationMutation } from "../location-mutation"
 import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -66,7 +66,7 @@ const layer = Layer.effectDiscard(
     const ripgrep = yield* Ripgrep.Service
     const fs = yield* FSUtil.Service
     const mutation = yield* LocationMutation.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
 
     yield* tools
       .register({
@@ -143,5 +143,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/glob",
   layer,
-  deps: [ToolRegistry.node, Ripgrep.node, FSUtil.node, LocationMutation.node, PermissionV2.node],
+  deps: [ToolRegistry.node, Ripgrep.node, FSUtil.node, LocationMutation.node, Permission.node],
 })

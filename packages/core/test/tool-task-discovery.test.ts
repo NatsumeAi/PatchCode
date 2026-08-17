@@ -7,7 +7,7 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { AgentV2 } from "../src/agent"
-import { PermissionV2 } from "../src/permission"
+import { Permission } from "../src/permission"
 import { Tool } from "../src/tool/tool"
 import { ToolRegistry } from "../src/tool/registry"
 import { tempLocationLayer } from "./fixture/location"
@@ -60,7 +60,7 @@ describe("ToolRegistry task discovery (describeTaskAgents)", () => {
       const registry = yield* ToolRegistry.Service
       yield* registry.register({ task: stubTask })
 
-      const parentPermissions: PermissionV2.Ruleset = [
+      const parentPermissions: Permission.Ruleset = [
         { action: "*", resource: "*", effect: "allow" },
         { action: "task", resource: "denied", effect: "deny" },
       ]

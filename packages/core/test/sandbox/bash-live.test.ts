@@ -9,7 +9,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -23,8 +23,8 @@ import { executeTool, settleTool, toolIdentity } from "../lib/tool"
 const sessionID = SessionV2.ID.make("ses_bash_live_sandbox")
 
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: () => Effect.void,
     assertPolicyAsk: () => Effect.void,
     ask: () => Effect.die("unused"),
@@ -97,7 +97,7 @@ const withLive = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
         LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, LocationMutation.node, BashTool.node]),
         [
           [Location.node, activeLocation],
-          [PermissionV2.node, permission],
+          [Permission.node, permission],
           [Config.node, config],
           [EventV2.node, events],
           [BackgroundJob.node, inlineJobs],

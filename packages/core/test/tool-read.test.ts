@@ -9,7 +9,7 @@ import { FileSystem } from "@opencode-ai/core/filesystem"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { Image } from "@opencode-ai/core/image"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
@@ -22,7 +22,7 @@ import { ReadToolFileSystem } from "@opencode-ai/core/tool/read-filesystem"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
-const assertions: PermissionV2.AssertInput[] = []
+const assertions: Permission.AssertInput[] = []
 const missingPath = "__missing_read_target__.txt"
 const missingAbsolutePath = path.join(process.cwd(), missingPath)
 const readCalls: {
@@ -59,12 +59,12 @@ const reader = Layer.succeed(
 )
 let allow = true
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: (input) =>
       Effect.sync(() => {
         assertions.push(input)
-      }).pipe(Effect.andThen(allow ? Effect.void : Effect.fail(new PermissionV2.BlockedError({ rules: [] })))),
+      }).pipe(Effect.andThen(allow ? Effect.void : Effect.fail(new Permission.BlockedError({ rules: [] })))),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
@@ -133,7 +133,7 @@ const unavailableImage = Layer.succeed(
 const readLayer = (imageLayer: Layer.Layer<Image.Service>) =>
   AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, ReadTool.node]), [
     [ReadToolFileSystem.node, reader],
-    [PermissionV2.node, permission],
+    [Permission.node, permission],
     [Config.node, config],
     [Image.node, imageLayer],
     [LocationMutation.node, mutation],

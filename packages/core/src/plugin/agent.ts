@@ -6,7 +6,7 @@ import { Effect } from "effect"
 import { AgentV2 } from "../agent"
 import { Global } from "../global"
 import { Location } from "../location"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { ToolOutputStore } from "../tool-output-store"
 
 const BUILD_SYSTEM =
@@ -112,13 +112,13 @@ export const Plugin = define({
       path.join(Global.Path.tmp, "*"),
       path.join(worktree, ".opencode", "skill", "*"),
     ]
-    const readonlyExternalDirectory: PermissionV2.Ruleset = [
+    const readonlyExternalDirectory: Permission.Ruleset = [
       { action: "external_directory", resource: "*", effect: "ask" },
       ...whitelistedDirs.map(
-        (resource): PermissionV2.Rule => ({ action: "external_directory", resource, effect: "allow" }),
+        (resource): Permission.Rule => ({ action: "external_directory", resource, effect: "allow" }),
       ),
     ]
-    const defaults: PermissionV2.Ruleset = [
+    const defaults: Permission.Ruleset = [
       { action: "*", resource: "*", effect: "allow" },
       ...readonlyExternalDirectory,
       { action: "question", resource: "*", effect: "deny" },
@@ -136,7 +136,7 @@ export const Plugin = define({
         item.system ??= `${BUILD_SYSTEM}\n\n${TASK_COACHING}`
         item.mode = "primary"
         item.permissions.push(
-          ...PermissionV2.merge(defaults, [
+          ...Permission.merge(defaults, [
             { action: "question", resource: "*", effect: "allow" },
             { action: "plan_enter", resource: "*", effect: "allow" },
           ]),
@@ -147,7 +147,7 @@ export const Plugin = define({
         item.description = "Plan mode. Disallows all edit tools."
         item.mode = "primary"
         item.permissions.push(
-          ...PermissionV2.merge(defaults, [
+          ...Permission.merge(defaults, [
             { action: "question", resource: "*", effect: "allow" },
             { action: "plan_exit", resource: "*", effect: "allow" },
             { action: "external_directory", resource: path.join(Global.Path.data, "plans", "*"), effect: "allow" },
@@ -166,7 +166,7 @@ export const Plugin = define({
         item.description =
           "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
         item.mode = "subagent"
-        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "todowrite", resource: "*", effect: "deny" }]))
+        item.permissions.push(...Permission.merge(defaults, [{ action: "todowrite", resource: "*", effect: "deny" }]))
       })
 
       draft.update(AgentV2.ID.make("explore"), (item) => {
@@ -176,7 +176,7 @@ export const Plugin = define({
         item.mode = "subagent"
         item.capability = "read-only"
         item.permissions.push(
-          ...PermissionV2.merge(
+          ...Permission.merge(
             defaults,
             [
               { action: "*", resource: "*", effect: "deny" },
@@ -195,21 +195,21 @@ export const Plugin = define({
         item.mode = "primary"
         item.hidden = true
         item.system = PROMPT_COMPACTION
-        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
+        item.permissions.push(...Permission.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
       })
 
       draft.update(AgentV2.ID.make("title"), (item) => {
         item.mode = "primary"
         item.hidden = true
         item.system = PROMPT_TITLE
-        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
+        item.permissions.push(...Permission.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
       })
 
       draft.update(AgentV2.ID.make("summary"), (item) => {
         item.mode = "primary"
         item.hidden = true
         item.system = PROMPT_SUMMARY
-        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
+        item.permissions.push(...Permission.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
       })
     })
   }),

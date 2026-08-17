@@ -7,7 +7,7 @@ import { Context, Effect, Layer, Option, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
 import { Location } from "../location"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -98,7 +98,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
 
     yield* tools
       .register({
@@ -199,5 +199,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/lsp",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, FSUtil.node, Location.node],
+  deps: [ToolRegistry.node, Permission.node, FSUtil.node, Location.node],
 })

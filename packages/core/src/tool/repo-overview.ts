@@ -7,7 +7,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
 import { Location } from "../location"
 import { LocationMutation } from "../location-mutation"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { AbsolutePath } from "../schema"
 import { ReadToolFileSystem } from "./read-filesystem"
 import { ToolRegistry } from "./registry"
@@ -41,7 +41,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const reader = yield* ReadToolFileSystem.Service
     const mutation = yield* LocationMutation.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const location = yield* Location.Service
     const fs = yield* FSUtil.Service
 
@@ -131,5 +131,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/repo-overview",
   layer,
-  deps: [ToolRegistry.node, ReadToolFileSystem.node, LocationMutation.node, PermissionV2.node, FSUtil.node, Location.node],
+  deps: [ToolRegistry.node, ReadToolFileSystem.node, LocationMutation.node, Permission.node, FSUtil.node, Location.node],
 })

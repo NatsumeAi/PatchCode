@@ -142,7 +142,7 @@ const layer = Layer.effect(
       }
 
       const external = !lexicallyInternal
-      // External paths go through PermissionV2 `external_directory`, not sandbox deny.
+      // External paths go through Permission `external_directory`, not sandbox deny.
       if (!external) {
         yield* sandbox.assertPath(input.forWrite === true ? "write" : "read", resolved.canonical, input.sessionID)
       }

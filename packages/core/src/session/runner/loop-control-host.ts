@@ -12,7 +12,7 @@ import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
 import { CircuitBreaker } from "../loop-control/circuit-breaker"
 import { DoomLoop } from "../loop-control/doom-loop"
-import { PermissionV2 } from "../../permission"
+import { Permission } from "../../permission"
 import { SessionSchema } from "../schema"
 import { ErrorClassifier } from "./error-classifier"
 import { TurnRetryState } from "./turn-retry-state"
@@ -243,7 +243,7 @@ const buildRealHooks = (
           const asked = yield* SynchronizedRef.get(doomLoopAsked)
           if (asked || !DoomLoop.detectRepeatedToolFingerprint(next, DoomLoop.ASK_THRESHOLD)) return
           yield* SynchronizedRef.set(doomLoopAsked, true)
-          const permission = yield* Effect.serviceOption(PermissionV2.Service)
+          const permission = yield* Effect.serviceOption(Permission.Service)
           if (Option.isNone(permission)) return
           const result = yield* permission.value
             .assert({

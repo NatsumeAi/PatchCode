@@ -5,9 +5,9 @@ import type {
   LocationRef,
   ModelV2Info,
   PermissionSavedInfo,
-  PermissionV2Request,
+  PermissionRequest,
   ProviderV2Info,
-  QuestionV2Request,
+  QuestionRequest,
   ReferenceInfo,
   SessionMessage,
   SessionMessageAssistant,
@@ -38,8 +38,8 @@ type Data = {
   session: {
     info: Record<string, SessionV2Info>
     message: Record<string, SessionMessage[]>
-    permission: Record<string, PermissionV2Request[]>
-    question: Record<string, QuestionV2Request[]>
+    permission: Record<string, PermissionRequest[]>
+    question: Record<string, QuestionRequest[]>
   }
   project: {
     permission: Record<string, PermissionSavedInfo[]>

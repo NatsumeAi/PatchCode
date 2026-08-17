@@ -26,7 +26,7 @@ type CurrentDelta = Extract<
 >
 
 export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
-  if (event.type === "permission.v2.asked" || event.type === "permission.asked") {
+  if (event.type === "permission.asked") {
     const data = event.data as {
       id: string
       sessionID: string

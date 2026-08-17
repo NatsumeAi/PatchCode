@@ -60,8 +60,8 @@ export type Event =
   | EventInstallationUpdateAvailable
   | EventFileEdited
   | EventReferenceUpdated
-  | EventPermissionV2Asked
-  | EventPermissionV2Replied
+  | EventPermissionAsked
+  | EventPermissionReplied
   | EventPluginAdded
   | EventProjectDirectoriesUpdated
   | EventFileWatcherUpdated
@@ -69,13 +69,13 @@ export type Event =
   | EventPtyUpdated
   | EventPtyExited
   | EventPtyDeleted
-  | EventQuestionV2Asked
-  | EventQuestionV2Replied
-  | EventQuestionV2Rejected
+  | EventQuestionAsked
+  | EventQuestionReplied
+  | EventQuestionRejected
   | EventTodoUpdated
   | EventLspUpdated
-  | EventPermissionAsked
-  | EventPermissionReplied
+  | IsolatedEventPermissionAsked
+  | IsolatedEventPermissionReplied
   | EventTuiPromptAppend2
   | EventTuiCommandExecute2
   | EventTuiToastShow2
@@ -86,9 +86,9 @@ export type Event =
   | EventProjectUpdated
   | EventSessionStatus
   | EventSessionIdle
-  | EventQuestionAsked
-  | EventQuestionReplied
-  | EventQuestionRejected
+  | IsolatedEventQuestionAsked
+  | IsolatedEventQuestionReplied
+  | IsolatedEventQuestionRejected
   | EventSessionCompacted
   | EventVcsBranchUpdated
   | EventWorkspaceReady
@@ -1346,7 +1346,7 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "permission.v2.asked"
+        type: "permission.asked"
         properties: {
           id: string
           sessionID: string
@@ -1356,16 +1356,16 @@ export type GlobalEvent = {
           metadata?: {
             [key: string]: unknown
           }
-          source?: PermissionV2Source
+          source?: PermissionSource
         }
       }
     | {
         id: string
-        type: "permission.v2.replied"
+        type: "permission.replied"
         properties: {
           sessionID: string
           requestID: string
-          reply: PermissionV2Reply
+          reply: PermissionReply
         }
       }
     | {
@@ -1421,29 +1421,29 @@ export type GlobalEvent = {
       }
     | {
         id: string
-        type: "question.v2.asked"
+        type: "question.asked"
         properties: {
           id: string
           sessionID: string
           /**
            * Questions to ask
            */
-          questions: Array<QuestionV2Info>
-          tool?: QuestionV2Tool
+          questions: Array<QuestionInfo>
+          tool?: QuestionTool
         }
       }
     | {
         id: string
-        type: "question.v2.replied"
+        type: "question.replied"
         properties: {
           sessionID: string
           requestID: string
-          answers: Array<QuestionV2Answer>
+          answers: Array<QuestionAnswer>
         }
       }
     | {
         id: string
-        type: "question.v2.rejected"
+        type: "question.rejected"
         properties: {
           sessionID: string
           requestID: string
@@ -3001,8 +3001,8 @@ export type V2Event =
   | InstallationUpdateAvailable
   | FileEdited
   | ReferenceUpdated
-  | PermissionV2Asked
-  | PermissionV2Replied
+  | PermissionAsked
+  | PermissionReplied
   | PluginAdded
   | ProjectDirectoriesUpdated
   | FileWatcherUpdated
@@ -3010,13 +3010,13 @@ export type V2Event =
   | PtyUpdated
   | PtyExited
   | PtyDeleted
-  | QuestionV2Asked
-  | QuestionV2Replied
-  | QuestionV2Rejected
+  | QuestionAsked
+  | QuestionReplied
+  | QuestionRejected
   | TodoUpdated
   | LspUpdated
-  | PermissionAsked
-  | PermissionReplied
+  | IsolatedPermissionAsked
+  | IsolatedPermissionReplied
   | TuiPromptAppend
   | TuiCommandExecute
   | TuiToastShow
@@ -3027,7 +3027,7 @@ export type V2Event =
   | ProjectUpdated
   | SessionStatus2
   | SessionIdle
-  | QuestionAsked
+  | IsolatedQuestionAsked
   | QuestionReplied2
   | QuestionRejected2
   | SessionCompacted
@@ -3217,15 +3217,15 @@ export type RevertState = {
   files?: Array<FileDiff>
 }
 
-export type PermissionV2Source = {
+export type PermissionSource = {
   type: "tool"
   messageID: string
   callID: string
 }
 
-export type PermissionV2Reply = "once" | "always" | "reject"
+export type PermissionReply = "once" | "always" | "reject"
 
-export type QuestionV2Option = {
+export type IsolatedQuestionOption = {
   /**
    * Display text (1-5 words, concise)
    */
@@ -3236,7 +3236,7 @@ export type QuestionV2Option = {
   description: string
 }
 
-export type QuestionV2Info = {
+export type IsolatedQuestionInfo = {
   /**
    * Complete question
    */
@@ -3248,17 +3248,17 @@ export type QuestionV2Info = {
   /**
    * Available choices
    */
-  options: Array<QuestionV2Option>
+  options: Array<QuestionOption>
   multiple?: boolean
   custom?: boolean
 }
 
-export type QuestionV2Tool = {
+export type IsolatedQuestionTool = {
   messageID: string
   callID: string
 }
 
-export type QuestionV2Answer = Array<string>
+export type IsolatedQuestionAnswer = Array<string>
 
 export type ProjectVcs = "git"
 
@@ -4062,15 +4062,15 @@ export type ProviderRequest = {
 
 export type AgentColor = string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
 
-export type PermissionV2Effect = "allow" | "deny" | "ask"
+export type PermissionEffect = "allow" | "deny" | "ask"
 
-export type PermissionV2Rule = {
+export type IsolatedPermissionRule = {
   action: string
   resource: string
-  effect: PermissionV2Effect
+  effect: PermissionEffect
 }
 
-export type PermissionV2Ruleset = Array<PermissionV2Rule>
+export type IsolatedPermissionRuleset = Array<PermissionRule>
 
 export type AgentV2Info = {
   id: string
@@ -4082,7 +4082,7 @@ export type AgentV2Info = {
   hidden: boolean
   color?: AgentColor
   steps?: number
-  permissions: PermissionV2Ruleset
+  permissions: PermissionRuleset
   capability?: "read-only" | "read-write" | "execute" | "all"
   workspace?: string
   source?: {
@@ -5304,7 +5304,7 @@ export type IntegrationAttemptStatus =
       }
     }
 
-export type PermissionV2Request = {
+export type IsolatedPermissionRequest = {
   id: string
   sessionID: string
   action: string
@@ -5313,7 +5313,7 @@ export type PermissionV2Request = {
   metadata?: {
     [key: string]: unknown
   }
-  source?: PermissionV2Source
+  source?: PermissionSource
 }
 
 export type PermissionSavedInfo = {
@@ -5827,12 +5827,12 @@ export type ReferenceUpdated = {
   }
 }
 
-export type PermissionV2Asked = {
+export type PermissionAsked = {
   id: string
   metadata?: {
     [key: string]: unknown
   }
-  type: "permission.v2.asked"
+  type: "permission.asked"
   durable?: {
     aggregateID: string
     seq: number
@@ -5848,16 +5848,16 @@ export type PermissionV2Asked = {
     metadata?: {
       [key: string]: unknown
     }
-    source?: PermissionV2Source
+    source?: PermissionSource
   }
 }
 
-export type PermissionV2Replied = {
+export type PermissionReplied = {
   id: string
   metadata?: {
     [key: string]: unknown
   }
-  type: "permission.v2.replied"
+  type: "permission.replied"
   durable?: {
     aggregateID: string
     seq: number
@@ -5867,7 +5867,7 @@ export type PermissionV2Replied = {
   data: {
     sessionID: string
     requestID: string
-    reply: PermissionV2Reply
+    reply: PermissionReply
   }
 }
 
@@ -5992,12 +5992,12 @@ export type PtyDeleted = {
   }
 }
 
-export type QuestionV2Asked = {
+export type QuestionAsked = {
   id: string
   metadata?: {
     [key: string]: unknown
   }
-  type: "question.v2.asked"
+  type: "question.asked"
   durable?: {
     aggregateID: string
     seq: number
@@ -6010,17 +6010,17 @@ export type QuestionV2Asked = {
     /**
      * Questions to ask
      */
-    questions: Array<QuestionV2Info>
-    tool?: QuestionV2Tool
+    questions: Array<QuestionInfo>
+    tool?: QuestionTool
   }
 }
 
-export type QuestionV2Replied = {
+export type IsolatedQuestionReplied = {
   id: string
   metadata?: {
     [key: string]: unknown
   }
-  type: "question.v2.replied"
+  type: "question.replied"
   durable?: {
     aggregateID: string
     seq: number
@@ -6030,16 +6030,16 @@ export type QuestionV2Replied = {
   data: {
     sessionID: string
     requestID: string
-    answers: Array<QuestionV2Answer>
+    answers: Array<QuestionAnswer>
   }
 }
 
-export type QuestionV2Rejected = {
+export type IsolatedQuestionRejected = {
   id: string
   metadata?: {
     [key: string]: unknown
   }
-  type: "question.v2.rejected"
+  type: "question.rejected"
   durable?: {
     aggregateID: string
     seq: number
@@ -6087,7 +6087,7 @@ export type LspUpdated = {
   }
 }
 
-export type PermissionAsked = {
+export type IsolatedPermissionAsked = {
   id: string
   metadata?: {
     [key: string]: unknown
@@ -6115,7 +6115,7 @@ export type PermissionAsked = {
   }
 }
 
-export type PermissionReplied = {
+export type IsolatedPermissionReplied = {
   id: string
   metadata?: {
     [key: string]: unknown
@@ -6321,7 +6321,7 @@ export type SessionIdle = {
   }
 }
 
-export type QuestionAsked = {
+export type IsolatedQuestionAsked = {
   id: string
   metadata?: {
     [key: string]: unknown
@@ -6499,21 +6499,21 @@ export type GlobalDisposed = {
   }
 }
 
-export type QuestionV2Request = {
+export type IsolatedQuestionRequest = {
   id: string
   sessionID: string
   /**
    * Questions to ask
    */
-  questions: Array<QuestionV2Info>
-  tool?: QuestionV2Tool
+  questions: Array<QuestionInfo>
+  tool?: QuestionTool
 }
 
-export type QuestionV2Reply = {
+export type QuestionReply = {
   /**
    * User answers in order of questions (each answer is an array of selected labels)
    */
-  answers: Array<QuestionV2Answer>
+  answers: Array<QuestionAnswer>
 }
 
 export type ReferenceLocalSource = {
@@ -7207,9 +7207,9 @@ export type EventReferenceUpdated = {
   }
 }
 
-export type EventPermissionV2Asked = {
+export type EventPermissionAsked = {
   id: string
-  type: "permission.v2.asked"
+  type: "permission.asked"
   properties: {
     id: string
     sessionID: string
@@ -7219,17 +7219,17 @@ export type EventPermissionV2Asked = {
     metadata?: {
       [key: string]: unknown
     }
-    source?: PermissionV2Source
+    source?: PermissionSource
   }
 }
 
-export type EventPermissionV2Replied = {
+export type EventPermissionReplied = {
   id: string
-  type: "permission.v2.replied"
+  type: "permission.replied"
   properties: {
     sessionID: string
     requestID: string
-    reply: PermissionV2Reply
+    reply: PermissionReply
   }
 }
 
@@ -7291,33 +7291,33 @@ export type EventPtyDeleted = {
   }
 }
 
-export type EventQuestionV2Asked = {
+export type EventQuestionAsked = {
   id: string
-  type: "question.v2.asked"
+  type: "question.asked"
   properties: {
     id: string
     sessionID: string
     /**
      * Questions to ask
      */
-    questions: Array<QuestionV2Info>
-    tool?: QuestionV2Tool
+    questions: Array<QuestionInfo>
+    tool?: QuestionTool
   }
 }
 
-export type EventQuestionV2Replied = {
+export type EventQuestionReplied = {
   id: string
-  type: "question.v2.replied"
+  type: "question.replied"
   properties: {
     sessionID: string
     requestID: string
-    answers: Array<QuestionV2Answer>
+    answers: Array<QuestionAnswer>
   }
 }
 
-export type EventQuestionV2Rejected = {
+export type EventQuestionRejected = {
   id: string
-  type: "question.v2.rejected"
+  type: "question.rejected"
   properties: {
     sessionID: string
     requestID: string
@@ -7341,7 +7341,7 @@ export type EventLspUpdated = {
   }
 }
 
-export type EventPermissionAsked = {
+export type IsolatedEventPermissionAsked = {
   id: string
   type: "permission.asked"
   properties: {
@@ -7360,7 +7360,7 @@ export type EventPermissionAsked = {
   }
 }
 
-export type EventPermissionReplied = {
+export type IsolatedEventPermissionReplied = {
   id: string
   type: "permission.replied"
   properties: {
@@ -7430,7 +7430,7 @@ export type EventSessionIdle = {
   }
 }
 
-export type EventQuestionAsked = {
+export type IsolatedEventQuestionAsked = {
   id: string
   type: "question.asked"
   properties: {
@@ -7444,7 +7444,7 @@ export type EventQuestionAsked = {
   }
 }
 
-export type EventQuestionReplied = {
+export type IsolatedEventQuestionReplied = {
   id: string
   type: "question.replied"
   properties: {
@@ -7454,7 +7454,7 @@ export type EventQuestionReplied = {
   }
 }
 
-export type EventQuestionRejected = {
+export type IsolatedEventQuestionRejected = {
   id: string
   type: "question.rejected"
   properties: {
@@ -13216,7 +13216,7 @@ export type V2PermissionRequestListResponses = {
    */
   200: {
     location: LocationInfo
-    data: Array<PermissionV2Request>
+    data: Array<PermissionRequest>
   }
 }
 
@@ -13317,7 +13317,7 @@ export type V2SessionPermissionListResponses = {
    * Success
    */
   200: {
-    data: Array<PermissionV2Request>
+    data: Array<PermissionRequest>
   }
 }
 
@@ -13332,7 +13332,7 @@ export type V2SessionPermissionCreateData = {
     metadata?: {
       [key: string]: unknown
     }
-    source?: PermissionV2Source
+    source?: PermissionSource
     agent?: string
   }
   path: {
@@ -13366,7 +13366,7 @@ export type V2SessionPermissionCreateResponses = {
   200: {
     data: {
       id: string
-      effect: PermissionV2Effect
+      effect: PermissionEffect
     }
   }
 }
@@ -13406,7 +13406,7 @@ export type V2SessionPermissionGetResponses = {
    * Success
    */
   200: {
-    data: PermissionV2Request
+    data: PermissionRequest
   }
 }
 
@@ -13414,7 +13414,7 @@ export type V2SessionPermissionGetResponse = V2SessionPermissionGetResponses[key
 
 export type V2SessionPermissionReplyData = {
   body: {
-    reply: PermissionV2Reply
+    reply: PermissionReply
     message?: string
   }
   path: {
@@ -14003,7 +14003,7 @@ export type V2QuestionRequestListResponses = {
    */
   200: {
     location: LocationInfo
-    data: Array<QuestionV2Request>
+    data: Array<QuestionRequest>
   }
 }
 
@@ -14040,14 +14040,14 @@ export type V2SessionQuestionListResponses = {
    * Success
    */
   200: {
-    data: Array<QuestionV2Request>
+    data: Array<QuestionRequest>
   }
 }
 
 export type V2SessionQuestionListResponse = V2SessionQuestionListResponses[keyof V2SessionQuestionListResponses]
 
 export type V2SessionQuestionReplyData = {
-  body: QuestionV2Reply
+  body: QuestionReply
   path: {
     sessionID: string
     requestID: string

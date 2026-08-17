@@ -3,7 +3,7 @@ export * as ToolRegistry from "./registry"
 import { ToolOutput, ToolDefinition, type ToolCall, type ToolResultValue } from "@opencode-ai/llm"
 import { Context, Effect, Layer, Option, Scope } from "effect"
 import { AgentV2 } from "../agent"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
 import { ToolOutputStore } from "../tool-output-store"
@@ -37,7 +37,7 @@ export type ExecuteInput = {
 
 export interface Interface {
   readonly materialize: (agent?: {
-    permissions?: PermissionV2.Ruleset
+    permissions?: Permission.Ruleset
     capability?: "read-only" | "read-write" | "execute" | "all"
     modelID?: string
     providerID?: string
@@ -137,7 +137,7 @@ const registryLayer = Layer.effect(
             Effect.catchTag("LLM.ToolFailure", (failure) =>
               Effect.succeed({ result: { type: "error" as const, value: failure.message } }),
             ),
-            Effect.catchTag("PermissionV2.BlockedError", () =>
+            Effect.catchTag("Permission.BlockedError", () =>
               Effect.succeed({
                 result: {
                   type: "error" as const,
@@ -360,13 +360,13 @@ const registryLayer = Layer.effect(
  * Capability tag included when set (Tier 2).
  */
 const describeTaskAgents = Effect.fn("ToolRegistry.describeTaskAgents")(function* (
-  parentPermissions: PermissionV2.Ruleset,
+  parentPermissions: Permission.Ruleset,
 ) {
   const agentsOpt = yield* Effect.serviceOption(AgentV2.Service)
   if (Option.isNone(agentsOpt)) return undefined
   const items = (yield* agentsOpt.value.all())
     .filter((item) => item.mode !== "primary" && !item.hidden)
-    .filter((item) => PermissionV2.evaluate("task", String(item.id), parentPermissions).effect !== "deny")
+    .filter((item) => Permission.evaluate("task", String(item.id), parentPermissions).effect !== "deny")
     .toSorted((a, b) => String(a.id).localeCompare(String(b.id)))
   if (items.length === 0) return undefined
   const lines = items.map((item) => {

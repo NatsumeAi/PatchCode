@@ -4,7 +4,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { Location } from "../location"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { WorktreeEngine } from "../worktree-engine"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -29,7 +29,7 @@ const Output = Schema.Struct({
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
-    const permission = yield* PermissionV2.Service
+    const permission = yield* Permission.Service
     const location = yield* Location.Service
     const engine = yield* WorktreeEngine.Service
 
@@ -92,5 +92,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/worktree",
   layer,
-  deps: [ToolRegistry.node, PermissionV2.node, Location.node, WorktreeEngine.node],
+  deps: [ToolRegistry.node, Permission.node, Location.node, WorktreeEngine.node],
 })

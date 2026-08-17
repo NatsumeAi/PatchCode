@@ -3,7 +3,7 @@ export * as SkillGuidance from "./guidance"
 import { makeLocationNode } from "../effect/app-node"
 import { Context, Effect, Layer, Schema } from "effect"
 import { AgentV2 } from "../agent"
-import { PermissionV2 } from "../permission"
+import { Permission } from "../permission"
 import { SkillV2 } from "../skill"
 import { SystemContext } from "../system-context/index"
 
@@ -47,7 +47,7 @@ const layer = Layer.effect(
         const agent = selection.info
         if (!agent) return SystemContext.empty
         const permitted = SkillV2.available(yield* skills.list(), agent)
-        if (permitted.length === 0 && PermissionV2.evaluate("skill", "*", agent.permissions).effect === "deny")
+        if (permitted.length === 0 && Permission.evaluate("skill", "*", agent.permissions).effect === "deny")
           return SystemContext.empty
         const available = permitted
           .flatMap((skill) =>

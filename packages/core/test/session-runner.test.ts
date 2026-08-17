@@ -20,11 +20,11 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { QuestionV2 } from "@opencode-ai/core/question"
+import { Question } from "@opencode-ai/core/question"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionV1 } from "@opencode-ai/core/session-legacy"
@@ -143,8 +143,8 @@ const recoveryModel = Model.make({
 const authorizations: Tool.Context[] = []
 const executions: string[] = []
 const permission = Layer.succeed(
-  PermissionV2.Service,
-  PermissionV2.Service.of({
+  Permission.Service,
+  Permission.Service.of({
     assert: (input) => (input.action === "doom_loop" ? Effect.void : Effect.die("unused")),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
@@ -292,7 +292,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
   [SkillGuidance.node, skillGuidance],
   [ReferenceGuidance.node, referenceGuidance],
-  [PermissionV2.node, permission],
+  [Permission.node, permission],
   [Config.node, config],
   [MemoryFlush.node, memoryFlushMock],
 ])
@@ -327,7 +327,7 @@ const it = testEffect(
     LayerNode.group([
       Database.node,
       EventV2.node,
-      QuestionV2.node,
+      Question.node,
       SessionProjector.node,
       SessionStore.node,
       ApplicationTools.node,
@@ -348,7 +348,7 @@ const it = testEffect(
     ]),
     [
       [LayerNodePlatform.llmClient, client],
-      [PermissionV2.node, permission],
+      [Permission.node, permission],
       [SessionRunnerModel.node, models],
       [Catalog.node, catalogStub],
       [SystemContextRegistry.node, systemContext],
@@ -3056,7 +3056,7 @@ describe("SessionRunnerLLM", () => {
           input: Schema.Struct({}),
           output: Schema.Struct({}),
           execute: () =>
-            Effect.fail(new PermissionV2.BlockedError({ rules: [] })).pipe(
+            Effect.fail(new Permission.BlockedError({ rules: [] })).pipe(
               Effect.mapError(() => new Tool.Failure({ message: "Permission blocked" })),
             ),
         }),
@@ -3104,7 +3104,7 @@ describe("SessionRunnerLLM", () => {
           description: "Fail because the user declined approval",
           input: Schema.Struct({}),
           output: Schema.Struct({}),
-          execute: () => Effect.die(new PermissionV2.DeclinedError()),
+          execute: () => Effect.die(new Permission.DeclinedError()),
         }),
       })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call declined" }), resume: false })
@@ -3149,7 +3149,7 @@ describe("SessionRunnerLLM", () => {
           input: Schema.Struct({}),
           output: Schema.Struct({}),
           execute: () =>
-            Effect.fail(new PermissionV2.CorrectedError({ feedback: "Use another tool" })).pipe(
+            Effect.fail(new Permission.CorrectedError({ feedback: "Use another tool" })).pipe(
               Effect.mapError(() => new Tool.Failure({ message: "Use another tool" })),
             ),
         }),
@@ -3192,7 +3192,7 @@ describe("SessionRunnerLLM", () => {
       yield* setup
       const session = yield* SessionV2.Service
       const registry = yield* ToolRegistry.Service
-      const questions = yield* QuestionV2.Service
+      const questions = yield* Question.Service
       yield* registry.register({
         question: Tool.make({
           description: "Ask the user",
@@ -4302,7 +4302,7 @@ describe("SessionRunnerLLM", () => {
           input: Schema.Struct({}),
           output: Schema.Struct({}),
           execute: () =>
-            Effect.fail(new PermissionV2.CorrectedError({ feedback: "Use another tool" })).pipe(
+            Effect.fail(new Permission.CorrectedError({ feedback: "Use another tool" })).pipe(
               Effect.mapError(() => new Tool.Failure({ message: "Use another tool" })),
             ),
         }),

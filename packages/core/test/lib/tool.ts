@@ -1,7 +1,7 @@
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
-import { PermissionV2 } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/core/permission"
 import { Effect } from "effect"
 
 export const toolIdentity = {
@@ -11,7 +11,7 @@ export const toolIdentity = {
 
 export const toolDefinitions = (
   registry: ToolRegistry.Interface,
-  permissions?: PermissionV2.Ruleset,
+  permissions?: Permission.Ruleset,
   capability?: "read-only" | "read-write" | "execute" | "all",
 ) =>
   registry
