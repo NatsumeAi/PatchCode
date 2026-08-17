@@ -529,7 +529,7 @@ it.instance(
     Effect.gen(function* () {
       const build = yield* load((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", ToolOutputStore.GLOB, build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
+      expect(Permission.evaluate("external_directory", ToolOutputStore.DIR, build!.permission).action).toBe("deny")
       expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
     }),
   {
@@ -557,7 +557,7 @@ it.instance(
     Effect.gen(function* () {
       const build = yield* load((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", ToolOutputStore.GLOB, build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
+      expect(Permission.evaluate("external_directory", ToolOutputStore.DIR, build!.permission).action).toBe("deny")
       expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
     }),
   {
@@ -579,7 +579,7 @@ it.instance(
     Effect.gen(function* () {
       const build = yield* load((svc) => svc.get("build"))
       expect(Permission.evaluate("external_directory", ToolOutputStore.GLOB, build!.permission).action).toBe("deny")
-      expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
+      expect(Permission.evaluate("external_directory", ToolOutputStore.DIR, build!.permission).action).toBe("deny")
     }),
   {
     config: {

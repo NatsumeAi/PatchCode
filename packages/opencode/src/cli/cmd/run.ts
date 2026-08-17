@@ -22,7 +22,8 @@ import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
-import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type OpencodeClient, type Part, type ToolPart } from "@opencode-ai/sdk/v2"
+import { createLivePartState, leftoverPartsFromLive } from "@/session/live-legacy-parts"
 import { FormatError, FormatUnknownError } from "../error"
 import { INTERACTIVE_INPUT_ERROR, resolveInteractiveStdin } from "./run/runtime.stdin"
 
@@ -696,7 +697,96 @@ export const RunCommand = effectCmd({
         // created, and replies issued from inside the loop must use that client.
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
+          const liveParts = createLivePartState()
+          const settledPermissions = new Set<string>()
           let error: string | undefined
+
+          async function settlePermission(id: string, action: string, resources: string[]) {
+            if (settledPermissions.has(id)) return
+            settledPermissions.add(id)
+            if (auto) {
+              await client.v2.session.permission
+                .reply({
+                  sessionID,
+                  requestID: id,
+                  reply: "once",
+                })
+                .catch(() => undefined)
+              return
+            }
+            UI.println(
+              UI.Style.TEXT_WARNING_BOLD + "!",
+              UI.Style.TEXT_NORMAL +
+                `permission requested: ${action} (${resources.join(", ")}); auto-rejecting`,
+            )
+            await client.v2.session.permission
+              .reply({
+                sessionID,
+                requestID: id,
+                reply: "reject",
+              })
+              .catch(() => undefined)
+          }
+
+          async function onPart(part: Part) {
+            if (part.sessionID !== sessionID) return
+
+            if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
+              if (emit("tool_use", { part })) return
+              if (part.state.status === "completed") {
+                await tool(part)
+                return
+              }
+              await toolError(part)
+              UI.error(part.state.error)
+            }
+
+            if (
+              part.type === "tool" &&
+              part.tool === "task" &&
+              part.state.status === "running" &&
+              args.format !== "json"
+            ) {
+              if (toggles.get(part.id) === true) return
+              await tool(part)
+              toggles.set(part.id, true)
+            }
+
+            if (part.type === "step-start") {
+              if (emit("step_start", { part })) return
+            }
+
+            if (part.type === "step-finish") {
+              if (emit("step_finish", { part })) return
+            }
+
+            if (part.type === "text" && part.time?.end) {
+              if (emit("text", { part })) return
+              const text = part.text.trim()
+              if (!text) return
+              if (!process.stdout.isTTY) {
+                process.stdout.write(text + EOL)
+                return
+              }
+              UI.empty()
+              UI.println(text)
+              UI.empty()
+            }
+
+            if (part.type === "reasoning" && part.time?.end && thinking) {
+              if (emit("reasoning", { part })) return
+              const text = part.text.trim()
+              if (!text) return
+              const line = `Thinking: ${text}`
+              if (process.stdout.isTTY) {
+                UI.empty()
+                UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
+                UI.empty()
+                return
+              }
+              process.stdout.write(line + EOL)
+            }
+          }
 
           for await (const event of events.stream) {
             if (
@@ -712,65 +802,24 @@ export const RunCommand = effectCmd({
               toggles.set("start", true)
             }
 
+            if (
+              event.type === "session.next.step.started" &&
+              event.properties.sessionID === sessionID &&
+              args.format !== "json" &&
+              toggles.get("start") !== true
+            ) {
+              UI.empty()
+              UI.println(`> ${event.properties.agent} · ${event.properties.model.id}`)
+              UI.empty()
+              toggles.set("start", true)
+            }
+
             if (event.type === "message.part.updated") {
-              const part = event.properties.part
-              if (part.sessionID !== sessionID) continue
+              await onPart(event.properties.part)
+            }
 
-              if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
-                if (emit("tool_use", { part })) continue
-                if (part.state.status === "completed") {
-                  await tool(part)
-                  continue
-                }
-                await toolError(part)
-                UI.error(part.state.error)
-              }
-
-              if (
-                part.type === "tool" &&
-                part.tool === "task" &&
-                part.state.status === "running" &&
-                args.format !== "json"
-              ) {
-                if (toggles.get(part.id) === true) continue
-                await tool(part)
-                toggles.set(part.id, true)
-              }
-
-              if (part.type === "step-start") {
-                if (emit("step_start", { part })) continue
-              }
-
-              if (part.type === "step-finish") {
-                if (emit("step_finish", { part })) continue
-              }
-
-              if (part.type === "text" && part.time?.end) {
-                if (emit("text", { part })) continue
-                const text = part.text.trim()
-                if (!text) continue
-                if (!process.stdout.isTTY) {
-                  process.stdout.write(text + EOL)
-                  continue
-                }
-                UI.empty()
-                UI.println(text)
-                UI.empty()
-              }
-
-              if (part.type === "reasoning" && part.time?.end && thinking) {
-                if (emit("reasoning", { part })) continue
-                const text = part.text.trim()
-                if (!text) continue
-                const line = `Thinking: ${text}`
-                if (process.stdout.isTTY) {
-                  UI.empty()
-                  UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
-                  UI.empty()
-                  continue
-                }
-                process.stdout.write(line + EOL)
-              }
+            for (const part of leftoverPartsFromLive(event, liveParts)) {
+              await onPart(part)
             }
 
             if (event.type === "session.error") {
@@ -813,6 +862,11 @@ export const RunCommand = effectCmd({
                   reply: "reject",
                 })
               }
+            }
+
+            if (event.type === "permission.v2.asked") {
+              const permission = event.properties
+              await settlePermission(permission.id, permission.action, permission.resources ?? [])
             }
           }
           return error

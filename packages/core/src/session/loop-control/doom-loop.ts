@@ -69,10 +69,15 @@ function stableArgsHash(input: unknown): string {
 /**
  * Detect repeated identical tool call fingerprints (name + stable args hash).
  */
+/** Official leftover processor: ask doom_loop permission after this many identical tool calls. */
+export const ASK_THRESHOLD = 3
+/** Live HardAbort after this many identical fingerprints (stronger than official ask). */
+export const HARD_ABORT_THRESHOLD = 8
+
 export function detectRepeatedToolFingerprint(
   recentFingerprints: readonly string[],
   /** High enough that short parallel batches of same name+args can complete; true loops still trip. */
-  threshold = 8,
+  threshold = HARD_ABORT_THRESHOLD,
 ): DoomLoopSignal | undefined {
   if (recentFingerprints.length < threshold) return undefined
   const tail = recentFingerprints.slice(-threshold)

@@ -39,4 +39,20 @@ describe("prompt-tape-append", () => {
     expect(message.role).toBe("user")
     expect(JSON.stringify(message)).toContain("data:image/png;base64,aaa")
   })
+
+  test("user inlines data:text/plain into content text", () => {
+    const sentinel = "client-only attachment sentinel"
+    const message = Append.lowerUser({
+      text: "read the attachment",
+      files: [
+        {
+          mime: "text/plain",
+          uri: `data:text/plain;base64,${Buffer.from(sentinel).toString("base64")}`,
+          name: "note.txt",
+        },
+      ],
+    })
+    expect(JSON.stringify(message)).toContain(sentinel)
+    expect(JSON.stringify(message)).not.toContain("image_url")
+  })
 })

@@ -125,4 +125,10 @@ describe("SessionCompaction configuration (Task 10)", () => {
     const ended = published.find((p) => p.type === "session.next.compaction.ended")
     expect(ended!.data.keptFrom).toBeDefined()
   })
+
+  test("toPluginMessages uses official {info, parts} shape", () => {
+    const messages = SessionCompaction.toPluginMessages([user(1, "hello")])
+    expect(messages[0]?.info.role).toBe("user")
+    expect(messages[0]?.parts[0]).toMatchObject({ type: "text", text: "hello" })
+  })
 })

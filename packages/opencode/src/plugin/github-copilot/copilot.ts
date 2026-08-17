@@ -338,17 +338,17 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
       ],
     },
     "chat.params": async (incoming, output) => {
-      if (!incoming.model.providerID.includes("github-copilot")) return
+      if (!incoming.model?.providerID?.includes("github-copilot")) return
 
       // Match github copilot cli, omit maxOutputTokens for gpt models
-      if (incoming.model.api.id.includes("gpt")) {
+      if (incoming.model.api?.id?.includes("gpt")) {
         output.maxOutputTokens = undefined
       }
 
       // GitHub Copilot's /v1/messages shim rejects the GA `eager_input_streaming`
       // field on tool definitions ("Extra inputs are not permitted"). Opt out of
       // the @ai-sdk/anthropic default so it stops injecting the field.
-      if (incoming.model.api.npm === "@ai-sdk/anthropic") {
+      if (incoming.model.api?.npm === "@ai-sdk/anthropic") {
         output.options.toolStreaming = false
       }
     },
@@ -358,16 +358,18 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
       output.model = UTILITY_MODELS.map((id) => models[id]).find((model) => model !== undefined)
     },
     "chat.headers": async (incoming, output) => {
-      if (!incoming.model.providerID.includes("github-copilot")) return
+      if (!incoming.model?.providerID?.includes("github-copilot")) return
 
       output.headers["X-GitHub-Api-Version"] = API_VERSION
       if (incoming.agent === "title") {
         output.headers["X-Interaction-Type"] = "agent-session-name-generation"
       }
 
-      if (incoming.model.api.npm === "@ai-sdk/anthropic") {
+      if (incoming.model.api?.npm === "@ai-sdk/anthropic") {
         output.headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
       }
+
+      if (!incoming.message?.sessionID || !incoming.message?.id) return
 
       const parts = await sdk.session
         .message({

@@ -1,4 +1,6 @@
 import { describe, expect } from "bun:test"
+import { existsSync } from "node:fs"
+import path from "node:path"
 import { ConfigProvider, Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
@@ -86,6 +88,15 @@ describe("RuntimeFlags", () => {
 
       expect(explicit.experimentalNativeLlm).toBe(true)
       expect(umbrella.experimentalNativeLlm).toBe(false)
+    }),
+  )
+
+  it.effect("OPENCODE_EXPERIMENTAL_NATIVE_LLM does not restore a leftover native-runtime drain", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL_NATIVE_LLM: "true" })))
+      expect(flags.experimentalNativeLlm).toBe(true)
+      const leftover = path.join(import.meta.dir, "../../src/session/llm/native-runtime.ts")
+      expect(existsSync(leftover)).toBe(false)
     }),
   )
 

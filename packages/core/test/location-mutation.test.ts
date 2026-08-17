@@ -170,7 +170,7 @@ describe("LocationMutation", () => {
   )
 
   test("ignores unknown mutation input fields", () => {
-    expect(Object.keys(LocationMutation.ResolveInput.fields)).toEqual(["path", "kind", "forWrite"])
+    expect(Object.keys(LocationMutation.ResolveInput.fields)).toEqual(["path", "kind", "forWrite", "sessionID"])
     expect(Schema.decodeUnknownSync(LocationMutation.ResolveInput)({ path: "README.md", reference: "docs" })).toEqual({
       path: "README.md",
     })

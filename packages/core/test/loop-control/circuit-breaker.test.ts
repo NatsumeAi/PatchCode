@@ -1,5 +1,5 @@
-import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { describe, expect, test } from "bun:test"
+import { Duration, Effect } from "effect"
 import { CircuitBreaker } from "../../src/session/loop-control/circuit-breaker"
 import { testEffect } from "../lib/effect"
 
@@ -92,4 +92,21 @@ describe("CircuitBreaker", () => {
       expect(yield* CircuitBreaker.state).toBe("Closed")
     }),
   )
+
+  test("cooldown moves Open to HalfOpen and allowRequest claims a single probe", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const breaker = yield* CircuitBreaker.make(2, { enabled: true, cooldownMs: 20, windowMs: 60_000 })
+        yield* breaker.recordFailure
+        yield* breaker.recordFailure
+        expect(yield* breaker.state).toBe("Open")
+        yield* Effect.sleep(Duration.millis(25))
+        expect(yield* breaker.stateFor("default")).toBe("HalfOpen")
+        expect(yield* breaker.allowRequest()).toBe(true)
+        expect(yield* breaker.allowRequest()).toBe(false)
+        yield* breaker.recordSuccess
+        expect(yield* breaker.state).toBe("Closed")
+      }),
+    )
+  })
 })

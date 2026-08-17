@@ -53,6 +53,11 @@ describe("projectParentTrace", () => {
     expect(trace).toContain("second answer")
   })
 
+  test("ForkMode parent trace is the child first user", () => {
+    const trace = projectParentTrace(messages, "FullHistory")
+    expect(trace.startsWith("user: first question")).toBe(true)
+  })
+
   test("FullHistory includes tool calls with result summaries", () => {
     const trace = projectParentTrace(messages, "FullHistory")
     expect(trace).toContain("tool: bash -> done")

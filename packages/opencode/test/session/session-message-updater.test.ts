@@ -262,7 +262,6 @@ test("compaction events reduce to compaction message only when completed", () =>
     type: "compaction",
     reason: "auto",
     summary: "final summary",
-    recent: "recent context",
     time: { created: DateTime.makeUnsafe(4) },
   })
 })

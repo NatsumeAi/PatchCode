@@ -38,6 +38,21 @@ describe("validateResumeIdentity", () => {
     expect(result.ok).toBe(true)
   })
 
+  test("task_id resumes the child session identity rather than the parent", () => {
+    const result = validateResumeIdentity({
+      child: child({ id: childID, parentID }),
+      parentSessionID: parentID,
+      subagentType: "explore",
+    })
+    expect(result.ok).toBe(true)
+    const wrongParent = validateResumeIdentity({
+      child: child({ parentID: SessionSchema.ID.make("ses_other") }),
+      parentSessionID: parentID,
+      subagentType: "explore",
+    })
+    expect(wrongParent.ok).toBe(false)
+  })
+
   test("rejects when parentID does not match", () => {
     const result = validateResumeIdentity({
       child: child({ parentID: SessionSchema.ID.make("ses_other") }),

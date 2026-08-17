@@ -14,8 +14,29 @@ import { pendingToolCall, toLocations, type ToolInput } from "./tool"
 import { Effect } from "effect"
 
 type PermissionEvent = Extract<Event, { type: "permission.asked" }>
+type PermissionV2Event = Extract<Event, { type: "permission.v2.asked" }>
 type Reply = "once" | "always" | "reject"
 type Connection = Partial<Pick<AgentSideConnection, "requestPermission" | "writeTextFile">>
+
+function fromV2Permission(event: PermissionV2Event): PermissionEvent {
+  const props = event.properties
+  const source = props.source
+  return {
+    id: event.id,
+    type: "permission.asked",
+    properties: {
+      id: props.id,
+      sessionID: props.sessionID,
+      permission: props.action,
+      patterns: props.resources ?? [],
+      metadata: props.metadata ?? {},
+      always: props.save?.length ? [...props.save] : [...(props.resources ?? [])],
+      ...(source?.type === "tool" && source.messageID && source.callID
+        ? { tool: { messageID: source.messageID, callID: source.callID } }
+        : {}),
+    },
+  }
+}
 
 const permissionOptions: PermissionOption[] = [
   { optionId: "once", kind: "allow_once", name: "Allow once" },
@@ -34,11 +55,13 @@ export class Handler {
     },
   ) {}
 
-  handle(event: PermissionEvent) {
-    const permission = event.properties
+  handle(event: PermissionEvent | PermissionV2Event) {
+    const leftover = event.type === "permission.v2.asked" ? fromV2Permission(event) : event
+    const viaV2 = event.type === "permission.v2.asked"
+    const permission = leftover.properties
     const previous = this.queues.get(permission.sessionID) ?? Promise.resolve()
     const next = previous
-      .then(() => this.process(event))
+      .then(() => this.process(leftover, viaV2))
       .catch(() => {})
       .finally(() => {
         if (this.queues.get(permission.sessionID) === next) {
@@ -48,13 +71,13 @@ export class Handler {
     this.queues.set(permission.sessionID, next)
   }
 
-  private async process(event: PermissionEvent) {
+  private async process(event: PermissionEvent, viaV2: boolean) {
     const permission = event.properties
     const session = await Effect.runPromise(this.input.session.tryGet(permission.sessionID))
     if (!session) return
 
     if (!this.input.connection.requestPermission) {
-      await this.reply(permission.id, "reject", session.cwd)
+      await this.reply(permission.sessionID, permission.id, "reject", session.cwd, viaV2)
       return
     }
 
@@ -69,7 +92,7 @@ export class Handler {
         options: permissionOptions,
       })
       .catch(async () => {
-        await this.reply(permission.id, "reject", session.cwd)
+        await this.reply(permission.sessionID, permission.id, "reject", session.cwd, viaV2)
         return undefined
       })
 
@@ -77,7 +100,7 @@ export class Handler {
 
     const reply = selectedReply(result)
     if (reply !== "once" && reply !== "always") {
-      await this.reply(permission.id, "reject", session.cwd)
+      await this.reply(permission.sessionID, permission.id, "reject", session.cwd, viaV2)
       return
     }
 
@@ -85,10 +108,18 @@ export class Handler {
       await this.writeProposedEdit(session.id, permission.metadata).catch(() => {})
     }
 
-    await this.reply(permission.id, reply, session.cwd)
+    await this.reply(permission.sessionID, permission.id, reply, session.cwd, viaV2)
   }
 
-  private async reply(requestID: string, reply: Reply, directory: string) {
+  private async reply(sessionID: string, requestID: string, reply: Reply, directory: string, viaV2: boolean) {
+    if (viaV2) {
+      await this.input.sdk.v2.session.permission.reply({
+        sessionID,
+        requestID,
+        reply,
+      })
+      return
+    }
     await this.input.sdk.permission.reply({
       requestID,
       reply,

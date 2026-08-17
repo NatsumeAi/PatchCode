@@ -9,7 +9,7 @@ describe("public event manifest", () => {
     expect(EventManifest.Definitions).toBe(SchemaEventManifest.Definitions)
     expect(EventManifest.Latest).toBe(SchemaEventManifest.Latest)
     expect(EventManifest.Durable).toBe(SchemaEventManifest.Durable)
-    expect(EventManifest.Latest.size).toBe(93)
+    expect(EventManifest.Latest.size).toBe(EventManifest.Definitions.length)
     expect(EventManifest.Latest.get("session.next.step.ended")).toBe(SessionEvent.Step.Ended)
     expect(EventManifest.Latest.get("session.next.subagent.completed")).toBe(SessionEvent.Subagent.Completed)
     expect(EventManifest.Latest.get("session.next.subagent.failed")).toBe(SessionEvent.Subagent.Failed)

@@ -48,6 +48,7 @@ function createHarness(
     Promise.resolve({ outcome: { outcome: "selected", optionId: "once" } }),
 ) {
   const replies: PermissionReplyParams[] = []
+  const v2Replies: Array<{ sessionID: string; requestID: string; reply: "once" | "always" | "reject" }> = []
   const requests: RequestPermissionRequest[] = []
   const updates: SessionUpdateParams[] = []
   const session = makeSessionService()
@@ -56,6 +57,16 @@ function createHarness(
       reply: (params: PermissionReplyParams) => {
         replies.push(params)
         return Promise.resolve({ data: true })
+      },
+    },
+    v2: {
+      session: {
+        permission: {
+          reply: (params: { sessionID: string; requestID: string; reply: "once" | "always" | "reject" }) => {
+            v2Replies.push(params)
+            return Promise.resolve({ data: true })
+          },
+        },
       },
     },
     session: {
@@ -74,7 +85,7 @@ function createHarness(
   } satisfies Pick<AgentSideConnection, "requestPermission" | "sessionUpdate">
   const subscription = new ACPEvent.Subscription({ sdk, connection, session })
 
-  return { connection, replies, requests, sdk, session, subscription, updates }
+  return { connection, replies, v2Replies, requests, sdk, session, subscription, updates }
 }
 
 async function createSession(session: ACPSession.Interface, sessionId: string, cwd = "/workspace") {
@@ -181,6 +192,38 @@ describe("acp permissions", () => {
       ],
     })
     expect(harness.replies).toEqual([{ requestID: "perm_1", reply: "once", directory: "/workspace" }])
+    expect(harness.v2Replies).toEqual([])
+  })
+
+  it("replies to permission.v2.asked on the live session permission path", async () => {
+    const harness = createHarness()
+    await createSession(harness.session, "ses_a")
+
+    harness.subscription.handle({
+      id: "evt_perm_v2",
+      type: "permission.v2.asked",
+      properties: {
+        id: "perm_v2",
+        sessionID: "ses_a",
+        action: "bash",
+        resources: ["*"],
+        metadata: { command: "printf hello" },
+        source: { type: "tool", messageID: "msg_1", callID: "call_1" },
+      },
+    })
+
+    await pollUntil(() => harness.v2Replies.length === 1, "v2 permission was never replied")
+
+    expect(harness.requests[0]).toMatchObject({
+      sessionId: "ses_a",
+      toolCall: {
+        toolCallId: "call_1",
+        status: "pending",
+        title: "printf hello",
+      },
+    })
+    expect(harness.v2Replies).toEqual([{ sessionID: "ses_a", requestID: "perm_v2", reply: "once" }])
+    expect(harness.replies).toEqual([])
   })
 
   it("uses permission metadata for non-shell titles", async () => {

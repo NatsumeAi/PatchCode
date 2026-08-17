@@ -1,0 +1,19 @@
+---
+description: One live path; 100% official + introduced features; delete parallel files
+alwaysApply: true
+---
+
+# Binding requirements (do not shorten)
+
+This is the last pass. Do not stop at a partial port. Do not treat this file as a 7-bullet substitute for the keep-list.
+
+1. **100% official OpenCode features** on the single live path. Never weaker than official at any layer. Never dropped.
+2. **100% of features introduced after the session change** stay on that path: PromptTape, memory, loop-control, sandbox, exec-policy, hooks, worktree, plan-gate, and every other added capability. Only stronger than official.
+3. **One path only.** HTTP/TUI/CLI: Session prompt → SessionRunner → core ToolRegistry → `packages/core/src/tool/*`.
+4. **Parallel implementation files must be deleted from disk** after their behavior is on the live path. Unregistering or “not constructing” is not deletion. Features must survive the delete.
+5. Loop is already live, independently usable, on by default. Abort must not be cleared by the next drain. Do not restore `runLoop`. Do not wrap drain in `Effect.uninterruptible`. Do not add a second loop.
+6. Do not add or leave leftover files/exports named v1/v2 that the user can see. Historical SQL migrations with v2 in the name stay. Do not half-rename SessionV2.
+7. No TODOs left for a later round.
+8. Keep-list in `docs/superpowers/specs/2026-08-07-v1-runtime-inventory.md` and Hard freeze in `docs/superpowers/plans/2026-08-15-capability-gap-roadmap.md` must stay provable on the live path.
+9. Out of scope (reference comparison, not official regressions): Codex/Hermes/Grok product modules (toolsets, codebase-graph, Pi session trees, marketplaces, IM/gateway, Starlark, Guardian, computer-use).
+10. Tests from package dirs only. Do not weaken live tests. Do not touch `~/.local/share/opencode/auth.json`.

@@ -100,6 +100,7 @@ const layer = Layer.effect(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
         const skillDirs = yield* skill.dirs()
+        const projectSkillDir = path.join(ctx.directory, ".opencode", "skill")
         const referenceDirs = Object.keys(cfg.references ?? cfg.reference ?? {}).length
           ? yield* Effect.gen(function* () {
               yield* (yield* PluginV2.Service).wait(PluginV2.ID.make("core/config-reference"))
@@ -109,6 +110,7 @@ const layer = Layer.effect(
         const whitelistedDirs = [
           ToolOutputStore.GLOB,
           path.join(Global.Path.tmp, "*"),
+          path.join(projectSkillDir, "*"),
           ...skillDirs.map((dir) => path.join(dir, "*")),
           ...referenceDirs.map((dir) => path.join(dir, "*")),
         ]

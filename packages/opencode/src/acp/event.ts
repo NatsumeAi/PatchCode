@@ -20,6 +20,7 @@ import {
   shellOutputSnapshot,
   completedToolUpdate,
 } from "./tool"
+import { createLivePartState, leftoverPartsFromLive } from "@/session/live-legacy-parts"
 
 type Connection = Pick<AgentSideConnection, "sessionUpdate"> &
   Partial<Pick<AgentSideConnection, "requestPermission" | "writeTextFile">>
@@ -40,6 +41,8 @@ export class Subscription {
   private readonly abort = new AbortController()
   private readonly shellSnapshots = new Map<string, string>()
   private readonly toolStarts = new Set<string>()
+  private readonly streamedLive = new Set<string>()
+  private readonly liveParts = createLivePartState()
   private readonly permission: ACPPermission.Handler
   private started = false
 
@@ -68,12 +71,27 @@ export class Subscription {
   async handle(event: Event) {
     switch (event.type) {
       case "permission.asked":
+      case "permission.v2.asked":
         this.permission.handle(event)
         return
+      case "session.next.text.delta":
+        return this.handleLiveTextDelta(event)
+      case "session.next.reasoning.delta":
+        return this.handleLiveReasoningDelta(event)
+      case "session.next.text.ended":
+        return this.handleLiveTextEnded(event)
+      case "session.next.reasoning.ended":
+        return this.handleLiveReasoningEnded(event)
       case "message.part.updated":
         return this.handlePartUpdated(event)
       case "message.part.delta":
         return this.handlePartDelta(event)
+    }
+    for (const part of leftoverPartsFromLive(event, this.liveParts)) {
+      if (part.type !== "tool") continue
+      const session = await Effect.runPromise(this.input.session.tryGet(part.sessionID))
+      if (!session) continue
+      await this.handleToolPart(session.id, part, session.cwd)
     }
   }
 
@@ -126,6 +144,78 @@ export class Subscription {
       }
       if (!this.abort.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 1000))
     }
+  }
+
+  private async handleLiveTextDelta(event: Extract<Event, { type: "session.next.text.delta" }>) {
+    const props = event.properties
+    const session = await Effect.runPromise(this.input.session.tryGet(props.sessionID))
+    if (!session) return
+    this.streamedLive.add(`text:${props.assistantMessageID}:${props.textID}`)
+    await this.input.connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: props.assistantMessageID,
+        content: {
+          type: "text",
+          text: props.delta,
+        },
+      },
+    })
+  }
+
+  private async handleLiveReasoningDelta(event: Extract<Event, { type: "session.next.reasoning.delta" }>) {
+    const props = event.properties
+    const session = await Effect.runPromise(this.input.session.tryGet(props.sessionID))
+    if (!session) return
+    this.streamedLive.add(`reasoning:${props.assistantMessageID}:${props.reasoningID}`)
+    await this.input.connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        messageId: props.assistantMessageID,
+        content: {
+          type: "text",
+          text: props.delta,
+        },
+      },
+    })
+  }
+
+  private async handleLiveTextEnded(event: Extract<Event, { type: "session.next.text.ended" }>) {
+    const props = event.properties
+    if (this.streamedLive.has(`text:${props.assistantMessageID}:${props.textID}`)) return
+    const session = await Effect.runPromise(this.input.session.tryGet(props.sessionID))
+    if (!session || !props.text) return
+    await this.input.connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: props.assistantMessageID,
+        content: {
+          type: "text",
+          text: props.text,
+        },
+      },
+    })
+  }
+
+  private async handleLiveReasoningEnded(event: Extract<Event, { type: "session.next.reasoning.ended" }>) {
+    const props = event.properties
+    if (this.streamedLive.has(`reasoning:${props.assistantMessageID}:${props.reasoningID}`)) return
+    const session = await Effect.runPromise(this.input.session.tryGet(props.sessionID))
+    if (!session || !props.text) return
+    await this.input.connection.sessionUpdate({
+      sessionId: session.id,
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        messageId: props.assistantMessageID,
+        content: {
+          type: "text",
+          text: props.text,
+        },
+      },
+    })
   }
 
   private async handlePartUpdated(event: EventMessagePartUpdated) {

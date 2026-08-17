@@ -2,7 +2,7 @@ export * as LoopControlHost from "./loop-control-host"
 
 import { LLMClient, LLMError, type LLMClientShape, type Model } from "@opencode-ai/llm"
 import type { LLMClientService } from "@opencode-ai/llm/route"
-import { Context, Effect, Layer, Scope, SynchronizedRef } from "effect"
+import { Context, Effect, Layer, Option, Scope, SynchronizedRef } from "effect"
 import { llmClient } from "../../effect/app-node-platform"
 import { makeGlobalNode } from "../../effect/app-node"
 import { WorkerState } from "../loop-control/worker-state"
@@ -12,6 +12,8 @@ import { TimerDaemon } from "../loop-control/timer-daemon"
 import { TerminalController } from "../loop-control/terminal-controller"
 import { CircuitBreaker } from "../loop-control/circuit-breaker"
 import { DoomLoop } from "../loop-control/doom-loop"
+import { PermissionV2 } from "../../permission"
+import { SessionSchema } from "../schema"
 import { ErrorClassifier } from "./error-classifier"
 import { TurnRetryState } from "./turn-retry-state"
 import { GoalStore } from "../loop-control/goal-store"
@@ -116,6 +118,7 @@ const buildRealHooks = (
     const abortRequested = yield* SynchronizedRef.make(false)
     const recentClaims = yield* SynchronizedRef.make<string[]>([])
     const recentToolFingerprints = yield* SynchronizedRef.make<string[]>([])
+    const doomLoopAsked = yield* SynchronizedRef.make(false)
     const verifiers = new Map<string, { readonly goal: string; readonly verifier: Verifier.VerifierImpl }>()
     const disposeVerifiers = Effect.fnUntraced(function* () {
       for (const { verifier } of verifiers.values()) yield* verifier.dispose
@@ -227,12 +230,34 @@ const buildRealHooks = (
           // Parallel different-args same-name tools do not match; true retry loops do.
           const fp = DoomLoop.toolFingerprint(call.name, call.input)
           const next = yield* SynchronizedRef.updateAndGet(recentToolFingerprints, (xs) => [...xs, fp].slice(-24))
-          const signal = DoomLoop.detectRepeatedToolFingerprint(next, 8)
-          if (signal) {
+          const hard = DoomLoop.detectRepeatedToolFingerprint(next, DoomLoop.HARD_ABORT_THRESHOLD)
+          if (hard) {
             yield* instance.terminal.request("unrecoverable_failure")
             yield* instance.eventBus.publish({
               _tag: "HardAbort",
-              reason: `doom_loop_tool_${signal.signal.kind}`,
+              reason: `doom_loop_tool_${hard.signal.kind}`,
+            })
+            yield* SynchronizedRef.set(abortRequested, true)
+            return
+          }
+          const asked = yield* SynchronizedRef.get(doomLoopAsked)
+          if (asked || !DoomLoop.detectRepeatedToolFingerprint(next, DoomLoop.ASK_THRESHOLD)) return
+          yield* SynchronizedRef.set(doomLoopAsked, true)
+          const permission = yield* Effect.serviceOption(PermissionV2.Service)
+          if (Option.isNone(permission)) return
+          const result = yield* permission.value
+            .assert({
+              sessionID: SessionSchema.ID.make(call.sessionID),
+              action: "doom_loop",
+              resources: [call.name],
+              metadata: { tool: call.name, input: call.input ?? {} },
+            })
+            .pipe(Effect.exit)
+          if (result._tag === "Failure") {
+            yield* instance.terminal.request("unrecoverable_failure")
+            yield* instance.eventBus.publish({
+              _tag: "HardAbort",
+              reason: "doom_loop_permission_denied",
             })
             yield* SynchronizedRef.set(abortRequested, true)
           }

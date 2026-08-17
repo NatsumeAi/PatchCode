@@ -143,7 +143,13 @@ describe("InstructionContext", () => {
         FSUtil.Service,
         FSUtil.Service.pipe(
           Effect.map((fs) =>
-            FSUtil.Service.of({ ...fs, up: () => Effect.fail(new FSUtil.FileSystemError({ method: "up" })) }),
+            FSUtil.Service.of({
+              ...fs,
+              up: (options) =>
+                options.targets.some((target) => target === "AGENTS.md" || target === "CLAUDE.md" || target === "CONTEXT.md")
+                  ? Effect.fail(new FSUtil.FileSystemError({ method: "up" }))
+                  : fs.up(options),
+            }),
           ),
         ),
       ).pipe(Layer.provide(LayerNode.compile(FSUtil.node)))
@@ -248,7 +254,7 @@ describe("InstructionContext", () => {
       )
 
       expect(observed).toEqual({
-        targets: ["AGENTS.md"],
+        targets: ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"],
         start: FSUtil.resolve("/repo"),
         stop: FSUtil.resolve("/repo"),
       })
@@ -269,7 +275,22 @@ describe("InstructionContext", () => {
             filesystemLayer: Layer.effect(
               FSUtil.Service,
               FSUtil.Service.pipe(
-                Effect.map((fs) => FSUtil.Service.of({ ...fs, up: () => Effect.sync(() => ((scanned = true), [])) })),
+                Effect.map((fs) =>
+                  FSUtil.Service.of({
+                    ...fs,
+                    up: (options) =>
+                      Effect.sync(() => {
+                        if (
+                          options.targets.some(
+                            (target) => target === "AGENTS.md" || target === "CLAUDE.md" || target === "CONTEXT.md",
+                          )
+                        ) {
+                          scanned = true
+                        }
+                        return []
+                      }),
+                  }),
+                ),
               ),
             ).pipe(Layer.provide(LayerNode.compile(FSUtil.node))),
             locationServiceLayer: Layer.succeed(
@@ -301,7 +322,22 @@ describe("InstructionContext", () => {
             filesystemLayer: Layer.effect(
               FSUtil.Service,
               FSUtil.Service.pipe(
-                Effect.map((fs) => FSUtil.Service.of({ ...fs, up: () => Effect.sync(() => ((scanned = true), [])) })),
+                Effect.map((fs) =>
+                  FSUtil.Service.of({
+                    ...fs,
+                    up: (options) =>
+                      Effect.sync(() => {
+                        if (
+                          options.targets.some(
+                            (target) => target === "AGENTS.md" || target === "CLAUDE.md" || target === "CONTEXT.md",
+                          )
+                        ) {
+                          scanned = true
+                        }
+                        return []
+                      }),
+                  }),
+                ),
               ),
             ).pipe(Layer.provide(LayerNode.compile(FSUtil.node))),
             locationServiceLayer: Layer.succeed(

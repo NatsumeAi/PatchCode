@@ -16,8 +16,10 @@ export const RETENTION = Duration.days(7)
 
 export const MANAGED_DIRECTORY = "tool-output"
 
+/** Official leftover Truncate.DIR. Directory itself is not on the GLOB allowlist. */
+export const DIR = path.join(Global.Path.data, MANAGED_DIRECTORY)
 /** Official leftover Truncate.GLOB. Allowlist for tool-output files. */
-export const GLOB = path.join(Global.Path.data, MANAGED_DIRECTORY, "*")
+export const GLOB = path.join(DIR, "*")
 
 export interface BoundInput {
   readonly sessionID: SessionSchema.ID

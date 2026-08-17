@@ -81,3 +81,14 @@ test("read-only and execute exclude memory_add_note; read-write and all include 
   expect(all).toContain("memory_add_note")
   expect(readOnly).toContain("memory_read")
 })
+
+test("websearch advertise respects webSearchEnabled", async () => {
+  const namesFor = (providerID: string) =>
+    withRegistry((registry) =>
+      registry.materialize({ providerID, capability: "all" }).pipe(Effect.map((item) => item.definitions.map((tool) => tool.name))),
+    )
+  const opencode = await Effect.runPromise(namesFor("opencode"))
+  const anthropic = await Effect.runPromise(namesFor("anthropic"))
+  expect(opencode).toContain("websearch")
+  expect(anthropic).not.toContain("websearch")
+})

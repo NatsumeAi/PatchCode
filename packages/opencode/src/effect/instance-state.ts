@@ -1,8 +1,9 @@
-import { Effect, ScopedCache, Scope } from "effect"
+import { Effect, Option, ScopedCache, Scope } from "effect"
 import type { InstanceContext } from "@/project/instance-context"
 import { InstanceRef, WorkspaceRef } from "./instance-ref"
 import { registerDisposer } from "./instance-registry"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
+import { Location } from "@opencode-ai/core/location"
 
 const TypeId = "~opencode/InstanceState"
 
@@ -13,8 +14,26 @@ export interface InstanceState<A, E = never, R = never> {
 
 export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
-  if (!ctx) return yield* Effect.die(new Error("InstanceRef not provided"))
-  return ctx
+  if (ctx) return ctx
+  // Drain fibers (SessionRunner) provide Location.Service, not HTTP InstanceRef.
+  // Plugin/SystemPrompt/LSP still go through InstanceState; synthesize the
+  // instance from the session location so the unique live path works.
+  const location = yield* Effect.serviceOption(Location.Service)
+  if (Option.isSome(location)) {
+    const loc = location.value
+    return {
+      directory: loc.directory,
+      worktree: loc.project.directory,
+      project: {
+        id: loc.project.id,
+        worktree: loc.project.directory,
+        vcs: loc.vcs,
+        time: { created: 0, updated: 0 },
+        sandboxes: [],
+      },
+    } as InstanceContext
+  }
+  return yield* Effect.die(new Error("InstanceRef not provided"))
 })
 
 export const workspaceID = Effect.gen(function* () {

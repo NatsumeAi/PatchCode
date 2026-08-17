@@ -145,7 +145,7 @@ const executions: string[] = []
 const permission = Layer.succeed(
   PermissionV2.Service,
   PermissionV2.Service.of({
-    assert: () => Effect.die("unused"),
+    assert: (input) => (input.action === "doom_loop" ? Effect.void : Effect.die("unused")),
     assertPolicyAsk: () => Effect.die("unused"),
     ask: () => Effect.die("unused"),
     reply: () => Effect.die("unused"),
@@ -4346,6 +4346,25 @@ describe("SessionRunnerLLM", () => {
         sessionID,
         model: ModelV2.Ref.make({ id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") }),
       })
+      expect(yield* sessionTape()).toBeUndefined()
+      requests.length = 0
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
+      response = fragmentFixture("text", "text-b", ["B"]).completeEvents
+      yield* session.resume(sessionID)
+      const second = turnRequests()[0]!.compiled!
+      expect(JSON.stringify(second.messages)).toContain("First")
+      expect(JSON.stringify(second.messages)).toContain("Second")
+    }),
+  )
+
+  it.effect("switchAgent drops the tape so the next generate origins for the new agent", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
+      response = fragmentFixture("text", "text-a", ["A"]).completeEvents
+      yield* session.resume(sessionID)
+      yield* session.switchAgent({ sessionID, agent: "plan" })
       expect(yield* sessionTape()).toBeUndefined()
       requests.length = 0
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })

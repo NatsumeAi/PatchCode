@@ -1,11 +1,10 @@
 export * as WebSearchTool from "./websearch"
 
 import { ToolFailure } from "@opencode-ai/llm"
-import { Context, Duration, Effect, Layer, Schema } from "effect"
+import { Duration, Effect, Layer, Schema } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
-import { truthy } from "../flag/flag"
 import { InstallationVersion } from "../installation/version"
 import { PositiveInt } from "../schema"
 import { PermissionV2 } from "../permission"
@@ -14,6 +13,9 @@ import { Tools } from "./tools"
 import { collectBoundedResponseBody } from "./http-body"
 import { checksum } from "../util/encode"
 import { ToolRegistry } from "./registry"
+import { ConfigService, configNode, type Config } from "./websearch-config"
+
+export { ConfigService, configNode, defaultConfigLayer, webSearchEnabled, type Config } from "./websearch-config"
 
 export const name = "websearch"
 export const NO_RESULTS = "No search results found. Please try a different query."
@@ -65,40 +67,6 @@ export const Input = Schema.Struct({
 
 export const Provider = Schema.Literals(["exa", "parallel"])
 export type Provider = typeof Provider.Type
-
-export interface Config {
-  readonly provider?: Provider
-  readonly enableExa: boolean
-  readonly enableParallel: boolean
-  readonly exaApiKey?: string
-  readonly parallelApiKey?: string
-}
-
-export class ConfigService extends Context.Service<ConfigService, Config>()("@opencode/v2/WebSearchConfig") {}
-
-/** Isolates the retained product environment contract from the generic tool implementation. */
-export const defaultConfigLayer = Layer.sync(ConfigService, () =>
-  ConfigService.of({
-    provider:
-      process.env.OPENCODE_WEBSEARCH_PROVIDER === "exa" || process.env.OPENCODE_WEBSEARCH_PROVIDER === "parallel"
-        ? process.env.OPENCODE_WEBSEARCH_PROVIDER
-        : undefined,
-    enableExa: truthy("OPENCODE_EXPERIMENTAL") || truthy("OPENCODE_ENABLE_EXA") || truthy("OPENCODE_EXPERIMENTAL_EXA"),
-    enableParallel: truthy("OPENCODE_ENABLE_PARALLEL") || truthy("OPENCODE_EXPERIMENTAL_PARALLEL"),
-    exaApiKey: process.env.EXA_API_KEY,
-    parallelApiKey: process.env.PARALLEL_API_KEY,
-  }),
-)
-
-export const configNode = makeLocationNode({ service: ConfigService, layer: defaultConfigLayer, deps: [] })
-
-/** Official leftover ToolRegistry.webSearchEnabled. */
-export function webSearchEnabled(
-  providerID: string,
-  flags: { readonly exa?: boolean; readonly parallel?: boolean } = {},
-) {
-  return providerID === "opencode" || flags.exa === true || flags.parallel === true
-}
 
 export function selectProvider(
   sessionID: string,

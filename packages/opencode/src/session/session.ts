@@ -62,6 +62,14 @@ export function isDefaultTitle(title: string) {
 
 type SessionRow = typeof SessionTable.$inferSelect
 
+/** Sandbox profile lives on `sandbox_profile`, not leftover user metadata. */
+function userMetadata(meta: Record<string, unknown> | null | undefined) {
+  if (meta == null) return undefined
+  if (!Object.prototype.hasOwnProperty.call(meta, "sandboxProfile")) return meta
+  const { sandboxProfile: _profile, ...rest } = meta
+  return Object.keys(rest).length === 0 ? undefined : rest
+}
+
 export function fromRow(row: SessionRow): Info {
   if (row.sandbox_profile) pinSession(row.id, row.sandbox_profile)
   const summary =
@@ -112,7 +120,7 @@ export function fromRow(row: SessionRow): Info {
       },
     },
     share,
-    metadata: row.metadata ?? undefined,
+    metadata: userMetadata(row.metadata),
     revert,
     permission: row.permission ? [...row.permission] : undefined,
     time: {
@@ -568,7 +576,7 @@ const layer: Layer.Layer<
         title: input.title ?? (input.parentID ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString(),
         agent: input.agent,
         model: input.model,
-        metadata: { ...input.metadata, sandboxProfile },
+        metadata: userMetadata(input.metadata),
         permission: input.permission ? [...input.permission] : undefined,
         cost: 0,
         tokens: EmptyTokens,
@@ -579,7 +587,10 @@ const layer: Layer.Layer<
       }
       yield* Effect.logInfo("created", result)
 
-      yield* events.publish(SessionV1.Event.Created, { sessionID: result.id, info: result })
+      yield* events.publish(SessionV1.Event.Created, {
+        sessionID: result.id,
+        info: { ...result, metadata: { ...input.metadata, sandboxProfile } },
+      })
 
       return result
     })

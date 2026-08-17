@@ -194,7 +194,12 @@ const layer = Layer.effect(
           if (pending.has(request.id)) return yield* EffectRuntime.die(`Duplicate pending permission ID: ${request.id}`)
           pending.set(request.id, item)
           yield* events
-            .publish(Event.Asked, request)
+            .publish(Event.Asked, request, {
+              location: {
+                directory: location.directory,
+                ...(location.workspaceID === undefined ? {} : { workspaceID: location.workspaceID }),
+              },
+            })
             .pipe(EffectRuntime.onError(() => EffectRuntime.sync(() => pending.delete(request.id))))
           return item
         }),
@@ -268,11 +273,20 @@ const layer = Layer.effect(
         EffectRuntime.gen(function* () {
           const existing = pending.get(input.requestID)
           if (!existing) return yield* new NotFoundError({ requestID: input.requestID })
-          yield* events.publish(Event.Replied, {
-            sessionID: existing.request.sessionID,
-            requestID: existing.request.id,
-            reply: input.reply,
-          })
+          yield* events.publish(
+            Event.Replied,
+            {
+              sessionID: existing.request.sessionID,
+              requestID: existing.request.id,
+              reply: input.reply,
+            },
+            {
+              location: {
+                directory: location.directory,
+                ...(location.workspaceID === undefined ? {} : { workspaceID: location.workspaceID }),
+              },
+            },
+          )
 
           if (input.reply === "reject") {
             yield* Deferred.fail(
@@ -282,11 +296,20 @@ const layer = Layer.effect(
             pending.delete(input.requestID)
             for (const [id, item] of pending) {
               if (item.request.sessionID !== existing.request.sessionID) continue
-              yield* events.publish(Event.Replied, {
-                sessionID: item.request.sessionID,
-                requestID: item.request.id,
-                reply: "reject",
-              })
+              yield* events.publish(
+                Event.Replied,
+                {
+                  sessionID: item.request.sessionID,
+                  requestID: item.request.id,
+                  reply: "reject",
+                },
+                {
+                  location: {
+                    directory: location.directory,
+                    ...(location.workspaceID === undefined ? {} : { workspaceID: location.workspaceID }),
+                  },
+                },
+              )
               yield* Deferred.fail(item.deferred, new DeclinedError())
               pending.delete(id)
             }

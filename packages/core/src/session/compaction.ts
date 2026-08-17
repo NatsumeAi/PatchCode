@@ -208,6 +208,46 @@ export const serializeToolContent = (content: SessionMessage.ToolStateCompleted[
     )
     .join("\n")
 
+/** Official leftover compaction `{ info, parts }[]` for `experimental.chat.messages.transform`. */
+export const toPluginMessages = (entries: readonly Entry[]): PluginHooks.PluginChatMessage[] =>
+  entries.map((entry) => {
+    const message = entry.message
+    if (message.type === "user") {
+      return {
+        info: { id: String(message.id), role: "user", sessionID: String(message.sessionID) },
+        parts: [
+          { type: "text", text: message.text },
+          ...(message.files ?? []).map((file) => ({
+            type: "file",
+            mime: file.mime,
+            filename: file.name,
+            url: file.uri,
+          })),
+        ],
+      }
+    }
+    if (message.type === "assistant") {
+      return {
+        info: { id: String(message.id), role: "assistant", sessionID: String(message.sessionID) },
+        parts: message.content.map((part) => {
+          if (part.type === "text") return { type: "text", text: part.text }
+          if (part.type === "reasoning") return { type: "reasoning", text: part.text }
+          return { type: "tool", tool: part.name, input: part.state.input }
+        }),
+      }
+    }
+    return {
+      info: { id: String(message.id), role: message.type, sessionID: String(message.sessionID) },
+      parts: [{ type: "text", text: serialize(message) }],
+    }
+  })
+
+const pluginMessageText = (message: PluginHooks.PluginChatMessage) =>
+  message.parts
+    .map((part) => (typeof part.text === "string" ? part.text : typeof part.tool === "string" ? `[Tool] ${part.tool}` : ""))
+    .filter((text) => text.length > 0)
+    .join("\n")
+
 const serialize = (message: SessionMessage.Message) => {
   if (message.type === "user") {
     const files = message.files?.map((file) => `[Attached ${file.mime}: ${file.name ?? file.uri}]`) ?? []
@@ -650,15 +690,23 @@ If nothing is worth keeping verbatim, output <selection>[]</selection>.`
     const compacting = Option.isSome(compactionHookEarly)
       ? yield* compactionHookEarly.value.compacting({ sessionID: String(input.sessionID) })
       : { context: [] as string[], prompt: undefined as string | undefined }
-    if (Option.isSome(compactionHookEarly)) {
-      yield* compactionHookEarly.value.transformMessages({ messages: [...fullHistory] })
-    }
+    const originalPluginMessages = toPluginMessages(input.entries)
+    const transformedMessages = Option.isSome(compactionHookEarly)
+      ? (yield* compactionHookEarly.value.transformMessages({ messages: structuredClone(originalPluginMessages) }))
+          .messages
+      : originalPluginMessages
+    const transformedContext = JSON.stringify(transformedMessages) === JSON.stringify(originalPluginMessages)
+      ? []
+      : transformedMessages.map(pluginMessageText).filter((text) => text.length > 0)
     // Best-effort pre-compress insights (memory wiring): absent wiring and
     // failures both degrade to "" so compaction never depends on memory.
     const insights = yield* (dependencies.onPreCompress?.(input.entries, input.sessionID) ?? Effect.succeed("")).pipe(
       Effect.catch(() => Effect.succeed("")),
     )
-    const pluginContext = compacting.context.length > 0 ? [...fullHistory, ...compacting.context] : fullHistory
+    const pluginContext =
+      compacting.context.length > 0 || transformedContext.length > 0
+        ? [...fullHistory, ...compacting.context, ...transformedContext]
+        : fullHistory
     const basePrompt =
       compacting.prompt ??
       buildPrompt({ previousSummary, numberedItems: numbered, selectionGuidance, context: pluginContext })

@@ -25,6 +25,7 @@ import { ConfigToolOutput } from "./config/tool-output"
 import { ConfigWatcher } from "./config/watcher"
 import { ConfigV1 } from "./config/legacy/config"
 import { ConfigMigrateV1 } from "./config/legacy/migrate"
+import { Flag } from "./flag/flag"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: Schema.optional(Schema.String).annotate({
@@ -171,21 +172,23 @@ const layer = Layer.effect(
     const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
     const decodeV1Info = Schema.decodeUnknownOption(ConfigV1.Info, decodeOptions)
 
-    const loadFile = Effect.fnUntraced(function* (filepath: string) {
-      const text = yield* fs.readFileStringSafe(filepath)
-      if (!text) return
-
+    const parseDocument = (text: string, source?: string) => {
       const errors: ParseError[] = []
       const input: unknown = parse(text, errors, { allowTrailingComma: true })
       if (errors.length) return
-
       const info = Option.getOrUndefined(
         ConfigMigrateV1.isV1(input)
           ? decodeV1Info(input).pipe(Option.map(ConfigMigrateV1.migrate), Option.flatMap(decodeInfo))
           : decodeInfo(input),
       )
       if (!info) return
-      return new Document({ type: "document", path: filepath, info })
+      return new Document({ type: "document", ...(source === undefined ? {} : { path: source }), info })
+    }
+
+    const loadFile = Effect.fnUntraced(function* (filepath: string) {
+      const text = yield* fs.readFileStringSafe(filepath)
+      if (!text) return
+      return parseDocument(text, filepath)
     })
 
     const loadDirectory = Effect.fnUntraced(function* (directory: AbsolutePath) {
@@ -203,15 +206,18 @@ const layer = Layer.effect(
     const load = Effect.fn("Config.load")(function* () {
       // Re-walk on every load so a newly written opencode.json is visible
       // without reopening the location (test harness + config reload).
-      const discovered = locationIsGlobal
-        ? []
-        : yield* fs
-            .up({
-              targets: [".opencode", ...names.toReversed()],
-              start: location.directory,
-              stop: location.project.directory,
-            })
-            .pipe(Effect.orDie)
+      // OPENCODE_DISABLE_PROJECT_CONFIG matches leftover: skip repo opencode.json
+      // / .opencode walks, keep global + env overrides.
+      const discovered =
+        locationIsGlobal || Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+          ? []
+          : yield* fs
+              .up({
+                targets: [".opencode", ...names.toReversed()],
+                start: location.directory,
+                stop: location.project.directory,
+              })
+              .pipe(Effect.orDie)
       const directories = [
         globalDirectory,
         ...discovered
@@ -227,9 +233,27 @@ const layer = Layer.effect(
         Effect.map((items) => items.filter((config): config is Document => config !== undefined)),
       )
       const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
+      const configFile = process.env.OPENCODE_CONFIG ? yield* loadFile(process.env.OPENCODE_CONFIG) : undefined
+      const configDir = Flag.OPENCODE_CONFIG_DIR
+        ? yield* loadDirectory(AbsolutePath.make(path.resolve(Flag.OPENCODE_CONFIG_DIR)))
+        : []
+      // Leftover Config applies OPENCODE_CONFIG_CONTENT after project files so it
+      // is the runtime override the CLI / JS SDK actually ship (test providers,
+      // `createOpencode({ config })`). Live catalog reads this Config.Service.
+      const configContent = process.env.OPENCODE_CONFIG_CONTENT
+        ? parseDocument(process.env.OPENCODE_CONFIG_CONTENT, "OPENCODE_CONFIG_CONTENT")
+        : undefined
       // Apply general settings first and more specific settings last:
-      // global config, project files, then `.opencode` files.
-      const loaded = [...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()]
+      // global config, OPENCODE_CONFIG, project files, `.opencode` / CONFIG_DIR,
+      // then OPENCODE_CONFIG_CONTENT.
+      const loaded = [
+        ...(supplementary[0] ?? []),
+        ...(configFile ? [configFile] : []),
+        ...direct,
+        ...supplementary.slice(1).flat(),
+        ...configDir,
+        ...(configContent ? [configContent] : []),
+      ]
       // Rules use the opposite order so a user-global rule can override a
       // repository rule. Statement order inside each file stays unchanged.
       yield* policy.load(

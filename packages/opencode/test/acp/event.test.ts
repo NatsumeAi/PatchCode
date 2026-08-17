@@ -330,6 +330,58 @@ describe("acp event routing", () => {
     expect(harness.updates[0]?.update.sessionUpdate).toBe("agent_message_chunk")
   })
 
+  it("routes session.next text and reasoning deltas without leftover part metadata", async () => {
+    const harness = createHarness()
+    await Effect.runPromise(harness.session.create({ id: "ses_live", cwd: "/workspace" }))
+
+    await harness.subscription.handle({
+      id: "evt_text_delta",
+      type: "session.next.text.delta",
+      properties: {
+        sessionID: "ses_live",
+        assistantMessageID: "msg_live",
+        textID: "txt_1",
+        delta: "hello",
+        timestamp: Date.now(),
+      },
+    } as Event)
+    await harness.subscription.handle({
+      id: "evt_reason_delta",
+      type: "session.next.reasoning.delta",
+      properties: {
+        sessionID: "ses_live",
+        assistantMessageID: "msg_live",
+        reasoningID: "rsn_1",
+        delta: "think",
+        timestamp: Date.now(),
+      },
+    } as Event)
+    await harness.subscription.handle({
+      id: "evt_text_ended",
+      type: "session.next.text.ended",
+      properties: {
+        sessionID: "ses_live",
+        assistantMessageID: "msg_live",
+        textID: "txt_1",
+        text: "hello world",
+        timestamp: Date.now(),
+      },
+    } as Event)
+
+    expect(harness.updates.map((update) => update.update)).toEqual([
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg_live",
+        content: { type: "text", text: "hello" },
+      },
+      {
+        sessionUpdate: "agent_thought_chunk",
+        messageId: "msg_live",
+        content: { type: "text", text: "think" },
+      },
+    ])
+  })
+
   it("keeps interleaved sessions isolated for text and reasoning deltas", async () => {
     const harness = createHarness()
     await createKnownSession(harness.session, "ses_a", { messageId: "msg_a", partId: "part_a", partType: "text" })

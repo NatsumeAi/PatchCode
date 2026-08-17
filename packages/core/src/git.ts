@@ -860,7 +860,14 @@ const layer = Layer.effect(
       cwd = repository.worktree,
     ) {
       const result = yield* proc
-        .run(ChildProcess.make("git", args, { cwd, extendEnv: true, stdin: "ignore" })) // sandbox:host
+        .run(
+          ChildProcess.make("git", args, {
+            cwd,
+            extendEnv: true,
+            stdin: "ignore",
+            env: { LANG: "C", LC_ALL: "C" },
+          }),
+        ) // sandbox:host
         .pipe(
           Effect.mapError(
             (cause) => new WorktreeError({ operation, directory: worktreeDirectory, message: cause.message, cause }),
@@ -872,7 +879,9 @@ const layer = Layer.effect(
         operation,
         directory: worktreeDirectory,
         message,
-        forceRequired: operation === "remove" && /contains modified or untracked files|is dirty/i.test(message),
+        forceRequired:
+          operation === "remove" &&
+          /contains modified or untracked files|is dirty|--force|未跟踪|修改/.test(message),
       })
     })
 

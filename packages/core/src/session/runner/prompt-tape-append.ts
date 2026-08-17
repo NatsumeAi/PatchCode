@@ -35,17 +35,37 @@ export const lowerToolResult = (input: { readonly toolCallId: string; readonly c
   content: input.content,
 })
 
+const dataUriMime = (uri: string) => uri.match(/^data:([^;,]+)[;,]/i)?.[1]
+
+const decodeDataTextPlain = (uri: string) => {
+  const comma = uri.indexOf(",")
+  const payload = comma >= 0 ? uri.slice(comma + 1) : ""
+  return Buffer.from(payload, "base64").toString("utf8")
+}
+
 export const lowerUser = (input: {
   readonly text: string
   readonly files?: ReadonlyArray<{ readonly uri: string; readonly mime: string; readonly name?: string }>
 }): PromptTape.ChatMessage => {
   const files = input.files ?? []
   if (files.length === 0) return { role: "user", content: input.text }
+  const inlined: string[] = []
+  const media: typeof files = []
+  for (const file of files) {
+    const mime = file.mime || dataUriMime(file.uri) || ""
+    if (file.uri.startsWith("data:") && mime === "text/plain") {
+      inlined.push(decodeDataTextPlain(file.uri))
+      continue
+    }
+    media.push(file)
+  }
+  const text = [input.text, ...inlined].filter(Boolean).join("\n")
+  if (media.length === 0) return { role: "user", content: text }
   return {
     role: "user",
     content: [
-      { type: "text" as const, text: input.text },
-      ...files.map((file) => ({
+      { type: "text" as const, text },
+      ...media.map((file) => ({
         type: "image_url" as const,
         image_url: { url: file.uri },
       })),

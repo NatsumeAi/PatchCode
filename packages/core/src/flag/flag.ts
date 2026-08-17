@@ -78,4 +78,8 @@ export const Flag = {
   get OPENCODE_CLIENT() {
     return process.env["OPENCODE_CLIENT"] ?? "cli"
   },
+  /** Official leftover native opt-in. Live always uses LLMClient; this does not select a second drain. */
+  get OPENCODE_EXPERIMENTAL_NATIVE_LLM() {
+    return truthy("OPENCODE_EXPERIMENTAL_NATIVE_LLM")
+  },
 }

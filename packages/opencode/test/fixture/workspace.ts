@@ -11,6 +11,7 @@ import { Project } from "../../src/project/project"
 import { Vcs } from "../../src/project/vcs"
 import { Session } from "../../src/session/session"
 import { EventV2Bridge } from "../../src/event-bridge"
+import { SessionExecution } from "@opencode-ai/core/session/execution"
 
 export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.Info>) =>
   AppNodeBuilder.build(
@@ -28,5 +29,6 @@ export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.I
     [
       [InstanceStore.bootstrapNode, InstanceBootstrap.node],
       [RuntimeFlags.node, RuntimeFlags.layer(overrides)],
+      [SessionExecution.node, SessionExecution.noopLayer],
     ],
   )

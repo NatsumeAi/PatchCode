@@ -16,8 +16,18 @@ test("detectTailRepetition ignores short claims", () => {
 
 test("detectRepeatedToolFingerprint fires on same name+args fingerprint streak", () => {
   const fp = DoomLoop.toolFingerprint("bash", { command: "ls" })
-  const signal = DoomLoop.detectRepeatedToolFingerprint(Array.from({ length: 8 }, () => fp), 8)
+  const signal = DoomLoop.detectRepeatedToolFingerprint(
+    Array.from({ length: DoomLoop.HARD_ABORT_THRESHOLD }, () => fp),
+    DoomLoop.HARD_ABORT_THRESHOLD,
+  )
   expect(signal?.channel).toBe("tool_call")
+})
+
+test("detectRepeatedToolFingerprint asks at official 3 identical calls", () => {
+  const fp = DoomLoop.toolFingerprint("bash", { command: "ls" })
+  expect(DoomLoop.detectRepeatedToolFingerprint(Array.from({ length: DoomLoop.ASK_THRESHOLD }, () => fp), DoomLoop.ASK_THRESHOLD)?.channel).toBe(
+    "tool_call",
+  )
 })
 
 test("toolFingerprint differs when args differ", () => {

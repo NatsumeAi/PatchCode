@@ -2,12 +2,32 @@ export * as PluginHooks from "./plugin-hooks"
 
 import { Context, Effect } from "effect"
 
+export type ChatModel = {
+  readonly providerID?: string
+  readonly modelID?: string
+  readonly api?: {
+    readonly id?: string
+    readonly npm?: string
+  }
+}
+
+export type ChatMessage = {
+  readonly id?: string
+  readonly sessionID?: string
+}
+
 export interface Chat {
   readonly transformSystem: (input: {
     readonly sessionID: string
     readonly system: string[]
+    readonly model?: ChatModel
   }) => Effect.Effect<{ readonly system: string[] }>
-  readonly params: (input: { readonly sessionID: string; readonly agent: string }) => Effect.Effect<{
+  readonly params: (input: {
+    readonly sessionID: string
+    readonly agent: string
+    readonly model?: ChatModel
+    readonly message?: ChatMessage
+  }) => Effect.Effect<{
     readonly temperature?: number
     readonly topP?: number
     readonly topK?: number
@@ -43,13 +63,18 @@ export class TextCompleteService extends Context.Service<TextCompleteService, Te
   "@opencode/v2/PluginTextCompleteHook",
 ) {}
 
+export type PluginChatMessage = {
+  info: Record<string, unknown>
+  parts: Array<Record<string, unknown>>
+}
+
 export interface Compaction {
   readonly compacting: (input: { readonly sessionID: string }) => Effect.Effect<{
     readonly context: string[]
     readonly prompt?: string
   }>
-  readonly transformMessages: (input: { readonly messages: unknown[] }) => Effect.Effect<{
-    readonly messages: unknown[]
+  readonly transformMessages: (input: { readonly messages: PluginChatMessage[] }) => Effect.Effect<{
+    readonly messages: PluginChatMessage[]
   }>
   readonly autocontinue: (input: {
     readonly sessionID: string

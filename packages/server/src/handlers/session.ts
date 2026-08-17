@@ -8,6 +8,7 @@ import {
   InvalidCursorError,
   MessageNotFoundError,
   SessionNotFoundError,
+  ServiceUnavailableError,
   UnknownError,
 } from "@opencode-ai/protocol/errors"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -180,6 +181,14 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 }),
               ),
             ),
+            Effect.catchTag("SessionBusyError", () =>
+              Effect.fail(
+                new ServiceUnavailableError({
+                  message: `Session is busy: ${ctx.params.sessionID}`,
+                  service: "session.compact",
+                }),
+              ),
+            ),
           )
           return HttpApiSchema.NoContent.make()
         }),
@@ -187,6 +196,24 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.wait",
         Effect.fn(function* (ctx) {
+          yield* session.get(ctx.params.sessionID).pipe(
+            Effect.catchTag("Session.NotFoundError", (error) =>
+              Effect.fail(
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+              ),
+            ),
+          )
+          // SDK wait is "until the agent loop is idle". An idle session (no
+          // drain, including a brand-new session) must 204 immediately.
+          // SessionV2.wait still polls for a completed assistant and is used
+          // by github/task after they have already started a turn.
+          const active = yield* session.active
+          if (!active.has(ctx.params.sessionID)) {
+            return HttpApiSchema.NoContent.make()
+          }
           yield* session.wait(ctx.params.sessionID).pipe(
             Effect.catchTag("Session.NotFoundError", (error) =>
               Effect.fail(

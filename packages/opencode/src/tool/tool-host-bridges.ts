@@ -1200,7 +1200,7 @@ const chatHookLayer = Layer.effect(
         if (Option.isNone(pluginOpt)) return output
         yield* pluginOpt.value.trigger(
           "experimental.chat.system.transform",
-          { sessionID: input.sessionID, model: {} as never },
+          { sessionID: input.sessionID, model: (input.model ?? {}) as never },
           output,
         )
         return output
@@ -1218,9 +1218,9 @@ const chatHookLayer = Layer.effect(
         const stub = {
           sessionID: input.sessionID,
           agent: input.agent,
-          model: {} as never,
+          model: (input.model ?? {}) as never,
           provider: {} as never,
-          message: {} as never,
+          message: (input.message ?? { sessionID: input.sessionID }) as never,
         }
         yield* pluginOpt.value.trigger("chat.params", stub, params)
         yield* pluginOpt.value.trigger("chat.headers", stub, headersOut)
@@ -1305,7 +1305,12 @@ const compactionHookLayer = Layer.effect(
         return output
       }),
       transformMessages: Effect.fn("PluginCompactionHook.transformMessages")(function* (input) {
-        const output = { messages: input.messages }
+        const output = {
+          messages: input.messages.map((message) => ({
+            info: { ...message.info },
+            parts: message.parts.map((part) => ({ ...part })),
+          })),
+        }
         if (Option.isSome(pluginOpt)) {
           yield* pluginOpt.value.trigger("experimental.chat.messages.transform", {}, output)
         }

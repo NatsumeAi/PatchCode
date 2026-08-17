@@ -81,6 +81,7 @@ import { OverflowContinue } from "../overflow-continue"
 import { GitLabWorkflow } from "../gitlab-workflow"
 import { Image } from "../../image"
 import { Prompt } from "../prompt"
+import { Flag } from "../../flag/flag"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -250,7 +251,15 @@ const layer = Layer.effect(
     const snapshots = yield* Snapshot.Service
     const runtime = yield* SessionRuntime.Service
     const fs = yield* FSUtil.Service
-    const db = (yield* Database.Service).db
+    const database = yield* Database.Service
+    const db = database.db
+    const provideRunnerGlobals = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.provideService(Database.Service, database),
+        Effect.provideService(EventV2.Service, events),
+        Effect.provideService(SessionStore.Service, store),
+        Effect.provideService(FSUtil.Service, fs),
+      )
     const persistTape = (sessionID: SessionSchema.ID, baselineSeq: number, tape: PromptTape.Tape) =>
       Effect.gen(function* () {
         PromptTapeStore.set(sessionID, baselineSeq, tape)
@@ -742,6 +751,20 @@ const layer = Layer.effect(
         initialized ?? (yield* SessionContextEpoch.prepare(db, events, loadSystemContextAndRecall(agent, session.id), session.id))
       const model = yield* models.resolve(session)
       const modelInfo = yield* models.resolveInfo(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const chatModel = {
+        providerID: String(model.provider),
+        modelID: String(model.id),
+        api: {
+          id: String(modelInfo?.id ?? model.id),
+          npm: modelInfo?.api?.type === "aisdk" ? modelInfo.api.package : undefined,
+        },
+      }
+      const chatParamsInput = {
+        sessionID: String(session.id),
+        agent: String(agent.id),
+        model: chatModel,
+        message: { sessionID: String(session.id) },
+      }
       // Drain any verifier rejection feedback captured for this session since
       // the previous turn — DoneDecisionLoop injects reason + evidence into
       // the session-bound VerifierBiDirectional channel after a rejected
@@ -816,6 +839,7 @@ const layer = Layer.effect(
           yield* tools.materialize({
             ...(agent.info ?? {}),
             modelID: model.id,
+            providerID: String(model.provider),
           }),
           PromptTapeStore.getFormat(session.id),
           session.id,
@@ -831,9 +855,11 @@ const layer = Layer.effect(
           .join("\n")
         const chatHook = yield* Effect.serviceOption(PluginHooks.ChatService)
         const systemText = Option.isSome(chatHook)
-          ? (yield* chatHook.value.transformSystem({ sessionID: String(session.id), system: [systemTextRaw] })).system.join(
-              "\n",
-            )
+          ? (yield* chatHook.value.transformSystem({
+              sessionID: String(session.id),
+              system: [systemTextRaw],
+              model: chatModel,
+            })).system.join("\n")
           : systemTextRaw
         const originPrepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
           LLM.request({
@@ -842,7 +868,7 @@ const layer = Layer.effect(
             tools: materialized.definitions,
             messages: [],
             ...(Option.isSome(chatHook)
-              ? yield* chatHook.value.params({ sessionID: String(session.id), agent: String(agent.id) }).pipe(
+              ? yield* chatHook.value.params(chatParamsInput).pipe(
                   Effect.map((hooked) => ({
                     generation: {
                       temperature: hooked.temperature,
@@ -881,6 +907,7 @@ const layer = Layer.effect(
             yield* tools.materialize({
               ...(agent.info ?? {}),
               modelID: model.id,
+              providerID: String(model.provider),
             }),
             PromptTapeStore.getFormat(session.id),
             session.id,
@@ -969,7 +996,7 @@ const layer = Layer.effect(
       const compiledSystem = compiled.messages[0]
       const chatHook = yield* Effect.serviceOption(PluginHooks.ChatService)
       const hooked = Option.isSome(chatHook)
-        ? yield* chatHook.value.params({ sessionID: String(session.id), agent: String(agent.id) })
+        ? yield* chatHook.value.params(chatParamsInput)
         : undefined
       const npm = modelInfo?.api?.type === "aisdk" ? modelInfo.api.package : undefined
       const providerID = String(model.provider)
@@ -988,8 +1015,10 @@ const layer = Layer.effect(
       if (isOpenaiOauth && tape.system) officialOptions.instructions = tape.system
       const officialHeaders: Record<string, string> = providerID.startsWith("opencode")
         ? {
+            ...(session.projectID ? { "x-opencode-project": String(session.projectID) } : {}),
             "x-opencode-session": String(session.id),
             "x-opencode-request": String(session.id),
+            "x-opencode-client": Flag.OPENCODE_CLIENT,
             "User-Agent": `opencode/${InstallationVersion}`,
             ...(hooked?.headers ?? {}),
           }
@@ -1461,8 +1490,26 @@ const layer = Layer.effect(
               // Exhausted or non-retryable: durable fail + propagate (no tool fiber wait —
               // a clean pre-assistant failure has no tool work to settle).
               if (err && !publisher.hasProviderError()) {
+                const retryHint = SessionRetry.retryable(
+                  { data: { message: err.reason.message, isRetryable: true, responseBody: err.reason.message } },
+                  String(model.provider),
+                )
+                if (retryHint?.action) {
+                  yield* events
+                    .publish(SessionStatusEvent.Status, {
+                      sessionID: session.id,
+                      status: {
+                        type: "retry",
+                        attempt: streamAttempt,
+                        message: retryHint.message,
+                        action: retryHint.action,
+                        next: Date.now(),
+                      },
+                    })
+                    .pipe(Effect.catchCause(() => Effect.void))
+                }
                 yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-                yield* withPublication(publisher.failAssistant(err.reason.message))
+                yield* withPublication(publisher.failAssistant(retryHint?.message ?? err.reason.message))
               }
               return yield* Effect.failCause(stream.cause)
             }
@@ -1829,8 +1876,8 @@ const layer = Layer.effect(
     })
 
     return Service.of({
-      run,
-      compact,
+      run: (input) => provideRunnerGlobals(run(input)),
+      compact: (sessionID) => provideRunnerGlobals(compact(sessionID)),
     })
   }),
 )

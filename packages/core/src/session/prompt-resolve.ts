@@ -23,6 +23,21 @@ const calledRead = (input: string | Record<string, unknown>) =>
 const failedRead = (filePath: string, error: string) =>
   `Read tool failed to read ${filePath} with the following error: ${error}`
 
+const dataUriMime = (uri: string) => uri.match(/^data:([^;,]+)[;,]/i)?.[1]
+
+const expandDataTextPlain = (
+  part: Extract<NonNullable<Prompt["parts"]>[number], { type: "file" }>,
+): NonNullable<Prompt["parts"]> | undefined => {
+  const mime = part.mime ?? dataUriMime(part.uri)
+  if (!(part.uri.startsWith("data:") && mime === "text/plain")) return undefined
+  const comma = part.uri.indexOf(",")
+  const payload = comma >= 0 ? part.uri.slice(comma + 1) : ""
+  return [
+    { type: "text", synthetic: true, text: calledRead(part.name ?? "file") },
+    { type: "text", synthetic: true, text: Buffer.from(payload, "base64").toString("utf8") },
+  ]
+}
+
 export type Resolved = {
   readonly text: string
   readonly files: Prompt["files"]
@@ -74,7 +89,7 @@ const assemble = (parts: NonNullable<Prompt["parts"]>): Resolved => {
     .filter((part): part is Extract<typeof part, { type: "file" }> => part.type === "file")
     .map((part) => ({
       uri: part.uri,
-      mime: part.mime ?? "application/octet-stream",
+      mime: part.mime ?? (part.uri.match(/^data:([^;,]+)[;,]/i)?.[1] || "application/octet-stream"),
       ...(part.name === undefined ? {} : { name: part.name }),
       ...(part.description === undefined ? {} : { description: part.description }),
     }))
@@ -121,7 +136,23 @@ export const needsFilesystem = (input: PromptInput.Prompt) => {
 export const resolve = Effect.fn("PromptResolve.resolve")(function* (input: PromptInput.Prompt) {
   const incoming = fromInputParts(input)
   if (!incoming.some((part) => part.type === "file" && part.uri.startsWith("file:"))) {
-    return assemble(expandAgents(incoming))
+    const parts: NonNullable<Prompt["parts"]> = []
+    for (const part of expandAgents(incoming)) {
+      if (part.type !== "file") {
+        parts.push(part)
+        continue
+      }
+      const expanded = expandDataTextPlain(part)
+      if (expanded) {
+        parts.push(...expanded)
+        continue
+      }
+      parts.push({
+        ...part,
+        mime: part.mime ?? dataUriMime(part.uri) ?? "application/octet-stream",
+      })
+    }
+    return assemble(parts)
   }
   const fs = yield* FSUtil.Service
   const parts: NonNullable<Prompt["parts"]> = []
@@ -152,23 +183,15 @@ export const resolve = Effect.fn("PromptResolve.resolve")(function* (input: Prom
 
     const uri = part.uri
     const mimeHint = part.mime
-    if (uri.startsWith("data:") && mimeHint === "text/plain") {
-      const comma = uri.indexOf(",")
-      const payload = comma >= 0 ? uri.slice(comma + 1) : ""
-      const text = Buffer.from(payload, "base64").toString("utf8")
-      parts.push({
-        type: "text",
-        synthetic: true,
-        text: calledRead(part.name ?? "file"),
-      })
-      parts.push({ type: "text", synthetic: true, text })
-      parts.push({ ...part, mime: mimeHint })
+    const expanded = expandDataTextPlain(part)
+    if (expanded) {
+      parts.push(...expanded)
       continue
     }
     if (!uri.startsWith("file:")) {
       parts.push({
         ...part,
-        mime: mimeHint ?? (uri.match(/^data:([^;,]+)[;,]/i)?.[1] || "application/octet-stream"),
+        mime: mimeHint ?? dataUriMime(uri) ?? "application/octet-stream",
       })
       continue
     }

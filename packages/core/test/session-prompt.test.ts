@@ -183,6 +183,30 @@ describe("SessionV2.prompt", () => {
     }),
   )
 
+  it.effect("inlines data:text/plain attachments into prompt text", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const sentinel = "client-only attachment sentinel"
+      const uri = `data:text/plain;base64,${Buffer.from(sentinel).toString("base64")}`
+
+      const message = yield* session.prompt({
+        sessionID,
+        prompt: {
+          text: "read the attachment",
+          parts: [
+            { type: "file", uri, mime: "text/plain", name: "client-only.txt" },
+            { type: "text", text: "read the attachment" },
+          ],
+        },
+        resume: false,
+      })
+
+      expect(message.prompt.text).toContain(sentinel)
+      expect(message.prompt.files ?? []).toEqual([])
+    }),
+  )
+
   it.effect("streams durable Session events after an aggregate sequence", () =>
     Effect.gen(function* () {
       yield* setup
@@ -281,11 +305,13 @@ describe("SessionV2.prompt", () => {
       }
       const first = yield* session.prompt(input)
       wakeCalls.length = 0
+      executionCalls.length = 0
 
       const retried = yield* session.prompt({ ...input, resume: true })
 
       expect(retried).toEqual(first)
-      expect(wakeCalls).toEqual([sessionID])
+      expect(wakeCalls).toEqual([])
+      expect(executionCalls).toEqual([sessionID])
     }),
   )
 
@@ -545,8 +571,8 @@ describe("SessionV2.prompt", () => {
 
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run by default" }) })
 
-      expect(executionCalls).toEqual([])
-      expect(wakeCalls).toEqual([sessionID])
+      expect(executionCalls).toEqual([sessionID])
+      expect(wakeCalls).toEqual([])
     }),
   )
 
@@ -563,8 +589,8 @@ describe("SessionV2.prompt", () => {
         resume: true,
       })
 
-      expect(executionCalls).toEqual([])
-      expect(wakeCalls).toEqual([sessionID])
+      expect(executionCalls).toEqual([sessionID])
+      expect(wakeCalls).toEqual([])
     }),
   )
 

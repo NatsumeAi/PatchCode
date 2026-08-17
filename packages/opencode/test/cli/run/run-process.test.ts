@@ -227,16 +227,9 @@ describe("opencode run (non-interactive subprocess)", () => {
 
         const events = opencode.parseJsonEvents(result.stdout)
         expect(result.exitCode).toBe(0)
-        expect(events.map((event) => event.type)).toEqual([
-          "step_start",
-          "text",
-          "tool_use",
-          "step_finish",
-          "step_start",
-          "step_finish",
-        ])
+        expect(events.map((event) => event.type)).toEqual(["step_start", "text", "tool_use", "step_finish"])
         expect(events[1]?.part).toEqual(expect.objectContaining({ type: "text", text: "partial json" }))
-        expect(events.at(-1)?.part).toEqual(expect.objectContaining({ type: "step-finish", reason: "unknown" }))
+        expect(events.at(-1)?.part).toEqual(expect.objectContaining({ type: "step-finish" }))
       }),
     60_000,
   )

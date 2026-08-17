@@ -1,5 +1,10 @@
+import * as InstanceState from "@/effect/instance-state"
 import { Provider } from "@/provider/provider"
-import { MessageID, SessionID } from "@/session/schema"
+import { Catalog } from "@opencode-ai/core/catalog"
+import { Location } from "@opencode-ai/core/location"
+import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { LLM, LLMClient, LLMEvent, Message, SystemPart } from "@opencode-ai/llm"
 import { Effect, Stream } from "effect"
@@ -10,6 +15,15 @@ export const projectCopyHandlers = HttpApiBuilder.group(InstanceHttpApi, "projec
   Effect.gen(function* () {
     const llm = yield* LLMClient.Service
     const provider = yield* Provider.Service
+    const locations = yield* LocationServiceMap.Service
+
+    const withCatalog = Effect.fnUntraced(function* <A, E, R>(effect: Effect.Effect<A, E, R>) {
+      return yield* effect.pipe(
+        Effect.provide(
+          locations.get(Location.Ref.make({ directory: AbsolutePath.make((yield* InstanceState.context).directory) })),
+        ),
+      )
+    })
 
     const generateName = Effect.fn("ProjectCopyHttpApi.generateName")(function* (context: string | undefined) {
       const text = context?.trim()
@@ -19,13 +33,14 @@ export const projectCopyHandlers = HttpApiBuilder.group(InstanceHttpApi, "projec
       const small =
         (yield* provider.getSmallModel(fallback.providerID)) ??
         (yield* provider.getModel(fallback.providerID, fallback.modelID))
-      const catalog = yield* Effect.promise(() => import("@opencode-ai/core/catalog"))
-      const models = yield* catalog.Catalog.Service.pipe(Effect.catch(() => Effect.succeed(undefined)))
-      const model = models
-        ? yield* models.model
-            .get(small.providerID as never, small.id as never)
-            .pipe(Effect.catch(() => Effect.succeed(undefined)))
-        : undefined
+      const catalog = yield* Catalog.Service
+      const catalogModel = yield* catalog.model
+        .get(small.providerID as never, small.id as never)
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (!catalogModel) return Slug.create()
+      const model = yield* SessionRunnerModel.fromCatalogModel(catalogModel).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
       if (!model) return Slug.create()
       const result = yield* llm
         .stream(
@@ -47,7 +62,7 @@ export const projectCopyHandlers = HttpApiBuilder.group(InstanceHttpApi, "projec
     })
 
     return handlers.handle("generateName", (ctx) =>
-      generateName(ctx.payload.context).pipe(
+      withCatalog(generateName(ctx.payload.context)).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("project copy name generation failed", {
             projectID: ctx.params.projectID,

@@ -795,4 +795,86 @@ describe("Config", () => {
       }),
     ),
   )
+
+  it.live("loads OPENCODE_CONFIG_CONTENT including leftover v1 provider config", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const previous = process.env.OPENCODE_CONFIG_CONTENT
+            process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+              formatter: false,
+              lsp: false,
+              provider: {
+                test: {
+                  name: "Test",
+                  npm: "@ai-sdk/openai-compatible",
+                  models: { "test-model": { id: "test-model", name: "Test Model" } },
+                  options: { apiKey: "test-key", baseURL: "http://127.0.0.1:9" },
+                },
+              },
+            })
+            return previous
+          }),
+          (previous) =>
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+              else process.env.OPENCODE_CONFIG_CONTENT = previous
+            }),
+        ).pipe(
+          Effect.flatMap(() =>
+            Effect.gen(function* () {
+              const config = yield* Config.Service
+              const documents = (yield* config.entries()).filter((entry) => entry.type === "document")
+              expect(documents).toHaveLength(1)
+              expect(documents[0]?.path).toBe("OPENCODE_CONFIG_CONTENT")
+              expect(documents[0]?.info.providers?.test).toMatchObject({
+                name: "Test",
+                api: {
+                  type: "aisdk",
+                  package: "@ai-sdk/openai-compatible",
+                  url: "http://127.0.0.1:9",
+                },
+              })
+            }).pipe(Effect.provide(testLayer(tmp.path))),
+          ),
+        ),
+      ),
+    ),
+  )
+
+  it.live("lets OPENCODE_CONFIG_CONTENT override directory files", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const previous = process.env.OPENCODE_CONFIG_CONTENT
+            process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: "test/from-env" })
+            return previous
+          }),
+          (previous) =>
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+              else process.env.OPENCODE_CONFIG_CONTENT = previous
+            }),
+        ).pipe(
+          Effect.flatMap(() =>
+            Effect.gen(function* () {
+              yield* Effect.promise(() =>
+                fs.writeFile(path.join(tmp.path, "opencode.json"), JSON.stringify({ model: "test/from-file" })),
+              )
+              const config = yield* Config.Service
+              expect(Config.latest(yield* config.entries(), "model")).toBe("test/from-env")
+            }).pipe(Effect.provide(testLayer(tmp.path))),
+          ),
+        ),
+      ),
+    ),
+  )
 })

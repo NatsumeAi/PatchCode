@@ -15,6 +15,7 @@ import { definition, permission, settle, validateName, type AnyTool, type Regist
 import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
 import { Hooks } from "../hooks"
+import { ConfigService as WebSearchConfigService, webSearchEnabled } from "./websearch-config"
 
 export const SEARCH_TOOL = "search_tool"
 export const USE_TOOL = "use_tool"
@@ -40,6 +41,7 @@ export interface Interface {
     permissions?: PermissionV2.Ruleset
     capability?: "read-only" | "read-write" | "execute" | "all"
     modelID?: string
+    providerID?: string
   }) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
   readonly register: (
@@ -259,12 +261,21 @@ const registryLayer = Layer.effect(
           if (BROWSER_TOOLS.has(name) && (!browserEnabled || Option.isNone(browserHost))) advertised.delete(name)
         }
         const modelID = agent.modelID ?? ""
-        const usePatch = modelID.includes("gpt-") && !modelID.includes("oss") && !modelID.includes("gpt-4")
-        if (usePatch) {
-          advertised.delete("edit")
-          advertised.delete("write")
-        } else {
-          advertised.delete("apply_patch")
+        if (modelID) {
+          const usePatch = modelID.includes("gpt-") && !modelID.includes("oss") && !modelID.includes("gpt-4")
+          if (usePatch) {
+            advertised.delete("edit")
+            advertised.delete("write")
+          } else {
+            advertised.delete("apply_patch")
+          }
+        }
+        if (agent.providerID) {
+          const search = yield* Effect.serviceOption(WebSearchConfigService)
+          const flags = Option.isSome(search)
+            ? { exa: search.value.enableExa, parallel: search.value.enableParallel }
+            : {}
+          if (!webSearchEnabled(agent.providerID, flags)) advertised.delete("websearch")
         }
         const definitions = Array.from(advertised, ([name, registration]) => definition(name, registration.tool))
         // Restore V1 describeTask: append callable subagent catalog to task tool description.

@@ -61,6 +61,13 @@ function v1AssistantError(message: SessionMessage.Assistant): { error?: { name: 
   return { error: { name: "UnknownError", data: message.error } }
 }
 
+function userMetadata(meta: SessionV1.SessionInfo["metadata"]) {
+  if (meta == null) return undefined
+  if (!Object.prototype.hasOwnProperty.call(meta, "sandboxProfile")) return meta
+  const { sandboxProfile: _profile, ...rest } = meta
+  return Object.keys(rest).length === 0 ? undefined : rest
+}
+
 function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
@@ -79,7 +86,7 @@ function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInse
     summary_deletions: info.summary?.deletions,
     summary_files: info.summary?.files,
     summary_diffs: info.summary?.diffs ? [...info.summary.diffs] : undefined,
-    metadata: info.metadata,
+    metadata: userMetadata(info.metadata),
     sandbox_profile: typeof info.metadata?.sandboxProfile === "string" ? info.metadata.sandboxProfile : "off",
     cost: info.cost ?? 0,
     tokens_input: (info.tokens ?? { input: 0 }).input,
@@ -135,32 +142,10 @@ function run(db: DatabaseService, events: EventV2.Interface, event: SessionEvent
     const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type })
     const updateMessage = (message: SessionMessage.Message) => {
-      if (
-        event.durable === undefined &&
-        event.type !== SessionEvent.Shell.Progress.type &&
-        event.type !== SessionEvent.Tool.Progress.type
-      ) {
+      if (event.durable === undefined) {
         return Effect.die("Durable Session event is missing aggregate sequence")
       }
       return Effect.gen(function* () {
-        if (event.type === SessionEvent.Shell.Progress.type || event.type === SessionEvent.Tool.Progress.type) {
-          const existing = yield* db
-            .select()
-            .from(SessionMessageTable)
-            .where(
-              and(
-                eq(SessionMessageTable.id, SessionMessage.ID.make(message.id)),
-                eq(SessionMessageTable.session_id, event.data.sessionID),
-              ),
-            )
-            .get()
-            .pipe(Effect.orDie)
-          if (existing) {
-            const current = decodeRow(existing)
-            if (current.type === "shell" && current.time.completed !== undefined) return
-            if (current.type === "assistant" && current.time.completed !== undefined) return
-          }
-        }
         const encoded = encodeMessage(message)
         const { id, type, ...data } = encoded
         yield* db
@@ -1066,7 +1051,6 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.ContextUpdated, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, events, event))
-    yield* events.project(SessionEvent.Shell.Progress, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Shell.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Step.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Step.Ended, (event) =>
@@ -1086,7 +1070,6 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Tool.Input.Started, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Input.Ended, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Called, (event) => run(db, events, event))
-    yield* events.project(SessionEvent.Tool.Progress, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Success, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, events, event))
     yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, events, event))
@@ -1224,18 +1207,8 @@ const layer = Layer.effectDiscard(
         yield* SessionContextEpoch.reset(db, event.data.sessionID)
       }),
     )
-    // Live-only Progress events are not durable, so events.project never runs.
-    // Dual-write V1 running metadata for TUI + tests (same cadence as V1 updatePart).
-    const unsubProgress = yield* events.listen((event) => {
-      if (
-        event.type !== SessionEvent.Shell.Progress.type &&
-        event.type !== SessionEvent.Tool.Progress.type
-      ) {
-        return Effect.void
-      }
-      return run(db, events, event)
-    })
-    yield* Effect.addFinalizer(() => unsubProgress)
+    // Live-only Progress events are not durable and must not rewrite SessionMessage rows.
+    // Subscribers still receive them through EventV2.listen / streams.
   }),
 )
 
