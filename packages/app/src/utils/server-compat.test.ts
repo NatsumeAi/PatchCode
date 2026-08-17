@@ -184,9 +184,7 @@ describe("createCompatibleApi", () => {
     expect(url.searchParams.get("limit")).toBe("20")
   })
 
-  test("prefers V2 session permission reply even when protocol probes as v1", async () => {
-    // Hybrid servers advertise /global/health (v1) but run V2 tools that publish
-    // permission.v2.asked — reply must hit QuestionV2/PermissionV2 endpoints.
+  test("prefers session permission reply even when protocol probes as older health", async () => {
     const { api, requests } = setup("v1")
     await api.permission.reply({
       sessionID: "ses_1",

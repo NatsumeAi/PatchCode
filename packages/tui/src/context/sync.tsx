@@ -182,7 +182,7 @@ export const {
     }
 
     /** Map PermissionV2.Request → PermissionRequest shape the existing prompt UI uses. */
-    const fromV2Permission = (props: {
+    const toPermissionRequest = (props: {
       id: string
       sessionID: string
       action: string
@@ -200,19 +200,6 @@ export const {
       ...(props.source?.type === "tool" && props.source.messageID && props.source.callID
         ? { tool: { messageID: props.source.messageID, callID: props.source.callID } }
         : {}),
-    })
-
-    /** Map QuestionV2.Request → QuestionRequest for the existing QuestionPrompt UI. */
-    const fromV2Question = (props: {
-      id: string
-      sessionID: string
-      questions: QuestionRequest["questions"]
-      tool?: QuestionRequest["tool"]
-    }): QuestionRequest => ({
-      id: props.id,
-      sessionID: props.sessionID,
-      questions: props.questions,
-      ...(props.tool ? { tool: props.tool } : {}),
     })
 
     const upsertQuestion = (request: QuestionRequest) => {
@@ -490,28 +477,30 @@ export const {
           break
         }
 
-        // Legacy event name: still upsert UI, but reply always goes through one API.
+        case "permission.v2.asked":
         case "permission.asked": {
-          const request = event.properties as PermissionRequest
-          if (permission.mode === "auto") {
-            void replyPermission(request, "once", directory, workspace)
-            break
-          }
-          upsertPermission(request)
-          break
-        }
-
-        case "permission.v2.asked": {
           const raw = event.properties as {
             id: string
             sessionID: string
-            action: string
-            resources: string[]
+            action?: string
+            permission?: string
+            resources?: string[]
+            patterns?: string[]
             save?: string[]
+            always?: string[]
             metadata?: Record<string, unknown>
             source?: { type: string; messageID?: string; callID?: string }
+            tool?: PermissionRequest["tool"]
           }
-          const request = fromV2Permission(raw)
+          const request = raw.action !== undefined ? toPermissionRequest({
+            id: raw.id,
+            sessionID: raw.sessionID,
+            action: raw.action,
+            resources: raw.resources ?? [],
+            save: raw.save,
+            metadata: raw.metadata,
+            source: raw.source,
+          }) : raw as PermissionRequest
           if (permission.mode === "auto") {
             void replyPermission(request, "once", directory, workspace)
             break
@@ -539,22 +528,10 @@ export const {
           break
         }
 
-        case "question.asked": {
+        case "question.asked":
+        case "question.v2.asked": {
           const request = event.properties as QuestionRequest
           upsertQuestion(request)
-          break
-        }
-
-        // V2 runner question tool publishes this; TUI previously only handled
-        // question.asked so the prompt never appeared and the tool hung.
-        case "question.v2.asked": {
-          const raw = event.properties as {
-            id: string
-            sessionID: string
-            questions: QuestionRequest["questions"]
-            tool?: QuestionRequest["tool"]
-          }
-          upsertQuestion(fromV2Question(raw))
           break
         }
 

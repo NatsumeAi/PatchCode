@@ -185,10 +185,9 @@ describe("run session data", () => {
       properties: {
         id: "perm-1",
         sessionID: "session-1",
-        permission: "read",
-        patterns: ["/tmp/file.txt"],
+        action: "read",
+        resources: ["/tmp/file.txt"],
         metadata: {},
-        always: [],
       },
     }).data
 
@@ -240,11 +239,11 @@ describe("run session data", () => {
       properties: {
         id: "perm-1",
         sessionID: "session-1",
-        permission: "bash",
-        patterns: ["src/**/*.ts"],
+        action: "bash",
+        resources: ["src/**/*.ts"],
         metadata: {},
-        always: [],
-        tool: {
+        source: {
+          type: "tool",
           messageID: "msg-1",
           callID: "call-1",
         },

@@ -8,6 +8,7 @@ import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2Bridge } from "@/event-bridge"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
+import { PermissionV2 } from "@opencode-ai/core/permission"
 import { BackgroundJob } from "@/background/job"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
@@ -30,6 +31,7 @@ import { InstanceHttpApi } from "../api"
 import { loopCommandForSession } from "@opencode-ai/core/session/loop-control/command"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { ConfigMarkdown } from "@opencode-ai/core/config/markdown"
@@ -71,7 +73,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
   Effect.gen(function* () {
     const session = yield* Session.Service
     const shareSvc = yield* SessionShare.Service
-    const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
@@ -125,6 +126,25 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return job
     })
 
+    const withLocation = <A, E, R>(
+      sessionID: SessionID,
+      body: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E | HttpApiError.BadRequest | ApiNotFoundError> =>
+      Effect.gen(function* () {
+        const current = yield* requireSession(sessionID)
+        const maybeLocations = yield* Effect.serviceOption(LocationServiceMap.Service)
+        if (Option.isNone(maybeLocations)) {
+          return yield* new HttpApiError.BadRequest({})
+        }
+        const locationLayer = maybeLocations.value.get(
+          Location.Ref.make({
+            directory: AbsolutePath.make(current.directory),
+            workspaceID: current.workspaceID,
+          }),
+        )
+        return yield* body.pipe(Effect.provide(locationLayer))
+      })
+
     const withLocationHooks = <A, E>(
       sessionID: SessionID,
       body: Effect.Effect<A, E, Hooks.Service>,
@@ -135,10 +155,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         if (Option.isNone(maybeLocations)) {
           return yield* body.pipe(Effect.provide(Hooks.disabled))
         }
-        const locationLayer = maybeLocations.value.get({
-          directory: AbsolutePath.make(current.directory),
-          workspaceID: current.workspaceID,
-        })
+        const locationLayer = maybeLocations.value.get(
+          Location.Ref.make({
+            directory: AbsolutePath.make(current.directory),
+            workspaceID: current.workspaceID,
+          }),
+        )
         return yield* body.pipe(Effect.provide(locationLayer))
       })
 
@@ -947,17 +969,22 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PermissionResponsePayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      // Deprecated Instance compat: shared V1 Permission.Service (see dual-path classification).
-      // Live TUI/tools ask+reply use PermissionV2; do not dual-write.
-      yield* permissionSvc.reply({ requestID: ctx.params.permissionID, reply: ctx.payload.response }).pipe(
-        Effect.catchTag("Permission.NotFoundError", (error) =>
-          Effect.fail(
-            new PermissionNotFoundError({
-              requestID: String(error.requestID),
-              message: `Permission request not found: ${error.requestID}`,
-            }),
-          ),
-        ),
+      const requestID = PermissionV2.ID.create(String(ctx.params.permissionID))
+      yield* withLocation(
+        ctx.params.sessionID,
+        Effect.gen(function* () {
+          const permission = yield* PermissionV2.Service
+          yield* permission.reply({ requestID, reply: ctx.payload.response }).pipe(
+            Effect.catchTag("PermissionV2.NotFoundError", (error) =>
+              Effect.fail(
+                new PermissionNotFoundError({
+                  requestID: String(error.requestID),
+                  message: `Permission request not found: ${error.requestID}`,
+                }),
+              ),
+            ),
+          )
+        }),
       )
       return true
     })

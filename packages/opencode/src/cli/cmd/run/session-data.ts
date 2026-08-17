@@ -311,6 +311,35 @@ function key(msg: string, call: string): string {
   return `${msg}:${call}`
 }
 
+export function toPermissionRequest(props: {
+  id: string
+  sessionID: string
+  action?: string
+  permission?: string
+  resources?: string[]
+  patterns?: string[]
+  save?: string[]
+  always?: string[]
+  metadata?: Record<string, unknown>
+  source?: { type: string; messageID?: string; callID?: string }
+  tool?: { messageID: string; callID: string }
+}): PermissionRequest {
+  const resources = props.resources ?? props.patterns ?? []
+  return {
+    id: props.id,
+    sessionID: props.sessionID,
+    permission: props.action ?? props.permission ?? "",
+    patterns: resources,
+    metadata: { ...(props.metadata ?? {}) },
+    always: props.save?.length ? [...props.save] : props.always?.length ? [...props.always] : [...resources],
+    ...(props.tool
+      ? { tool: props.tool }
+      : props.source?.type === "tool" && props.source.messageID && props.source.callID
+        ? { tool: { messageID: props.source.messageID, callID: props.source.callID } }
+        : {}),
+  }
+}
+
 function enrichPermission(data: SessionData, request: PermissionRequest): PermissionRequest {
   if (!request.tool) {
     return request
@@ -1053,16 +1082,16 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return out(data, commits)
   }
 
-  if (event.type === "permission.asked") {
+  if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
 
-    upsert(data.permissions, enrichPermission(data, event.properties))
+    upsert(data.permissions, enrichPermission(data, toPermissionRequest(event.properties)))
     return queueOut(data, commits)
   }
 
-  if (event.type === "permission.replied") {
+  if (event.type === "permission.replied" || event.type === "permission.v2.replied") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
@@ -1074,7 +1103,7 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return queueOut(data, commits)
   }
 
-  if (event.type === "question.asked") {
+  if (event.type === "question.asked" || event.type === "question.v2.asked") {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }
@@ -1083,7 +1112,12 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     return queueOut(data, commits)
   }
 
-  if (event.type === "question.replied" || event.type === "question.rejected") {
+  if (
+    event.type === "question.replied" ||
+    event.type === "question.rejected" ||
+    event.type === "question.v2.replied" ||
+    event.type === "question.v2.rejected"
+  ) {
     if (event.properties.sessionID !== input.sessionID) {
       return out(data, commits)
     }

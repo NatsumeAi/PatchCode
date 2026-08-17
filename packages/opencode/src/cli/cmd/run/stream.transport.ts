@@ -22,6 +22,7 @@ import {
   blockerStatus,
   bootstrapSessionData,
   createSessionData,
+  toPermissionRequest,
   flushInterrupted,
   pickBlockerView,
   reduceSessionData,
@@ -150,10 +151,15 @@ function sid(event: Event): string | undefined {
     event.type === "session.next.shell.progress" ||
     event.type === "session.next.shell.ended" ||
     event.type === "permission.asked" ||
+    event.type === "permission.v2.asked" ||
     event.type === "permission.replied" ||
+    event.type === "permission.v2.replied" ||
     event.type === "question.asked" ||
+    event.type === "question.v2.asked" ||
     event.type === "question.replied" ||
+    event.type === "question.v2.replied" ||
     event.type === "question.rejected" ||
+    event.type === "question.v2.rejected" ||
     event.type === "session.error" ||
     event.type === "session.status"
   ) {
@@ -479,7 +485,12 @@ function createLayer(input: StreamInput) {
         }
 
         const trackBlocker = (event: Event) => {
-          if (event.type !== "permission.asked" && event.type !== "question.asked") {
+          if (
+            event.type !== "permission.asked" &&
+            event.type !== "permission.v2.asked" &&
+            event.type !== "question.asked" &&
+            event.type !== "question.v2.asked"
+          ) {
             return
           }
 
@@ -493,8 +504,11 @@ function createLayer(input: StreamInput) {
         const releaseBlocker = (event: Event) => {
           if (
             event.type !== "permission.replied" &&
+            event.type !== "permission.v2.replied" &&
             event.type !== "question.replied" &&
-            event.type !== "question.rejected"
+            event.type !== "question.v2.replied" &&
+            event.type !== "question.rejected" &&
+            event.type !== "question.v2.rejected"
           ) {
             return
           }
@@ -566,8 +580,8 @@ function createLayer(input: StreamInput) {
                 return
               }
 
-              const questions = yield* Effect.promise(() => input.sdk.question.list()).pipe(
-                Effect.map((item) => (item.data ?? []).filter((request) => request.sessionID === input.sessionID)),
+              const questions = yield* Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+                Effect.map((item) => (item.data?.data ?? []).filter((request) => request.sessionID === input.sessionID)),
                 Effect.orElseSucceed(() => []),
               )
               if (state.data.questions.length > 0 || !state.data.tools.has(partID)) {
@@ -623,11 +637,15 @@ function createLayer(input: StreamInput) {
         const replayRequests = () =>
           Effect.all(
             [
-              Effect.promise(() => input.sdk.permission.list()).pipe(
-                Effect.flatMap((item) => (item.error ? Effect.fail(item.error) : Effect.succeed(item.data ?? []))),
+              Effect.promise(() => input.sdk.v2.permission.request.list()).pipe(
+                Effect.flatMap((item) =>
+                  item.error
+                    ? Effect.fail(item.error)
+                    : Effect.succeed((item.data?.data ?? []).map(toPermissionRequest)),
+                ),
               ),
-              Effect.promise(() => input.sdk.question.list()).pipe(
-                Effect.flatMap((item) => (item.error ? Effect.fail(item.error) : Effect.succeed(item.data ?? []))),
+              Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+                Effect.flatMap((item) => (item.error ? Effect.fail(item.error) : Effect.succeed(item.data?.data ?? []))),
               ),
             ],
             { concurrency: "unbounded" },
@@ -693,12 +711,12 @@ function createLayer(input: StreamInput) {
                 Effect.map((item) => item.data ?? []),
                 Effect.orElseSucceed(() => []),
               ),
-              Effect.promise(() => input.sdk.permission.list()).pipe(
-                Effect.map((item) => item.data ?? []),
+              Effect.promise(() => input.sdk.v2.permission.request.list()).pipe(
+                Effect.map((item) => (item.data?.data ?? []).map(toPermissionRequest)),
                 Effect.orElseSucceed(() => []),
               ),
-              Effect.promise(() => input.sdk.question.list()).pipe(
-                Effect.map((item) => item.data ?? []),
+              Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+                Effect.map((item) => item.data?.data ?? []),
                 Effect.orElseSucceed(() => []),
               ),
             ],

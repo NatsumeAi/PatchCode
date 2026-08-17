@@ -362,11 +362,11 @@ describe("run subagent data", () => {
       properties: {
         id: "perm-1",
         sessionID: "child-1",
-        permission: "bash",
-        patterns: ["git status --short"],
+        action: "bash",
+        resources: ["git status --short"],
         metadata: {},
-        always: [],
-        tool: {
+        source: {
+          type: "tool",
           messageID: "msg-assistant-1",
           callID: "call-1",
         },

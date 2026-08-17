@@ -26,33 +26,40 @@ type CurrentDelta = Extract<
 >
 
 export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
-  if (event.type === "permission.v2.asked") {
-    return {
-      id: event.id,
-      type: "permission.asked",
-      properties: {
-        id: event.data.id,
-        sessionID: event.data.sessionID,
-        permission: event.data.action,
-        patterns: event.data.resources,
-        always: event.data.save ?? [],
-        metadata: event.data.metadata ?? {},
-        tool:
-          event.data.source?.type === "tool"
-            ? { messageID: event.data.source.messageID, callID: event.data.source.callID }
-            : undefined,
-      },
-      current: event,
-    } as ServerEvent
+  if (event.type === "permission.v2.asked" || event.type === "permission.asked") {
+    const data = event.data as {
+      id: string
+      sessionID: string
+      action?: string
+      permission?: string
+      resources?: string[]
+      patterns?: string[]
+      save?: string[]
+      always?: string[]
+      metadata?: Record<string, unknown>
+      source?: { type: string; messageID?: string; callID?: string }
+      tool?: { messageID: string; callID: string }
+    }
+    if (data.action !== undefined) {
+      return {
+        id: event.id,
+        type: "permission.asked",
+        properties: {
+          id: data.id,
+          sessionID: data.sessionID,
+          permission: data.action,
+          patterns: data.resources ?? [],
+          always: data.save ?? [],
+          metadata: data.metadata ?? {},
+          tool:
+            data.source?.type === "tool" && data.source.messageID && data.source.callID
+              ? { messageID: data.source.messageID, callID: data.source.callID }
+              : data.tool,
+        },
+        current: event,
+      } as ServerEvent
+    }
   }
-  if (event.type === "permission.v2.replied")
-    return { id: event.id, type: "permission.replied", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.asked")
-    return { id: event.id, type: "question.asked", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.replied")
-    return { id: event.id, type: "question.replied", properties: event.data, current: event } as ServerEvent
-  if (event.type === "question.v2.rejected")
-    return { id: event.id, type: "question.rejected", properties: event.data, current: event } as ServerEvent
   return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
 }
 

@@ -40,7 +40,6 @@ const tui: TuiPlugin = async (api) => {
     notify(api, event.properties.sessionID, "Question needs input", "question")
   }
   api.event.on("question.asked", onQuestionAsked)
-  // V2 runner publishes question.v2.asked; same notification UX as V1.
   api.event.on("question.v2.asked", onQuestionAsked)
 
   const onQuestionClosed = (event: { properties: { requestID: string } }) => {

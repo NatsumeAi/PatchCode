@@ -7,7 +7,6 @@ import { PermissionV2 } from "../permission"
 import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
 import { ToolOutputStore } from "../tool-output-store"
-import { Wildcard } from "../util/wildcard"
 import { Config } from "../config"
 import { ApplicationTools } from "./application-tools"
 import { BrowserHost } from "./browser-host"
@@ -138,6 +137,14 @@ const registryLayer = Layer.effect(
             Effect.catchTag("LLM.ToolFailure", (failure) =>
               Effect.succeed({ result: { type: "error" as const, value: failure.message } }),
             ),
+            Effect.catchTag("PermissionV2.BlockedError", () =>
+              Effect.succeed({
+                result: {
+                  type: "error" as const,
+                  value: "The user rejected permission to use this specific tool call.",
+                },
+              }),
+            ),
           ),
         ).pipe(
           // exit/bound must wrap restore(), not sit inside it: fiber interrupt
@@ -229,8 +236,6 @@ const registryLayer = Layer.effect(
           const registration = entries.at(-1)?.registration
           if (registration) registrations.set(name, registration)
         }
-        for (const [name, registration] of registrations)
-          if (whollyDisabled(permission(registration.tool, name), permissions)) registrations.delete(name)
         if (agent.capability !== undefined) {
           for (const name of Array.from(registrations.keys())) {
             if (!capabilityAllows(name, agent.capability)) registrations.delete(name)
@@ -408,11 +413,6 @@ function capabilityAllows(toolName: string, capability: "read-only" | "read-writ
     return true
   }
   return true
-}
-
-function whollyDisabled(action: string, rules: PermissionV2.Ruleset) {
-  const rule = rules.findLast((rule) => Wildcard.match(action, rule.action))
-  return rule?.resource === "*" && rule.effect === "deny"
 }
 
 export const node = makeLocationNode({

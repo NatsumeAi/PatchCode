@@ -107,13 +107,13 @@ describe("internal notifications TUI plugin", () => {
     expect(harness.notifications).toEqual([questionNotification, permissionNotification])
   })
 
-  test("notifies for question.v2.asked the same as V1", async () => {
+  test("notifies for question.asked", async () => {
     const harness = await setup()
 
     harness.emit({
-      id: "event-v2-1",
-      type: "question.v2.asked",
-      properties: question("question-v2-1"),
+      id: "event-1",
+      type: "question.asked",
+      properties: question("question-1"),
     })
 
     expect(harness.notifications).toEqual([questionNotification])

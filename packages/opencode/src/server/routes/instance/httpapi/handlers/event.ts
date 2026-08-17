@@ -36,7 +36,13 @@ function eventResponse(events: EventV2.Interface) {
         // Live permission asks are session-scoped; leftover CLI filters by
         // sessionID. Deliver them even when location encoding does not match
         // the instance directory (TUI already sees them via /global/event).
-        if (event.type === "permission.v2.asked" || event.type === "permission.v2.replied") return true
+        if (
+          event.type === "permission.asked" ||
+          event.type === "permission.v2.asked" ||
+          event.type === "permission.replied" ||
+          event.type === "permission.v2.replied"
+        )
+          return true
         return (
           event.location?.directory === instance.directory &&
           (event.location.workspaceID === undefined || event.location.workspaceID === workspaceID)

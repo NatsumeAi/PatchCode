@@ -41,7 +41,7 @@ describe("QuestionV2", () => {
       const published: EventV2.Payload[] = []
       const unsubscribe = yield* events.listen((event) =>
         Effect.sync(() => {
-          if (event.type.startsWith("question.v2.")) published.push(event)
+          if (event.type.startsWith("question.")) published.push(event)
         }),
       )
       yield* Effect.addFinalizer(() => unsubscribe)

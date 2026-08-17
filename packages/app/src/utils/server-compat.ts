@@ -494,8 +494,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     permission: {
       ...input.current.permission,
       async reply(value: Parameters<ServerApi["permission"]["reply"]>[0] & { location?: { directory?: string } }) {
-        // Same hybrid case as question: prefer V2 session permission reply when
-        // the request originated from permission.v2.asked (V2 tools).
+        // Prefer the session-scoped reply; fall back to the older session respond route.
         try {
           await input.current.permission.reply(value)
           return
@@ -512,9 +511,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     question: {
       ...input.current.question,
       async reply(value: Parameters<ServerApi["question"]["reply"]>[0]) {
-        // Hybrid servers probe as protocol "v1" via /global/health, but the V2
-        // session runner publishes question.v2.asked through QuestionV2. Prefer
-        // the V2 session-scoped reply; fall back to legacy for pure V1 servers.
+        // Prefer the session-scoped reply; fall back to the older question route.
         try {
           await input.current.question.reply(value)
           return

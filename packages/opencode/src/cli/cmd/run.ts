@@ -1,4 +1,3 @@
-import type { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 // CLI entry point for `opencode run` and `opencode --mini`.
 //
@@ -695,6 +694,7 @@ export const RunCommand = effectCmd({
         // to stdout/UI. `client` is passed explicitly because attach mode may
         // rebind the SDK to the session's directory after the subscription is
         // created, and replies issued from inside the loop must use that client.
+        let rejectedPermission = false
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
           const liveParts = createLivePartState()
@@ -702,7 +702,7 @@ export const RunCommand = effectCmd({
           let error: string | undefined
 
           async function settlePermission(id: string, action: string, resources: string[]) {
-            if (settledPermissions.has(id)) return
+            if (!id || settledPermissions.has(id)) return
             settledPermissions.add(id)
             if (auto) {
               await client.v2.session.permission
@@ -714,6 +714,7 @@ export const RunCommand = effectCmd({
                 .catch(() => undefined)
               return
             }
+            rejectedPermission = true
             UI.println(
               UI.Style.TEXT_WARNING_BOLD + "!",
               UI.Style.TEXT_NORMAL +
@@ -738,7 +739,7 @@ export const RunCommand = effectCmd({
                 return
               }
               await toolError(part)
-              UI.error(part.state.error)
+              if (auto || settledPermissions.size === 0) UI.error(part.state.error)
             }
 
             if (
@@ -825,6 +826,9 @@ export const RunCommand = effectCmd({
             if (event.type === "session.error") {
               const props = event.properties
               if (props.sessionID !== sessionID || !props.error) continue
+              // Default `opencode run` rejects asks and exits 0. The decline
+              // is the policy, not a failed run.
+              if (!auto && settledPermissions.size > 0) continue
               let err = String(props.error.name)
               if ("data" in props.error && props.error.data && "message" in props.error.data) {
                 err = String(props.error.data.message)
@@ -842,31 +846,13 @@ export const RunCommand = effectCmd({
               break
             }
 
-            if (event.type === "permission.asked") {
+            if (event.type === "permission.asked" || event.type === "permission.v2.asked") {
               const permission = event.properties
-              if (permission.sessionID !== sessionID) continue
-
-              if (auto) {
-                await client.permission.reply({
-                  requestID: permission.id,
-                  reply: "once",
-                })
-              } else {
-                UI.println(
-                  UI.Style.TEXT_WARNING_BOLD + "!",
-                  UI.Style.TEXT_NORMAL +
-                    `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
-                )
-                await client.permission.reply({
-                  requestID: permission.id,
-                  reply: "reject",
-                })
-              }
-            }
-
-            if (event.type === "permission.v2.asked") {
-              const permission = event.properties
-              await settlePermission(permission.id, permission.action, permission.resources ?? [])
+              await settlePermission(
+                permission.id,
+                "action" in permission ? String(permission.action) : permission.permission,
+                ("resources" in permission ? permission.resources : permission.patterns) ?? [],
+              )
             }
           }
           return error
@@ -917,7 +903,7 @@ export const RunCommand = effectCmd({
             variant: args.variant,
             parts: [...files, { type: "text", text: message }],
           })
-          if (result.error) {
+          if (result.error && !rejectedPermission) {
             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
             process.exitCode = 1
             return

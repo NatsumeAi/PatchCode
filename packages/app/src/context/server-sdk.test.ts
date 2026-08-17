@@ -16,7 +16,7 @@ describe("resumeStreamAfterPageShow", () => {
 })
 
 describe("adaptServerEvent", () => {
-  test("preserves V2 events while adapting permission requests for existing consumers", () => {
+  test("adapts live permission requests for existing consumers", () => {
     const current = {
       id: "evt_1",
       created: 1,

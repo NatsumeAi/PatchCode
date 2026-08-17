@@ -423,8 +423,8 @@ function sdk(
     status?: OpencodeClient["session"]["status"]
     messages?: OpencodeClient["session"]["messages"]
     children?: OpencodeClient["session"]["children"]
-    permissions?: OpencodeClient["permission"]["list"]
-    questions?: OpencodeClient["question"]["list"]
+    permissions?: OpencodeClient["v2"]["permission"]["request"]["list"]
+    questions?: OpencodeClient["v2"]["question"]["request"]["list"]
   } = {},
 ) {
   const client = new OpencodeClient()
@@ -436,8 +436,10 @@ function sdk(
   const status: OpencodeClient["session"]["status"] = input.status ?? (() => ok({}))
   const messages: OpencodeClient["session"]["messages"] = input.messages ?? (() => ok([]))
   const children: OpencodeClient["session"]["children"] = input.children ?? (() => ok([]))
-  const permissions: OpencodeClient["permission"]["list"] = input.permissions ?? (() => ok([]))
-  const questions: OpencodeClient["question"]["list"] = input.questions ?? (() => ok([]))
+  const permissions: OpencodeClient["v2"]["permission"]["request"]["list"] =
+    input.permissions ?? (async () => ok({ location: {} as never, data: [] }))
+  const questions: OpencodeClient["v2"]["question"]["request"]["list"] =
+    input.questions ?? (async () => ok({ location: {} as never, data: [] }))
 
   spyOn(client.event, "subscribe").mockImplementation(subscribe)
   spyOn(client.global, "event").mockImplementation(globalEvent)
@@ -445,8 +447,8 @@ function sdk(
   spyOn(client.session, "status").mockImplementation(status)
   spyOn(client.session, "messages").mockImplementation(messages)
   spyOn(client.session, "children").mockImplementation(children)
-  spyOn(client.permission, "list").mockImplementation(permissions)
-  spyOn(client.question, "list").mockImplementation(questions)
+  spyOn(client.v2.permission.request, "list").mockImplementation(permissions)
+  spyOn(client.v2.question.request, "list").mockImplementation(questions)
 
   return client
 }
@@ -1293,20 +1295,23 @@ describe("run stream transport", () => {
         },
         children: async () => ok([child("child-1")]),
         permissions: async () =>
-          ok([
-            {
-              id: "perm-1",
-              sessionID: "child-1",
-              permission: "edit",
-              patterns: ["src/run/subagent-data.ts"],
-              metadata: {},
-              always: [],
-              tool: {
-                messageID: "msg-child-1",
-                callID: "call-edit-1",
+          ok({
+            location: {} as never,
+            data: [
+              {
+                id: "perm-1",
+                sessionID: "child-1",
+                action: "edit",
+                resources: ["src/run/subagent-data.ts"],
+                metadata: {},
+                source: {
+                  type: "tool",
+                  messageID: "msg-child-1",
+                  callID: "call-edit-1",
+                },
               },
-            },
-          ]),
+            ],
+          }),
       }),
       sessionID: "session-1",
       thinking: true,
@@ -1784,7 +1789,7 @@ describe("run stream transport", () => {
         stream: src.stream,
         questions: async () => {
           questionCalls += 1
-          return ok(questionCalls > 1 ? [request] : [])
+          return ok({ location: {} as never, data: questionCalls > 1 ? [request] : [] })
         },
         promptAsync: async () => {
           queueMicrotask(() => {
@@ -1902,7 +1907,7 @@ describe("run stream transport", () => {
         callID: "call-question-race-1",
       },
     }
-    const pending = defer<Awaited<ReturnType<typeof ok<(typeof request)[]>>>>()
+    const pending = defer<Awaited<ReturnType<typeof ok<{ location: never; data: (typeof request)[] }>>>>()
     let questionCalls = 0
     const transport = await createSessionTransport({
       sdk: sdk({
@@ -1910,7 +1915,7 @@ describe("run stream transport", () => {
         questions: async () => {
           questionCalls += 1
           if (questionCalls === 1) {
-            return ok([])
+            return ok({ location: {} as never, data: [] })
           }
 
           if (questionCalls === 2) {
@@ -1918,7 +1923,7 @@ describe("run stream transport", () => {
             return pending.promise
           }
 
-          return ok([])
+          return ok({ location: {} as never, data: [] })
         },
         promptAsync: async () => {
           queueMicrotask(() => {
@@ -1986,7 +1991,7 @@ describe("run stream transport", () => {
         )
         return commit ? true : undefined
       })
-      pending.resolve(ok([request]))
+      pending.resolve(ok({ location: {} as never, data: [request] }))
 
       await Bun.sleep(50)
 

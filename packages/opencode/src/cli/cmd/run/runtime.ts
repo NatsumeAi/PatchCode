@@ -250,21 +250,33 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
       }
 
       log?.write("send.permission.reply", next)
-      await ctx.sdk.permission.reply(next)
+      await ctx.sdk.v2.session.permission.reply({
+        sessionID: state.sessionID,
+        requestID: next.requestID,
+        reply: next.reply,
+        ...(next.message ? { message: next.message } : {}),
+      })
     },
     onQuestionReply: async (next) => {
       if (state.demo?.questionReply(next)) {
         return
       }
 
-      await ctx.sdk.question.reply(next)
+      await ctx.sdk.v2.session.question.reply({
+        sessionID: state.sessionID,
+        requestID: next.requestID,
+        answers: next.answers,
+      })
     },
     onQuestionReject: async (next) => {
       if (state.demo?.questionReject(next)) {
         return
       }
 
-      await ctx.sdk.question.reject(next)
+      await ctx.sdk.v2.session.question.reject({
+        sessionID: state.sessionID,
+        requestID: next.requestID,
+      })
     },
     onCycleVariant: () => {
       if (!state.model || state.variants.length === 0) {

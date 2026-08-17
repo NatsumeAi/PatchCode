@@ -19,8 +19,6 @@ import { ProviderAuth } from "@/provider/auth"
 import { Agent } from "@/agent/agent"
 import { Skill } from "@/skill"
 import { Discovery } from "@/skill/discovery"
-import { Question } from "@/question"
-import { Permission } from "@/permission"
 import { Todo } from "@/session/todo"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
@@ -82,8 +80,6 @@ export const AppLayer = AppNodeBuilderInstance.build(
     Agent.node,
     Skill.node,
     Discovery.node,
-    Question.node,
-    Permission.node,
     Todo.node,
     Session.node,
     SessionProjector.node,

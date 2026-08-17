@@ -1,5 +1,4 @@
 import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
-import { Permission } from "@/permission"
 import { SessionV1 } from "@opencode-ai/core/session-legacy"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionInput } from "@opencode-ai/schema/session-input"

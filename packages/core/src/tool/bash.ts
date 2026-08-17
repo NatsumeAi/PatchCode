@@ -260,15 +260,10 @@ const layer = Layer.effectDiscard(
                 command: input.command,
                 shell,
               })
-              if (decision.effect === "deny") {
-                return yield* new PermissionV2.BlockedError({
-                  rules: resources.map((resource) => ({
-                    action: name,
-                    resource,
-                    effect: "deny" as const,
-                  })),
-                })
-              }
+              const denyTool = Effect.fail(
+                new ToolFailure({ message: "The user rejected permission to use this specific tool call." }),
+              )
+              if (decision.effect === "deny") return yield* denyTool
               if (decision.effect === "ask") {
                 yield* permission.assertPolicyAsk({
                   action: name,
@@ -277,7 +272,7 @@ const layer = Layer.effectDiscard(
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source,
-                })
+                }).pipe(Effect.catchTag("PermissionV2.BlockedError", () => denyTool))
               } else {
                 yield* permission.assert({
                   action: name,
@@ -286,7 +281,7 @@ const layer = Layer.effectDiscard(
                   sessionID: context.sessionID,
                   agent: context.agent,
                   source,
-                })
+                }).pipe(Effect.catchTag("PermissionV2.BlockedError", () => denyTool))
               }
               // PreToolUse (W5): after permission, before wrapSpawn. W2 deny does not reach here.
               const hooksOpt = yield* Effect.serviceOption(Hooks.Service)

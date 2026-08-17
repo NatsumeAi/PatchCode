@@ -488,11 +488,12 @@ function askPermission(state: State, item: Permit): void {
     properties: {
       id,
       sessionID: state.id,
-      permission: item.permission,
-      patterns: item.patterns,
+      action: item.permission,
+      resources: item.patterns,
       metadata: item.metadata ?? {},
-      always: item.always,
-      tool: {
+      save: item.always,
+      source: {
+        type: "tool",
         messageID: item.ref.msg,
         callID: item.ref.call,
       },

@@ -15,7 +15,7 @@ import path from "node:path"
 import { ACPEvent } from "@/acp/event"
 import { ACPSession } from "@/acp/session"
 
-type PermissionEvent = Extract<Event, { type: "permission.asked" }>
+type PermissionAskedEvent = Extract<Event, { type: "permission.asked" }>
 type PermissionReplyParams = Parameters<OpencodeClient["permission"]["reply"]>[0]
 type SessionUpdateParams = Parameters<AgentSideConnection["sessionUpdate"]>[0]
 const cleanupDirs: string[] = []
@@ -124,13 +124,14 @@ function permissionAsked(
     properties: {
       id,
       sessionID,
-      permission: input.permission ?? "bash",
-      patterns: ["*"],
+      action: input.permission ?? "bash",
+      resources: ["*"],
       metadata: input.metadata ?? { command: "printf hello" },
-      always: [],
-      ...(input.tool ? { tool: input.tool } : {}),
+      ...(input.tool
+        ? { source: { type: "tool" as const, messageID: input.tool.messageID, callID: input.tool.callID } }
+        : {}),
     },
-  } as PermissionEvent
+  } as PermissionAskedEvent
 }
 
 function textDelta(sessionID: string, messageID: string, partID: string, delta: string) {
@@ -173,7 +174,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_1", { tool: { messageID: "msg_1", callID: "call_1" } }))
 
-    await pollUntil(() => harness.replies.length === 1, "permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "permission was never replied")
 
     expect(harness.requests[0]).toMatchObject({
       sessionId: "ses_a",
@@ -191,17 +192,17 @@ describe("acp permissions", () => {
         { optionId: "reject", kind: "reject_once", name: "Reject" },
       ],
     })
-    expect(harness.replies).toEqual([{ requestID: "perm_1", reply: "once", directory: "/workspace" }])
-    expect(harness.v2Replies).toEqual([])
+    expect(harness.v2Replies).toEqual([{ sessionID: "ses_a", requestID: "perm_1", reply: "once" }])
+    expect(harness.replies).toEqual([])
   })
 
-  it("replies to permission.v2.asked on the live session permission path", async () => {
+  it("replies to permission.asked on the live session permission path", async () => {
     const harness = createHarness()
     await createSession(harness.session, "ses_a")
 
     harness.subscription.handle({
       id: "evt_perm_v2",
-      type: "permission.v2.asked",
+      type: "permission.asked",
       properties: {
         id: "perm_v2",
         sessionID: "ses_a",
@@ -241,7 +242,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.replies.length === 1, "webfetch permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "webfetch permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -267,7 +268,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.replies.length === 1, "edit permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "edit permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -313,7 +314,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.replies.length === 1, "apply_patch permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "apply_patch permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -353,7 +354,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.replies.length === 1, "external_directory permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "external_directory permission was never replied")
 
     expect(harness.requests[0]).toMatchObject({
       sessionId: "ses_a",
@@ -378,9 +379,9 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_cancelled"))
 
-    await pollUntil(() => harness.replies.length === 1, "cancelled permission was never replied")
+    await pollUntil(() => harness.v2Replies.length === 1, "cancelled permission was never replied")
 
-    expect(harness.replies[0]).toMatchObject({ requestID: "perm_cancelled", reply: "reject" })
+    expect(harness.v2Replies[0]).toMatchObject({ requestID: "perm_cancelled", reply: "reject" })
   })
 
   it("rejects when requestPermission fails", async () => {
@@ -389,9 +390,9 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_failed"))
 
-    await pollUntil(() => harness.replies.length === 1, "failed permission was never rejected")
+    await pollUntil(() => harness.v2Replies.length === 1, "failed permission was never rejected")
 
-    expect(harness.replies[0]).toMatchObject({ requestID: "perm_failed", reply: "reject" })
+    expect(harness.v2Replies[0]).toMatchObject({ requestID: "perm_failed", reply: "reject" })
   })
 
   it("does not let a blocked session A permission block session B message updates", async () => {
@@ -410,10 +411,10 @@ describe("acp permissions", () => {
     await harness.subscription.handle(textDelta("ses_b", "msg_b", "part_b", "session_b_message"))
 
     expect(textFromUpdates(harness.updates, "ses_b")).toBe("session_b_message")
-    expect(harness.replies).toHaveLength(0)
+    expect(harness.v2Replies).toHaveLength(0)
 
     releasePermission?.()
-    await pollUntil(() => harness.replies.length === 1, "blocked permission was never replied after release")
+    await pollUntil(() => harness.v2Replies.length === 1, "blocked permission was never replied after release")
   })
 
   it("serializes permission requests per session", async () => {
@@ -434,9 +435,9 @@ describe("acp permissions", () => {
 
     releaseFirst?.()
     await pollUntil(() => harness.requests.length === 2, "second permission was not requested after first resolved")
-    await pollUntil(() => harness.replies.length === 2, "serialized permissions were not both replied")
+    await pollUntil(() => harness.v2Replies.length === 2, "serialized permissions were not both replied")
 
-    expect(harness.replies.map((reply) => [reply.requestID, reply.reply])).toEqual([
+    expect(harness.v2Replies.map((reply) => [reply.requestID, reply.reply])).toEqual([
       ["perm_1", "once"],
       ["perm_2", "always"],
     ])

@@ -106,33 +106,57 @@ export const locationServices = LayerNode.group([
 export type LocationServices = LayerNode.Output<typeof locationServices>
 export type LocationError = LayerNode.Error<typeof locationServices>
 
+function locationRefKey(ref: Location.Ref) {
+  return `${ref.directory}\0${ref.workspaceID ?? ""}`
+}
+
+function internLocationRef(cache: Map<string, Location.Ref>, ref: Location.Ref) {
+  const key = locationRefKey(ref)
+  const existing = cache.get(key)
+  if (existing) return existing
+  cache.set(key, ref)
+  return ref
+}
+
 export function buildLocationServiceMap(
   replacements: LayerNode.Replacements = [],
 ): Layer.Layer<LocationServiceMap.Service> {
   return Layer.effect(
     LocationServiceMap.Service,
-    LayerMap.make(
-      (ref: Location.Ref) => {
-        const allReplacements = replacements.concat([[Location.node, Location.boundNode(ref)]])
-        // Apply replacements during hoist, not afterward: replacements can
-        // introduce new tagged dependencies (Location.boundNode depends on
-        // Project), and the hoist walk is the only pass that can still slice
-        // those back out.
-        const location = LayerNode.hoist(locationServices, Node.tags.values.global, allReplacements)
+    Effect.gen(function* () {
+      const interned = new Map<string, Location.Ref>()
+      const map = yield* LayerMap.make(
+        (ref: Location.Ref) => {
+          const allReplacements = replacements.concat([[Location.node, Location.boundNode(ref)]])
+          // Apply replacements during hoist, not afterward: replacements can
+          // introduce new tagged dependencies (Location.boundNode depends on
+          // Project), and the hoist walk is the only pass that can still slice
+          // those back out.
+          const location = LayerNode.hoist(locationServices, Node.tags.values.global, allReplacements)
 
-        return LayerNode.compile(location.node).pipe(
-          Layer.fresh,
-          Layer.tap(() =>
-            Effect.logInfo("booting location services", {
-              directory: ref.directory,
-              workspaceID: ref.workspaceID,
-            }),
-          ),
-          Layer.provide(LayerNode.compile(location.hoisted)),
-        )
-      },
-      { idleTimeToLive: "60 minutes" },
-    ),
+          return LayerNode.compile(location.node).pipe(
+            Layer.fresh,
+            Layer.tap(() =>
+              Effect.logInfo("booting location services", {
+                directory: ref.directory,
+                workspaceID: ref.workspaceID,
+              }),
+            ),
+            Layer.provide(LayerNode.compile(location.hoisted)),
+          )
+        },
+        { idleTimeToLive: "60 minutes" },
+      )
+      return new Proxy(map, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver)
+          if ((prop === "get" || prop === "invalidate") && typeof value === "function") {
+            return (ref: Location.Ref) => value.call(target, internLocationRef(interned, ref))
+          }
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      })
+    }),
   )
 }
 

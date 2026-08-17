@@ -98,6 +98,10 @@ interface Pending {
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
 }
 
+// One pending table per process. HTTP reply and the runner drain can land
+// on different LocationServiceMap instances; request IDs are globally unique.
+const pending = new Map<ID, Pending>()
+
 const layer = Layer.effect(
   Service,
   EffectRuntime.gen(function* () {
@@ -106,17 +110,18 @@ const layer = Layer.effect(
     const agents = yield* AgentV2.Service
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
-    const pending = new Map<ID, Pending>()
+    const owned = new Set<ID>()
 
     yield* EffectRuntime.addFinalizer(() =>
-      EffectRuntime.forEach(pending.values(), (item) => Deferred.fail(item.deferred, new DeclinedError()), {
-        discard: true,
-      }).pipe(
-        EffectRuntime.ensuring(
-          EffectRuntime.sync(() => {
-            pending.clear()
-          }),
-        ),
+      EffectRuntime.forEach(
+        [...owned],
+        (id) => {
+          const item = pending.get(id)
+          pending.delete(id)
+          owned.delete(id)
+          return item ? Deferred.fail(item.deferred, new DeclinedError()) : EffectRuntime.void
+        },
+        { discard: true },
       ),
     )
 
@@ -193,6 +198,7 @@ const layer = Layer.effect(
           const item = { request, agent, policyAsk, deferred }
           if (pending.has(request.id)) return yield* EffectRuntime.die(`Duplicate pending permission ID: ${request.id}`)
           pending.set(request.id, item)
+          owned.add(request.id)
           yield* events
             .publish(Event.Asked, request, {
               location: {
@@ -200,7 +206,14 @@ const layer = Layer.effect(
                 ...(location.workspaceID === undefined ? {} : { workspaceID: location.workspaceID }),
               },
             })
-            .pipe(EffectRuntime.onError(() => EffectRuntime.sync(() => pending.delete(request.id))))
+            .pipe(
+              EffectRuntime.onError(() =>
+                EffectRuntime.sync(() => {
+                  pending.delete(request.id)
+                  owned.delete(request.id)
+                }),
+              ),
+            )
           return item
         }),
       )

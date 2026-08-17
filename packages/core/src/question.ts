@@ -67,26 +67,24 @@ interface Pending {
   readonly deferred: Deferred.Deferred<ReadonlyArray<Answer>, RejectedError>
 }
 
-/**
- * Location-owned pending prompts. The Location layer map must materialize this
- * layer once per embedded Location so replies cannot settle another Location's
- * deferred request.
- */
+const pending = new Map<ID, Pending>()
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2.Service
-    const pending = new Map<ID, Pending>()
+    const owned = new Set<ID>()
 
     yield* Effect.addFinalizer(() =>
-      Effect.forEach(pending.values(), (item) => Deferred.fail(item.deferred, new RejectedError()), {
-        discard: true,
-      }).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            pending.clear()
-          }),
-        ),
+      Effect.forEach(
+        [...owned],
+        (id) => {
+          const item = pending.get(id)
+          pending.delete(id)
+          owned.delete(id)
+          return item ? Deferred.fail(item.deferred, new RejectedError()) : Effect.void
+        },
+        { discard: true },
       ),
     )
 
@@ -97,11 +95,13 @@ const layer = Layer.effect(
           const deferred = yield* Deferred.make<ReadonlyArray<Answer>, RejectedError>()
           const request: Request = { id, ...input }
           pending.set(id, { request, deferred })
+          owned.add(id)
           return yield* events.publish(Event.Asked, request).pipe(
             Effect.andThen(restore(Deferred.await(deferred))),
             Effect.ensuring(
               Effect.sync(() => {
                 pending.delete(id)
+                owned.delete(id)
               }),
             ),
           )
