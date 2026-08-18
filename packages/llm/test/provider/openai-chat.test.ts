@@ -130,8 +130,9 @@ describe("OpenAI Chat route", () => {
           },
         }),
       )
-      const assistant = prepared.body.messages[1] as {
-        tool_calls: Array<{ function: { arguments: string } }>
+      const assistant = prepared.body.messages[1]
+      if (assistant?.role !== "assistant" || assistant.tool_calls === undefined) {
+        throw new Error("expected compiled assistant tool_calls")
       }
       expect(assistant.tool_calls[0]!.function.arguments).toBe('{"zed":1,"alpha":2}')
     }),
@@ -142,8 +143,8 @@ describe("OpenAI Chat route", () => {
       const compiled = {
         protocol: "openai-compatible-chat" as const,
         messages: [
-          { role: "system", content: "S" },
-          { role: "user", content: "hi" },
+          { role: "system" as const, content: "S" },
+          { role: "user" as const, content: "hi" },
         ],
       }
       const original = LLM.request({ model, prompt: "ignored", compiled })
