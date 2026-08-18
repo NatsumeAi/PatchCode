@@ -22,7 +22,7 @@ The live composer overlaps the dock's bottom by 18px (\`session-composer-region-
 The card below reproduces that overlap so the collapsed/expanded cutoff behavior can be verified in isolation.
 
 ### Layout split
-Use the **Layout** button to toggle \`newLayoutDesigns\` and preview both the v2 dock and the legacy (v1) \`DockTray\` fallback.
+Use the **Layout** button to toggle \`newLayoutDesigns\` and preview both the kit dock and the legacy \`DockTray\` fallback.
 
 ### Notes
 - \`onRestore\` only mutates local story state, so nothing in the real session is affected.
@@ -45,9 +45,9 @@ const btn = (accent?: boolean) =>
   ({
     padding: "6px 12px",
     "border-radius": "6px",
-    border: "1px solid var(--v2-border-border-base, #0000001a)",
-    background: accent ? "var(--v2-background-bg-contrast, #242424)" : "var(--v2-background-bg-base, #fff)",
-    color: accent ? "var(--v2-text-text-contrast, #fafafa)" : "var(--v2-text-text-base, #161616)",
+    border: "1px solid var(--kit-border-border-base, #0000001a)",
+    background: accent ? "var(--kit-background-bg-contrast, #242424)" : "var(--kit-background-bg-base, #fff)",
+    color: accent ? "var(--kit-text-text-contrast, #fafafa)" : "var(--kit-text-text-base, #161616)",
     cursor: "pointer",
     "font-size": "13px",
   }) as const
@@ -57,7 +57,7 @@ function Stage(props: { count: number }) {
   const seed = () => messages.slice(0, props.count).map((text, index) => ({ id: `rolled-${index}`, text }))
   const [store, setStore] = createStore({ items: seed() })
 
-  const v2 = () => settings.general.newLayoutDesigns()
+  const kitLayout = () => settings.general.newLayoutDesigns()
   const reset = () => setStore("items", seed())
   const restore = (id: string) =>
     setStore(
@@ -71,8 +71,8 @@ function Stage(props: { count: number }) {
         <button style={btn()} onClick={reset}>
           Reset ({props.count})
         </button>
-        <button style={btn(v2())} onClick={() => settings.general.setNewLayoutDesigns(!v2())}>
-          Layout: {v2() ? "v2" : "v1"}
+        <button style={btn(kitLayout())} onClick={() => settings.general.setNewLayoutDesigns(!kitLayout())}>
+          Layout: {kitLayout() ? "kit" : "legacy"}
         </button>
       </div>
 
@@ -80,19 +80,19 @@ function Stage(props: { count: number }) {
       <div style={{ display: "flex", "flex-direction": "column" }}>
         <SessionRevertDock items={store.items} onRestore={restore} />
         <DockShell
-          data-dock-border-underlay={v2() ? "v2" : "legacy"}
+          data-dock-border-underlay={kitLayout() ? "current" : "legacy"}
           style={{ position: "relative", "z-index": 70, "margin-top": "-18px" }}
           classList={{
             "min-h-24 w-full rounded-[12px] px-4 py-3 text-[13px]": true,
-            "bg-v2-background-bg-base text-v2-text-text-faint": v2(),
-            "text-text-weak": !v2(),
+            "bg-kit-background-bg-base text-kit-text-text-faint": kitLayout(),
+            "text-text-weak": !kitLayout(),
           }}
         >
           Ask anything...
         </DockShell>
       </div>
 
-      <div class="text-[12px] text-v2-text-text-faint">
+      <div class="text-[12px] text-kit-text-text-faint">
         Restored so far:{" "}
         <For each={seed()}>
           {(item) => <span>{store.items.some((current) => current.id === item.id) ? "" : `“${item.text}” `}</span>}

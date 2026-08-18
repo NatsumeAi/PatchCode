@@ -281,7 +281,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
   const sortedServers = createMemo(() => {
     const list = settings.general.newLayoutDesigns()
       ? global.servers.list()
-      : global.servers.list().filter((x) => global.ensureServerCtx(x).sdk.protocolKind() !== "v2")
+      : global.servers.list().filter((x) => global.ensureServerCtx(x).sdk.protocolKind() !== "current")
     return listServersByHealth(list, server.key, global.servers.health)
   })
   const toggleMcp = useMcpToggle()
@@ -322,7 +322,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
             {lspCount() > 0 ? `${lspCount()} ` : ""}
             {language.t("status.popover.tab.lsp")}
           </Tabs.Trigger>
-          <Show when={protocol() === "v1"}>
+          <Show when={protocol() === "legacy"}>
             <Tabs.Trigger value="plugins" data-slot="tab" class="text-12-regular">
               {pluginCount() > 0 ? `${pluginCount()} ` : ""}
               {language.t("status.popover.tab.plugins")}
@@ -487,7 +487,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
           </div>
         </Tabs.Content>
 
-        <Show when={protocol() === "v1"}>
+        <Show when={protocol() === "legacy"}>
           <Tabs.Content value="plugins">
             <div class="flex flex-col px-2 pb-2">
               <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">

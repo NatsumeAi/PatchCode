@@ -5,7 +5,7 @@ import type {
   RequestPermissionResponse,
   SessionUpdate,
 } from "@agentclientprotocol/sdk"
-import type { Event, OpencodeClient } from "@opencode-ai/sdk/v2"
+import type { Event, OpencodeClient } from "@opencode-ai/sdk/api"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { createTwoFilesPatch } from "diff"
 import { Effect, ManagedRuntime } from "effect"
@@ -48,7 +48,7 @@ function createHarness(
     Promise.resolve({ outcome: { outcome: "selected", optionId: "once" } }),
 ) {
   const replies: PermissionReplyParams[] = []
-  const v2Replies: Array<{ sessionID: string; requestID: string; reply: "once" | "always" | "reject" }> = []
+  const apiReplies: Array<{ sessionID: string; requestID: string; reply: "once" | "always" | "reject" }> = []
   const requests: RequestPermissionRequest[] = []
   const updates: SessionUpdateParams[] = []
   const session = makeSessionService()
@@ -59,11 +59,11 @@ function createHarness(
         return Promise.resolve({ data: true })
       },
     },
-    v2: {
+    api: {
       session: {
         permission: {
           reply: (params: { sessionID: string; requestID: string; reply: "once" | "always" | "reject" }) => {
-            v2Replies.push(params)
+            apiReplies.push(params)
             return Promise.resolve({ data: true })
           },
         },
@@ -85,7 +85,7 @@ function createHarness(
   } satisfies Pick<AgentSideConnection, "requestPermission" | "sessionUpdate">
   const subscription = new ACPEvent.Subscription({ sdk, connection, session })
 
-  return { connection, replies, v2Replies, requests, sdk, session, subscription, updates }
+  return { connection, replies, apiReplies, requests, sdk, session, subscription, updates }
 }
 
 async function createSession(session: ACPSession.Interface, sessionId: string, cwd = "/workspace") {
@@ -113,7 +113,7 @@ function permissionAsked(
   sessionID: string,
   id: string,
   input: {
-    permission?: string
+    action?: string
     metadata?: Record<string, unknown>
     tool?: { messageID: string; callID: string }
   } = {},
@@ -124,7 +124,7 @@ function permissionAsked(
     properties: {
       id,
       sessionID,
-      action: input.permission ?? "bash",
+      action: input.action ?? "bash",
       resources: ["*"],
       metadata: input.metadata ?? { command: "printf hello" },
       ...(input.tool
@@ -174,7 +174,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_1", { tool: { messageID: "msg_1", callID: "call_1" } }))
 
-    await pollUntil(() => harness.v2Replies.length === 1, "permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "permission was never replied")
 
     expect(harness.requests[0]).toMatchObject({
       sessionId: "ses_a",
@@ -192,7 +192,7 @@ describe("acp permissions", () => {
         { optionId: "reject", kind: "reject_once", name: "Reject" },
       ],
     })
-    expect(harness.v2Replies).toEqual([{ sessionID: "ses_a", requestID: "perm_1", reply: "once" }])
+    expect(harness.apiReplies).toEqual([{ sessionID: "ses_a", requestID: "perm_1", reply: "once" }])
     expect(harness.replies).toEqual([])
   })
 
@@ -213,7 +213,7 @@ describe("acp permissions", () => {
       },
     })
 
-    await pollUntil(() => harness.v2Replies.length === 1, "v2 permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "permission was never replied")
 
     expect(harness.requests[0]).toMatchObject({
       sessionId: "ses_a",
@@ -223,7 +223,7 @@ describe("acp permissions", () => {
         title: "printf hello",
       },
     })
-    expect(harness.v2Replies).toEqual([{ sessionID: "ses_a", requestID: "perm_v2", reply: "once" }])
+    expect(harness.apiReplies).toEqual([{ sessionID: "ses_a", requestID: "perm_v2", reply: "once" }])
     expect(harness.replies).toEqual([])
   })
 
@@ -233,7 +233,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(
       permissionAsked("ses_a", "perm_fetch", {
-        permission: "webfetch",
+        action: "webfetch",
         metadata: {
           url: "https://example.com/docs",
           format: "markdown",
@@ -242,7 +242,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.v2Replies.length === 1, "webfetch permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "webfetch permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -259,7 +259,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(
       permissionAsked("ses_a", "perm_edit", {
-        permission: "edit",
+        action: "edit",
         metadata: {
           filepath,
           diff: createTwoFilesPatch(filepath, filepath, "before\n", "after\n"),
@@ -268,7 +268,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.v2Replies.length === 1, "edit permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "edit permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -294,7 +294,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(
       permissionAsked("ses_a", "perm_patch", {
-        permission: "edit",
+        action: "edit",
         metadata: {
           filepath: "first.ts, second.ts",
           files: [
@@ -314,7 +314,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.v2Replies.length === 1, "apply_patch permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "apply_patch permission was never replied")
 
     expect(harness.requests[0]?.toolCall).toMatchObject({
       toolCallId: "call_1",
@@ -343,7 +343,7 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(
       permissionAsked("ses_a", "perm_external", {
-        permission: "external_directory",
+        action: "external_directory",
         metadata: {
           command: "mkdir -p /tmp/outside",
           description: "Create external directory",
@@ -354,7 +354,7 @@ describe("acp permissions", () => {
       }),
     )
 
-    await pollUntil(() => harness.v2Replies.length === 1, "external_directory permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "external_directory permission was never replied")
 
     expect(harness.requests[0]).toMatchObject({
       sessionId: "ses_a",
@@ -379,9 +379,9 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_cancelled"))
 
-    await pollUntil(() => harness.v2Replies.length === 1, "cancelled permission was never replied")
+    await pollUntil(() => harness.apiReplies.length === 1, "cancelled permission was never replied")
 
-    expect(harness.v2Replies[0]).toMatchObject({ requestID: "perm_cancelled", reply: "reject" })
+    expect(harness.apiReplies[0]).toMatchObject({ requestID: "perm_cancelled", reply: "reject" })
   })
 
   it("rejects when requestPermission fails", async () => {
@@ -390,9 +390,9 @@ describe("acp permissions", () => {
 
     harness.subscription.handle(permissionAsked("ses_a", "perm_failed"))
 
-    await pollUntil(() => harness.v2Replies.length === 1, "failed permission was never rejected")
+    await pollUntil(() => harness.apiReplies.length === 1, "failed permission was never rejected")
 
-    expect(harness.v2Replies[0]).toMatchObject({ requestID: "perm_failed", reply: "reject" })
+    expect(harness.apiReplies[0]).toMatchObject({ requestID: "perm_failed", reply: "reject" })
   })
 
   it("does not let a blocked session A permission block session B message updates", async () => {
@@ -411,10 +411,10 @@ describe("acp permissions", () => {
     await harness.subscription.handle(textDelta("ses_b", "msg_b", "part_b", "session_b_message"))
 
     expect(textFromUpdates(harness.updates, "ses_b")).toBe("session_b_message")
-    expect(harness.v2Replies).toHaveLength(0)
+    expect(harness.apiReplies).toHaveLength(0)
 
     releasePermission?.()
-    await pollUntil(() => harness.v2Replies.length === 1, "blocked permission was never replied after release")
+    await pollUntil(() => harness.apiReplies.length === 1, "blocked permission was never replied after release")
   })
 
   it("serializes permission requests per session", async () => {
@@ -435,9 +435,9 @@ describe("acp permissions", () => {
 
     releaseFirst?.()
     await pollUntil(() => harness.requests.length === 2, "second permission was not requested after first resolved")
-    await pollUntil(() => harness.v2Replies.length === 2, "serialized permissions were not both replied")
+    await pollUntil(() => harness.apiReplies.length === 2, "serialized permissions were not both replied")
 
-    expect(harness.v2Replies.map((reply) => [reply.requestID, reply.reply])).toEqual([
+    expect(harness.apiReplies.map((reply) => [reply.requestID, reply.reply])).toEqual([
       ["perm_1", "once"],
       ["perm_2", "always"],
     ])

@@ -3,15 +3,15 @@ export * as ConfigCommand from "./command"
 import path from "path"
 import { Cause, Exit, Schema } from "effect"
 import { Glob } from "@opencode-ai/core/util/glob"
-import { ConfigCommandV1 } from "@opencode-ai/core/config/legacy/command"
+import { ConfigCommandInput } from "@opencode-ai/core/config/legacy/command"
 import { configEntryNameFromPath } from "./entry-name"
 import { InvalidError } from "@opencode-ai/core/config/legacy/error"
 import * as ConfigMarkdown from "./markdown"
 
-const decodeInfo = Schema.decodeUnknownExit(ConfigCommandV1.Info)
+const decodeInfo = Schema.decodeUnknownExit(ConfigCommandInput.Info)
 
 export async function load(dir: string) {
-  const result: Record<string, ConfigCommandV1.Info> = {}
+  const result: Record<string, ConfigCommandInput.Info> = {}
   for (const item of await Glob.scan("{command,commands}/**/*.md", {
     cwd: dir,
     absolute: true,

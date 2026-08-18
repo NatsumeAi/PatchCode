@@ -6,7 +6,7 @@ import { ConfigProvider, Deferred, Duration, Effect, Fiber, Layer, Option, Strea
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Location } from "@opencode-ai/core/location"
@@ -19,7 +19,7 @@ const describeWatcher = Watcher.hasNativeBinding() && !process.env.CI ? describe
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([FSUtil.node, EventV2.node])))
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([FSUtil.node, CoreEvent.node])))
 
 const configLayer = Layer.succeed(
   Config.Service,
@@ -71,7 +71,7 @@ function withTmp<A, E, R>(
 
 function wait(check: (event: WatcherEvent) => boolean) {
   return Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const deferred = yield* Deferred.make<WatcherEvent>()
     const fiber = yield* events.subscribe(Watcher.Event.Updated).pipe(
       Stream.runForEach((event) => {
@@ -180,7 +180,7 @@ describeWatcher("Watcher", () => {
 
   it.live("cleanup stops publishing events", () =>
     Effect.gen(function* () {
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const fs = yield* FSUtil.Service
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
@@ -192,9 +192,9 @@ describeWatcher("Watcher", () => {
       )
       const file = path.join(tmp.path, "after-dispose.txt")
       yield* noUpdate((event) => event.file === file, fs.writeFileString(file, "gone")).pipe(
-        Effect.provideService(EventV2.Service, events),
+        Effect.provideService(CoreEvent.Service, events),
       )
-    }).pipe(Effect.provide(AppNodeBuilder.build(LayerNode.group([FSUtil.node, EventV2.node])))),
+    }).pipe(Effect.provide(AppNodeBuilder.build(LayerNode.group([FSUtil.node, CoreEvent.node])))),
   )
 
   it.live("ignores .git/index changes", () =>

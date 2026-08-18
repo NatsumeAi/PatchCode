@@ -9,7 +9,7 @@ import { makeGlobalNode } from "../../effect/app-node"
  *
  * Not durable. Never writes to SessionInputTable / SessionMessageTable / transcript.
  * Lives for the owning session-scope; reload loses it. The durable admission path
- * (SessionV2.prompt) is separate and must not be conflated with this bus.
+ * (Session.prompt) is separate and must not be conflated with this bus.
  *
  * Events emitted by the loop-control runtime:
  *   ① HeartbeatTick                  — Timer. Throws no-op while worker is Busy (mask).

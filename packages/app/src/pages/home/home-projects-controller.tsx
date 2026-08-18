@@ -1,7 +1,7 @@
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useServerManagementController } from "@/components/dialog-select-server"
 import { useSettingsCommand } from "@/components/settings-dialog"
-import { DialogServerV2 } from "@/components/settings-v2/dialog-server-v2"
+import { DialogServer } from "@/components/settings-kit/dialog-server"
 import { type LocalProject } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
@@ -61,7 +61,7 @@ export function createHomeProjectsController(home: HomeController) {
       setDefault: (conn: ServerConnection.Any | undefined) =>
         serverManagement.setDefault(conn ? ServerConnection.key(conn) : null),
       remove: (conn: ServerConnection.Any) => serverManagement.handleRemove(ServerConnection.key(conn)),
-      edit: (conn: ServerConnection.Http) => dialog.show(() => <DialogServerV2 mode="edit" server={conn} />),
+      edit: (conn: ServerConnection.Http) => dialog.show(() => <DialogServer mode="edit" server={conn} />),
       focus: home.selection.focusServer,
     },
     project: {
@@ -72,8 +72,8 @@ export function createHomeProjectsController(home: HomeController) {
       add: home.project.add,
       openNewSession: home.project.openProjectNewSession,
       edit: (conn: ServerConnection.Any, project: LocalProject) => {
-        void import("@/components/dialog-edit-project-v2").then(({ DialogEditProjectV2 }) => {
-          void dialog.show(() => <DialogEditProjectV2 server={conn} project={project} />)
+        void import("@/components/dialog-edit-project-kit").then(({ DialogEditProject }) => {
+          void dialog.show(() => <DialogEditProject server={conn} project={project} />)
         })
       },
       unseenCount: (conn: ServerConnection.Any, project: LocalProject) => {

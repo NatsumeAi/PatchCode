@@ -128,7 +128,7 @@
     }
   }
 
-  &[data-variant="ghost"][data-scope="file-tree-v2"] {
+  &[data-variant="ghost"][data-scope="file-tree-kit"] {
     > [data-slot="collapsible-trigger"] {
       height: 28px;
     }

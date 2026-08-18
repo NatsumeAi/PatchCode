@@ -26,7 +26,7 @@ test("keeps the file-browser sidebar mounted when switching file tabs", async ({
   await panel.getByRole("button", { name: "Open file" }).click()
   await expect(panel.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
 
-  const sidebar = panel.locator('[data-component="session-review-v2-sidebar-root"]')
+  const sidebar = panel.locator('[data-component="session-review-kit-sidebar-root"]')
   await expect(sidebar).toBeVisible()
   await expect(panel.getByRole("button", { name: "file-00.ts" })).toBeVisible()
 
@@ -34,7 +34,7 @@ test("keeps the file-browser sidebar mounted when switching file tabs", async ({
   await expect(panel.getByRole("tab", { name: "file-00.ts" })).toHaveAttribute("data-selected", "")
   await expect(panel.getByText("contents:file-00.ts", { exact: true })).toBeVisible()
 
-  const viewport = panel.locator('[data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
+  const viewport = panel.locator('[data-slot="session-review-kit-sidebar-tree"] .scroll-view__viewport')
   await viewport.hover()
   await page.mouse.wheel(0, 100_000)
   await expect
@@ -63,14 +63,14 @@ test("keeps the file-browser sidebar mounted when switching file tabs", async ({
 type Probed = HTMLElement & { __e2eProbe?: string }
 
 async function writeProbe(page: Page) {
-  await page.locator('#review-panel [data-component="session-review-v2-sidebar-root"]').evaluate((el, probe) => {
+  await page.locator('#review-panel [data-component="session-review-kit-sidebar-root"]').evaluate((el, probe) => {
     ;(el as Probed).__e2eProbe = probe
   }, PROBE)
 }
 
 async function readProbe(page: Page) {
   return page
-    .locator('#review-panel [data-component="session-review-v2-sidebar-root"]')
+    .locator('#review-panel [data-component="session-review-kit-sidebar-root"]')
     .evaluate((el) => (el as Probed).__e2eProbe)
 }
 

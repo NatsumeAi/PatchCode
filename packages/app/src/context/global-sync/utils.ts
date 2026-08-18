@@ -2,10 +2,9 @@ import type {
   AgentListOutput,
   ModelDefaultOutput,
   ModelListOutput,
-  PermissionRequest,
   ProviderListOutput,
 } from "@opencode-ai/client/promise"
-import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, PermissionRequest, Project, Provider, ProviderListResponse } from "@opencode-ai/sdk/api/client"
 import type { Project as CurrentProject } from "@opencode-ai/client/promise"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
@@ -23,11 +22,7 @@ export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Ag
       typeof agent.request.settings.temperature === "number" ? agent.request.settings.temperature : undefined,
     topP: typeof agent.request.settings.topP === "number" ? agent.request.settings.topP : undefined,
     color: agent.color,
-    permission: agent.permissions.map((rule) => ({
-      permission: rule.action,
-      pattern: rule.resource,
-      action: rule.effect,
-    })),
+    permission: agent.permissions,
     model: agent.model && { providerID: agent.model.providerID, modelID: agent.model.id },
     variant: agent.model?.variant,
     prompt: agent.system,
@@ -36,18 +31,8 @@ export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Ag
   }))
 }
 
-export function normalizePermissionRequest(input: PermissionRequest | PermissionRequest): PermissionRequest {
-  if ("permission" in input) return input
-  return {
-    id: input.id,
-    sessionID: input.sessionID,
-    permission: input.action,
-    patterns: input.resources,
-    always: input.save ?? [],
-    metadata: input.metadata ?? {},
-    tool:
-      input.source?.type === "tool" ? { messageID: input.source.messageID, callID: input.source.callID } : undefined,
-  }
+export function normalizePermissionRequest(input: PermissionRequest): PermissionRequest {
+  return input
 }
 
 export function normalizeProviderList(

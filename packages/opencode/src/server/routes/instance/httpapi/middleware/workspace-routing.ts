@@ -1,4 +1,4 @@
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import type { Target } from "@/control-plane/types"
 import { Workspace } from "@/control-plane/workspace"
 import { WorkspaceAdapterRuntime } from "@/control-plane/workspace-adapter-runtime"
@@ -30,8 +30,8 @@ type RemoteTarget = Extract<Target, { type: "remote" }>
 
 type RequestPlan = Data.TaggedEnum<{
   InvalidWorkspace: {}
-  MissingWorkspace: { readonly workspaceID: WorkspaceV2.ID }
-  Local: { readonly directory: string; readonly workspaceID?: WorkspaceV2.ID }
+  MissingWorkspace: { readonly workspaceID: CoreWorkspace.ID }
+  Local: { readonly directory: string; readonly workspaceID?: CoreWorkspace.ID }
   Remote: {
     readonly request: HttpServerRequest.HttpServerRequest
     readonly workspace: Workspace.Info
@@ -46,7 +46,7 @@ export class WorkspaceRouteContext extends Context.Service<
   WorkspaceRouteContext,
   {
     readonly directory: string
-    readonly workspaceID?: WorkspaceV2.ID
+    readonly workspaceID?: CoreWorkspace.ID
   }
 >()("@opencode/ExperimentalHttpApiWorkspaceRouteContext") {}
 
@@ -62,23 +62,23 @@ function requestURL(request: HttpServerRequest.HttpServerRequest): URL {
   return new URL(request.url, "http://localhost")
 }
 
-function configuredWorkspaceID(): WorkspaceV2.ID | undefined {
-  return Flag.OPENCODE_WORKSPACE_ID ? WorkspaceV2.ID.make(Flag.OPENCODE_WORKSPACE_ID) : undefined
+function configuredWorkspaceID(): CoreWorkspace.ID | undefined {
+  return Flag.OPENCODE_WORKSPACE_ID ? CoreWorkspace.ID.make(Flag.OPENCODE_WORKSPACE_ID) : undefined
 }
 
-function selectedWorkspaceID(url: URL, sessionWorkspaceID?: WorkspaceV2.ID): WorkspaceV2.ID | undefined {
+function selectedWorkspaceID(url: URL, sessionWorkspaceID?: CoreWorkspace.ID): CoreWorkspace.ID | undefined {
   const workspaceParam = url.searchParams.get("workspace")
-  return sessionWorkspaceID ?? (workspaceParam ? WorkspaceV2.ID.make(workspaceParam) : undefined)
+  return sessionWorkspaceID ?? (workspaceParam ? CoreWorkspace.ID.make(workspaceParam) : undefined)
 }
 
-function selectedV2WorkspaceID(
+function selectedWorkspaceID(
   url: URL,
-  sessionWorkspaceID?: WorkspaceV2.ID,
-): WorkspaceV2.ID | typeof InvalidWorkspaceID | undefined {
+  sessionWorkspaceID?: CoreWorkspace.ID,
+): CoreWorkspace.ID | typeof InvalidWorkspaceID | undefined {
   if (sessionWorkspaceID) return sessionWorkspaceID
   const workspaceParam = url.searchParams.get("workspace")
   if (!workspaceParam) return undefined
-  const workspaceID = Schema.decodeUnknownOption(WorkspaceV2.ID)(workspaceParam)
+  const workspaceID = Schema.decodeUnknownOption(CoreWorkspace.ID)(workspaceParam)
   if (Option.isNone(workspaceID)) return InvalidWorkspaceID
   return workspaceID.value
 }
@@ -92,14 +92,14 @@ function shouldStayOnControlPlane(request: HttpServerRequest.HttpServerRequest, 
 }
 
 function resolveWorkspace(
-  id: WorkspaceV2.ID | undefined,
-  envWorkspaceID: WorkspaceV2.ID | undefined,
+  id: CoreWorkspace.ID | undefined,
+  envWorkspaceID: CoreWorkspace.ID | undefined,
 ): Effect.Effect<Workspace.Info | void, never, Workspace.Service> {
   if (!id || envWorkspaceID) return Effect.void
   return Workspace.Service.use((workspace) => workspace.get(id))
 }
 
-function missingWorkspaceResponse(id: WorkspaceV2.ID): HttpServerResponse.HttpServerResponse {
+function missingWorkspaceResponse(id: CoreWorkspace.ID): HttpServerResponse.HttpServerResponse {
   return HttpServerResponse.text(`Workspace not found: ${id}`, {
     status: 500,
     contentType: "text/plain; charset=utf-8",
@@ -165,7 +165,7 @@ function planRequest(
     const url = requestURL(request)
     const envWorkspaceID = configuredWorkspaceID()
     const workspaceID = url.pathname.startsWith("/api/")
-      ? selectedV2WorkspaceID(url, session?.workspaceID)
+      ? selectedWorkspaceID(url, session?.workspaceID)
       : selectedWorkspaceID(url, session?.workspaceID)
     if (workspaceID === InvalidWorkspaceID) return RequestPlan.InvalidWorkspace()
     const workspace = yield* resolveWorkspace(workspaceID, envWorkspaceID)

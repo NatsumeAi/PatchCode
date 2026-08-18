@@ -6,7 +6,7 @@ import { Cause, Context, DateTime, Deferred, Duration, Effect, Layer, Option, Sc
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { FSUtil } from "../fs-util"
 import { Identifier } from "../id/id"
 import { LocationMutation } from "../location-mutation"
@@ -85,7 +85,7 @@ export interface Host {
   }) => Effect.Effect<Record<string, string>>
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/BashTool.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/BashTool.Host") {}
 
 export const hostNode = makeGlobalNode({
   service: HostService,
@@ -109,7 +109,7 @@ const modelOutput = (output: Output) => {
 }
 
 /**
- * V2 core shell. Parser-based approval lives in exec-policy (classify/decide).
+ * Core shell. Parser-based approval lives in exec-policy (classify/decide).
  * Background jobs persist via BackgroundJob; leftover pids are reaped on boot.
  */
 
@@ -142,7 +142,7 @@ const layer = Layer.effectDiscard(
     const permission = yield* Permission.Service
     const execPolicy = yield* ExecPolicy.Service
     const sandbox = yield* Sandbox.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     const resources = yield* ToolOutputStore.Service
     const capturedHost = yield* Effect.serviceOption(HostService)
     const originEntries = yield* config.entries()
@@ -584,7 +584,7 @@ export const node = makeLocationNode({
     Permission.node,
     ExecPolicy.node,
     Sandbox.node,
-    EventV2.node,
+    Event.node,
     ToolOutputStore.node,
     PlanGate.node,
     hostNode,

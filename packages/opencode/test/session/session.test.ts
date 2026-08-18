@@ -1,16 +1,16 @@
 import { describe, expect } from "bun:test"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
-import { EventV2 } from "@opencode-ai/core/event"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { Deferred, Effect, Exit, Layer } from "effect"
 import { Session as SessionNs } from "@/session/session"
-import { MessageV2 } from "../../src/session/session-message-wire"
+import { MessageWire } from "../../src/session/session-message-wire"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { GlobalBus } from "@/bus/global"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -21,7 +21,7 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       SessionNs.node,
-      EventV2Bridge.node,
+      EventBridge.node,
       SessionProjector.node,
       CrossSpawnSpawner.node,
       InstanceStore.node,
@@ -48,7 +48,7 @@ describe("session.created event", () => {
   it.instance("should emit session.created event when session is created", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service
-      const events = yield* EventV2Bridge.Service
+      const events = yield* EventBridge.Service
       const received = yield* Deferred.make<SessionNs.Info>()
 
       const unsub = yield* events.listen((event) => {
@@ -77,7 +77,7 @@ describe("session.created event", () => {
   it.instance("session.created event should be emitted before session.updated", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service
-      const source = yield* EventV2Bridge.Service
+      const source = yield* EventBridge.Service
       const events: string[] = []
       const received = yield* Deferred.make<string[]>()
       const push = (event: string) => {
@@ -109,8 +109,8 @@ describe("session.created event", () => {
   it.instance("emits legacy global sync payload", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service
-      const received = yield* Deferred.make<{ syncEvent: EventV2.SerializedEvent }>()
-      const listener = (event: { payload: { type?: string; syncEvent?: EventV2.SerializedEvent } }) => {
+      const received = yield* Deferred.make<{ syncEvent: CoreEvent.SerializedEvent }>()
+      const listener = (event: { payload: { type?: string; syncEvent?: CoreEvent.SerializedEvent } }) => {
         if (event.payload.type === "sync" && event.payload.syncEvent)
           Deferred.doneUnsafe(received, Effect.succeed({ syncEvent: event.payload.syncEvent }))
       }
@@ -121,7 +121,7 @@ describe("session.created event", () => {
       const event = yield* awaitDeferred(received, "timed out waiting for legacy global sync event")
 
       expect(event.syncEvent).toMatchObject({
-        type: EventV2.versionedType(SessionNs.Event.Created.type, 1),
+        type: CoreEvent.versionedType(SessionNs.Event.Created.type, 1),
         seq: 0,
         aggregateID: info.id,
         data: { sessionID: info.id },
@@ -138,7 +138,7 @@ describe("step-finish token propagation via event", () => {
     () =>
       Effect.gen(function* () {
         const session = yield* SessionNs.Service
-        const events = yield* EventV2Bridge.Service
+        const events = yield* EventBridge.Service
         const info = yield* session.create({})
 
         const messageID = MessageID.ascending()
@@ -151,17 +151,17 @@ describe("step-finish token propagation via event", () => {
           model: { providerID: "test", modelID: "test" },
           tools: {},
           mode: "",
-        } as unknown as SessionV1.Info)
+        } as unknown as SessionWire.Info)
 
-        // Event subscribers receive readonly Schema.Type payloads; `SessionV1.Part`
+        // Event subscribers receive readonly Schema.Type payloads; `SessionWire.Part`
         // is the mutable domain type. Cast bridges the two — safe because the
         // test only reads the value afterwards.
-        const received = yield* Deferred.make<SessionV1.Part>()
+        const received = yield* Deferred.make<SessionWire.Part>()
         const unsub = yield* events.listen((event) => {
-          if (event.type === MessageV2.Event.PartUpdated.type)
+          if (event.type === MessageWire.Event.PartUpdated.type)
             Deferred.doneUnsafe(
               received,
-              Effect.succeed((event.data as typeof MessageV2.Event.PartUpdated.data.Type).part as SessionV1.Part),
+              Effect.succeed((event.data as typeof MessageWire.Event.PartUpdated.data.Type).part as SessionWire.Part),
             )
           return Effect.void
         })
@@ -189,7 +189,7 @@ describe("step-finish token propagation via event", () => {
         const receivedPart = yield* awaitDeferred(received, "timed out waiting for message.part.updated")
 
         expect(receivedPart.type).toBe("step-finish")
-        const finish = receivedPart as SessionV1.StepFinishPart
+        const finish = receivedPart as SessionWire.StepFinishPart
         expect(finish.tokens.input).toBe(500)
         expect(finish.tokens.output).toBe(800)
         expect(finish.tokens.reasoning).toBe(200)

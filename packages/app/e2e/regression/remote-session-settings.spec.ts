@@ -20,7 +20,7 @@ test("session settings use the remote server context", async ({ page }) => {
   await expect(page.getByText(sessionB.title).first()).toBeVisible()
   await page.keyboard.press("Control+,")
 
-  const dialog = page.locator(".settings-v2-dialog")
+  const dialog = page.locator(".settings-kit-dialog")
   const autoAccept = dialog.locator('[data-action="settings-auto-accept-permissions"]')
   const input = autoAccept.getByRole("switch")
   await expect(autoAccept).toBeVisible()
@@ -60,7 +60,7 @@ test("auto-accept responds for an unfocused server session", async ({ page }) =>
   await page.goto(`/server/${base64Encode(serverA)}/session/${sessionA.id}`)
   await expect(page.getByText(sessionA.title).first()).toBeVisible()
   await page.keyboard.press("Control+,")
-  const autoAccept = page.locator(".settings-v2-dialog").locator('[data-action="settings-auto-accept-permissions"]')
+  const autoAccept = page.locator(".settings-kit-dialog").locator('[data-action="settings-auto-accept-permissions"]')
   await autoAccept.locator('[data-slot="switch-control"]').click()
   await expect(autoAccept.getByRole("switch")).toBeChecked()
   await expect
@@ -86,10 +86,10 @@ test("auto-accept responds for an unfocused server session", async ({ page }) =>
       properties: {
         id: "permission-background-a",
         sessionID: sessionA.id,
-        permission: "bash",
-        patterns: ["git status"],
+        action: "bash",
+        resources: ["git status"],
         metadata: {},
-        always: [],
+        save: [],
       },
     },
   })
@@ -114,10 +114,10 @@ test("auto-accept responds for an unfocused server session", async ({ page }) =>
       properties: {
         id: "permission-background-a-child",
         sessionID: childSessionA.id,
-        permission: "bash",
-        patterns: ["git diff"],
+        action: "bash",
+        resources: ["git diff"],
         metadata: {},
-        always: [],
+        save: [],
       },
     },
   })

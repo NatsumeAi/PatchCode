@@ -8,7 +8,7 @@ const sessionID = "ses_review_image_flash_regression"
 const title = "Review image flash regression"
 const imageFile = "assets/preview.png"
 
-test("clicking an image file in the v2 review pane does not blank the panel", async ({ page }) => {
+test("clicking an image file in the kit review pane does not blank the panel", async ({ page }) => {
   await openReview(page)
   await installReviewFlashProbe(page)
 
@@ -138,7 +138,7 @@ async function openReview(page: Page) {
   await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
   await expectSessionTitle(page, title)
   await page.getByRole("button", { name: "Toggle review" }).click()
-  await expectAppVisible(page.locator('#review-panel [data-component="session-review-v2"]'))
+  await expectAppVisible(page.locator('#review-panel [data-component="session-review"]'))
   await expectAppVisible(page.getByRole("button", { name: /preview\.png/ }))
 }
 
@@ -153,7 +153,7 @@ async function installReviewFlashProbe(page: Page) {
     }> = []
     const startedAt = performance.now()
     const sample = () => {
-      const panel = document.querySelector<HTMLElement>('#review-panel [data-component="session-review-v2"]')
+      const panel = document.querySelector<HTMLElement>('#review-panel [data-component="session-review"]')
       const rect = panel?.getBoundingClientRect()
       const center = rect
         ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
@@ -172,7 +172,7 @@ async function installReviewFlashProbe(page: Page) {
       "click",
       (event) => {
         const target = event.target instanceof Element ? event.target : undefined
-        if (!target?.closest('[data-slot="file-tree-v2-row"]')) return
+        if (!target?.closest('[data-slot="file-tree-kit-row"]')) return
         requestAnimationFrame(sample)
       },
       { capture: true, once: true },

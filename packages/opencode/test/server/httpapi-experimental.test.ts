@@ -8,7 +8,7 @@ import { ExperimentalPaths } from "../../src/server/routes/instance/httpapi/grou
 import { Session } from "@/session/session"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { Database } from "@opencode-ai/core/database/database"
-import { AccountV2 } from "@opencode-ai/core/account"
+import { Account } from "@opencode-ai/core/account"
 import { AccountTable } from "@opencode-ai/core/account/sql"
 import { Worktree } from "../../src/worktree"
 import { resetDatabase } from "../fixture/db"
@@ -60,11 +60,11 @@ function insertAccount() {
       yield* db
         .insert(AccountTable)
         .values({
-          id: AccountV2.ID.make("account-test"),
+          id: Account.ID.make("account-test"),
           email: "test@example.com",
           url: "https://console.example.com",
-          access_token: AccountV2.AccessToken.make("access"),
-          refresh_token: AccountV2.RefreshToken.make("refresh"),
+          access_token: Account.AccessToken.make("access"),
+          refresh_token: Account.RefreshToken.make("refresh"),
           time_created: Date.now(),
           time_updated: Date.now(),
         })
@@ -76,7 +76,7 @@ function insertAccount() {
       Database.Service.use(({ db }) =>
         db
           .delete(AccountTable)
-          .where(eq(AccountTable.id, AccountV2.ID.make(id)))
+          .where(eq(AccountTable.id, Account.ID.make(id)))
           .run()
           .pipe(Effect.orDie),
       ),

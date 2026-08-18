@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { DateTime, Effect, Layer } from "effect"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
@@ -10,7 +10,7 @@ import { testEffect } from "../lib/effect"
 import { test } from "bun:test"
 
 const sessionID = SessionSchema.ID.make("ses_meta_test")
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 const user = (text: string, id: string) =>
   SessionMessage.User.make({
     id: SessionMessage.ID.make(id),

@@ -1,4 +1,4 @@
-export * as AccountV2 from "./account"
+export * as Account from "./account"
 
 import { Schema } from "effect"
 import type * as HttpClientError from "effect/unstable/http/HttpClientError"

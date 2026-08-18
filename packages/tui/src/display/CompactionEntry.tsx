@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js"
 import { BoxRenderable, type RGBA } from "@opentui/core"
-import type { FilePart } from "@opencode-ai/sdk/v2"
+import type { FilePart } from "@opencode-ai/sdk/api"
 import { selectedForeground, useTheme } from "../context/theme"
 import { Locale } from "../util/locale"
 import { SplitBorder } from "../ui/border"

@@ -1,7 +1,7 @@
 import { createRoot, createSignal, getOwner, onCleanup, runWithOwner, type Owner } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
-import type { VcsInfo } from "@opencode-ai/sdk/v2/client"
+import type { VcsInfo } from "@opencode-ai/sdk/api/client"
 import {
   DIR_IDLE_TTL_MS,
   MAX_DIR_STORES,
@@ -331,8 +331,8 @@ export function createChildStoreManager(input: {
 
   // Passive Home/project metadata reads must not initialize the directory.
   // A real directory access enables these queries once for the store lifetime.
-  // TODO(v2): After Home switches to v2.project.list and root-filtered,
-  // updated-time v2.session.list, remove any Home-only passive child creation.
+  // TODO: After Home switches to api.project.list and root-filtered,
+  // updated-time api.session.list, remove any Home-only passive child creation.
   function activate(key: DirectoryKey) {
     if (activeDirectories.has(key)) return
     activeDirectories.add(key)

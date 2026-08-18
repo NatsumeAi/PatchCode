@@ -1,41 +1,41 @@
 import { Types } from "effect"
-import { Model } from "@opencode-ai/schema/model"
-import { ProviderV2 } from "./provider"
+import { Model as ModelSchema } from "@opencode-ai/schema/model"
+import { Provider } from "./provider"
 
-export const ID = Model.ID
+export const ID = ModelSchema.ID
 export type ID = typeof ID.Type
 
-export const VariantID = Model.VariantID
+export const VariantID = ModelSchema.VariantID
 export type VariantID = typeof VariantID.Type
 
 // Grouping of models, eg claude opus, claude sonnet
-export const Family = Model.Family
-export type Family = Model.Family
+export const Family = ModelSchema.Family
+export type Family = ModelSchema.Family
 
-export const Capabilities = Model.Capabilities
-export type Capabilities = Model.Capabilities
+export const Capabilities = ModelSchema.Capabilities
+export type Capabilities = ModelSchema.Capabilities
 
-export const Cost = Model.Cost
+export const Cost = ModelSchema.Cost
 
-export const Ref = Model.Ref
+export const Ref = ModelSchema.Ref
 export type Ref = typeof Ref.Type
 
-export const Api = Model.Api
-export type Api = Model.Api
+export const Api = ModelSchema.Api
+export type Api = ModelSchema.Api
 
-export const Info = Model.Info
-export type Info = Model.Info
+export const Info = ModelSchema.Info
+export type Info = ModelSchema.Info
 
 export type MutableInfo = Omit<Types.DeepMutable<Info>, "api"> & {
-  api: ProviderV2.MutableApi<Api>
+  api: Provider.MutableApi<Api>
 }
 
-export function parse(input: string): { providerID: ProviderV2.ID; modelID: ID } {
+export function parse(input: string): { providerID: Provider.ID; modelID: ID } {
   const [providerID, ...modelID] = input.split("/")
   return {
-    providerID: ProviderV2.ID.make(providerID),
+    providerID: Provider.ID.make(providerID),
     modelID: ID.make(modelID.join("/")),
   }
 }
 
-export * as ModelV2 from "./model"
+export * as Model from "./model"

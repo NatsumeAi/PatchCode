@@ -10,7 +10,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
-} from "@opencode-ai/sdk/v2/client"
+} from "@opencode-ai/sdk/api/client"
 import type { FileDiffInfo } from "@opencode-ai/client/promise"
 import { batch } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -20,7 +20,7 @@ import { rootSession } from "@/utils/session-route"
 import { normalizeSessionInfo } from "@/utils/session"
 import { normalizeSessionMessages } from "@/utils/session-message"
 import { dropSessionCaches, pickSessionCacheEvictions, SESSION_CACHE_LIMIT } from "./global-sync/session-cache"
-import { createV2SessionReducer, type V2SessionReduction } from "./session-next-reducer"
+import { createSessionReducer, type SessionReduction } from "./session-next-reducer"
 import type { ServerApi } from "@/utils/server"
 
 type MessageApi = ServerApi["message"]
@@ -183,7 +183,7 @@ function reconcileFetched<T extends { id: string }>(
   return [...result.values()].sort((a, b) => cmp(a.id, b.id))
 }
 
-type ServerSessionOptions = { retry?: typeof retry; protocol?: Promise<"v1" | "v2"> }
+type ServerSessionOptions = { retry?: typeof retry; protocol?: Promise<"legacy" | "current"> }
 
 export function createServerSession(
   client: OpencodeClient,
@@ -212,7 +212,7 @@ export function createServerSession(
   const inflight = new Map<string, Promise<void>>()
   const inflightTodo = new Map<string, Promise<void>>()
   const optimistic = new Map<string, Map<string, OptimisticItem>>()
-  const v2 = createV2SessionReducer()
+  const sessionReducer = createSessionReducer()
   const messageLoads = new Map<string, MessageLoadState>()
   const pendingParts = new Map<string, Map<string, Set<string>>>()
   const orphanParts = new Map<string, Set<string>>()
@@ -490,7 +490,7 @@ export function createServerSession(
       inflight.delete(sessionID)
       inflightTodo.delete(sessionID)
       messageLoads.delete(sessionID)
-      v2.clear(sessionID)
+      sessionReducer.clear(sessionID)
       pendingParts.delete(sessionID)
       orphanParts.delete(sessionID)
       removedMessages.delete(sessionID)
@@ -538,7 +538,7 @@ export function createServerSession(
     )
 
   const fetchMessages = async (sessionID: string, limit: number, before?: string, onAttempt?: () => void) => {
-    if (messageApi && (await options?.protocol) !== "v1") {
+    if (messageApi && (await options?.protocol) !== "legacy") {
       const request = (cursor?: string) =>
         (options?.retry ?? retry)(() => {
           onAttempt?.()
@@ -585,7 +585,7 @@ export function createServerSession(
   }
 
   const fetchMessage = async (sessionID: string, messageID: string, onAttempt?: () => void) => {
-    if (sessionApi && (await options?.protocol) !== "v1") {
+    if (sessionApi && (await options?.protocol) !== "legacy") {
       const response = await (options?.retry ?? retry)(() => {
         onAttempt?.()
         return sessionApi.message({ sessionID, messageID })
@@ -881,7 +881,7 @@ export function createServerSession(
       return properties.part.sessionID
   }
 
-  const projectV2 = (reduction: V2SessionReduction) => {
+  const projectSession = (reduction: SessionReduction) => {
     reduction.touched.forEach((messageID) => messageLoads.get(reduction.sessionID)?.touchedSource.add(messageID))
     setData("session_message", reduction.sessionID, reconcile(reduction.messages))
     if (reduction.touched.length === 0) return
@@ -922,25 +922,25 @@ export function createServerSession(
     })
   }
 
-  const hydrateV2Message = (sessionID: string, messageID: string) => {
+  const hydrateMessage = (sessionID: string, messageID: string) => {
     if (!sessionApi) return
     void sessionApi
       .message({ sessionID, messageID })
       .then((message) => {
         const current = data.session_message[sessionID] ?? []
         const messages = [...current.filter((item) => item.id !== message.id), message].sort((a, b) => cmp(a.id, b.id))
-        projectV2({ sessionID, messages, touched: [message.id] })
+        projectSession({ sessionID, messages, touched: [message.id] })
       })
       .catch(() => {})
   }
 
-  const applyV2 = (event: OpenCodeEvent) => {
+  const applyCurrent = (event: OpenCodeEvent) => {
     if (!("data" in event) || !("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
-    const reduction = v2.reduce(data.session_message[sessionID] ?? [], event)
+    const reduction = sessionReducer.reduce(data.session_message[sessionID] ?? [], event)
     if (reduction) {
-      projectV2(reduction)
-      if (reduction.missing) hydrateV2Message(sessionID, reduction.missing)
+      projectSession(reduction)
+      if (reduction.missing) hydrateMessage(sessionID, reduction.missing)
     }
 
     const info = data.info[sessionID]
@@ -1381,7 +1381,7 @@ export function createServerSession(
     async todo(sessionID: string, request?: { force?: boolean }) {
       touch(sessionID)
       if (data.todo[sessionID] !== undefined && !request?.force) return
-      if ((await options?.protocol) === "v2") {
+      if ((await options?.protocol) === "current") {
         setData("todo", sessionID, [])
         return
       }
@@ -1421,7 +1421,7 @@ export function createServerSession(
       if (count && count > 1) pinned.set(sessionID, count - 1)
     },
     apply,
-    applyV2,
+    applyCurrent,
   }
 }
 

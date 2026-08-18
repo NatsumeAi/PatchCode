@@ -1,23 +1,23 @@
 import { batch, type Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
 import type {
-  PromptInputV2AgentPart,
-  PromptInputV2Attachment,
-  PromptInputV2Comment,
-  PromptInputV2FilePart,
-  PromptInputV2Model,
-  PromptInputV2PersistedState,
-  PromptInputV2Prompt,
+  PromptInputAgentPart,
+  PromptInputAttachment,
+  PromptInputComment,
+  PromptInputFilePart,
+  PromptInputModel,
+  PromptInputPersistedState,
+  PromptInputPrompt,
 } from "./types"
 
-export type PromptInputV2StoreTuple = [
-  Store<PromptInputV2PersistedState> | Accessor<Store<PromptInputV2PersistedState>>,
-  SetStoreFunction<PromptInputV2PersistedState>,
+export type PromptInputStoreTuple = [
+  Store<PromptInputPersistedState> | Accessor<Store<PromptInputPersistedState>>,
+  SetStoreFunction<PromptInputPersistedState>,
 ]
 
-export type PromptInputV2StoreInput = PromptInputV2StoreTuple | Accessor<PromptInputV2StoreTuple>
+export type PromptInputStoreInput = PromptInputStoreTuple | Accessor<PromptInputStoreTuple>
 
-export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
+export function createPromptInputStore(input: PromptInputStoreInput) {
   const tuple = () => (typeof input === "function" ? input() : input)
   const store = () => {
     const value = tuple()[0]
@@ -29,7 +29,7 @@ export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
     get state() {
       return store()
     },
-    setPrompt(prompt: PromptInputV2Prompt, cursor?: number) {
+    setPrompt(prompt: PromptInputPrompt, cursor?: number) {
       batch(() => {
         setStore()("prompt", prompt)
         if (cursor !== undefined) setStore()("cursor", cursor)
@@ -60,20 +60,20 @@ export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
         setStore()("cursor", 0)
       })
     },
-    setModel(model: PromptInputV2Model | undefined) {
+    setModel(model: PromptInputModel | undefined) {
       setStore()("model", model)
     },
     setVariant(variant: string | null) {
       if (store().model) setStore()("model", "variant", variant)
     },
-    addContext(item: PromptInputV2Comment) {
+    addContext(item: PromptInputComment) {
       if (store().context.items.some((entry) => entry.key === item.key)) return
       setStore()("context", "items", (items) => [...items, item])
     },
     removeContext(key: string) {
       setStore()("context", "items", (items) => items.filter((item) => item.key !== key))
     },
-    addMention(mention: PromptInputV2FilePart | PromptInputV2AgentPart) {
+    addMention(mention: PromptInputFilePart | PromptInputAgentPart) {
       const text = store()
         .prompt.map((part) => ("content" in part ? part.content : ""))
         .join("")
@@ -82,7 +82,7 @@ export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
       setStore()("prompt", insertMention(store().prompt, start < 0 ? end : start, end, mention))
       setStore()("cursor", (start < 0 ? end : start) + mention.content.length + 1)
     },
-    addAttachment(attachment: PromptInputV2Attachment) {
+    addAttachment(attachment: PromptInputAttachment) {
       setStore()("prompt", (prompt) => [...prompt, attachment])
     },
     removeAttachment(id: string) {
@@ -91,12 +91,12 @@ export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
   }
 }
 
-export type PromptInputV2Store = ReturnType<typeof createPromptInputV2Store>
+export type PromptInputStore = ReturnType<typeof createPromptInputStore>
 
-function insertText(prompt: PromptInputV2Prompt, cursor: number, content: string): PromptInputV2Prompt {
+function insertText(prompt: PromptInputPrompt, cursor: number, content: string): PromptInputPrompt {
   let position = 0
   let inserted = false
-  const parts = prompt.flatMap<PromptInputV2Prompt[number]>((part) => {
+  const parts = prompt.flatMap<PromptInputPrompt[number]>((part) => {
     if (part.type === "image") return [part]
     const start = position
     position += part.content.length
@@ -115,13 +115,13 @@ function insertText(prompt: PromptInputV2Prompt, cursor: number, content: string
 }
 
 function insertMention(
-  prompt: PromptInputV2Prompt,
+  prompt: PromptInputPrompt,
   start: number,
   end: number,
-  mention: PromptInputV2FilePart | PromptInputV2AgentPart,
-): PromptInputV2Prompt {
+  mention: PromptInputFilePart | PromptInputAgentPart,
+): PromptInputPrompt {
   let position = 0
-  const parts = prompt.flatMap<PromptInputV2Prompt[number]>((part) => {
+  const parts = prompt.flatMap<PromptInputPrompt[number]>((part) => {
     if (part.type === "image") return [part]
     const partStart = position
     position += part.content.length
@@ -137,7 +137,7 @@ function insertMention(
   return withOffsets(parts)
 }
 
-function withOffsets(prompt: PromptInputV2Prompt): PromptInputV2Prompt {
+function withOffsets(prompt: PromptInputPrompt): PromptInputPrompt {
   let offset = 0
   return prompt.map((part) => {
     if (part.type === "image") return part
@@ -147,6 +147,6 @@ function withOffsets(prompt: PromptInputV2Prompt): PromptInputV2Prompt {
   })
 }
 
-function promptLength(prompt: PromptInputV2Prompt) {
+function promptLength(prompt: PromptInputPrompt) {
   return prompt.reduce((length, part) => length + ("content" in part ? part.content.length : 0), 0)
 }

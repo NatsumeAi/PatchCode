@@ -37,7 +37,24 @@ export interface Chat {
   }>
 }
 
-export class ChatService extends Context.Service<ChatService, Chat>()("@opencode/v2/PluginChatHook") {}
+export class ChatService extends Context.Service<ChatService, Chat>()("@opencode/PluginChatHook") {}
+
+export interface PermissionAsk {
+  readonly intercept: (input: {
+    readonly id?: string
+    readonly sessionID: string
+    readonly action: string
+    readonly resources: readonly string[]
+    readonly save?: readonly string[]
+    readonly metadata?: unknown
+    readonly source?: unknown
+    readonly effect: "ask" | "deny" | "allow"
+  }) => Effect.Effect<"ask" | "deny" | "allow">
+}
+
+export class PermissionAskService extends Context.Service<PermissionAskService, PermissionAsk>()(
+  "@opencode/PluginPermissionAskHook",
+) {}
 
 export interface Command {
   readonly beforeExecute: (input: {
@@ -48,7 +65,7 @@ export interface Command {
   }) => Effect.Effect<{ readonly text: string }>
 }
 
-export class CommandService extends Context.Service<CommandService, Command>()("@opencode/v2/PluginCommandHook") {}
+export class CommandService extends Context.Service<CommandService, Command>()("@opencode/PluginCommandHook") {}
 
 export interface TextComplete {
   readonly complete: (input: {
@@ -60,7 +77,7 @@ export interface TextComplete {
 }
 
 export class TextCompleteService extends Context.Service<TextCompleteService, TextComplete>()(
-  "@opencode/v2/PluginTextCompleteHook",
+  "@opencode/PluginTextCompleteHook",
 ) {}
 
 export type PluginChatMessage = {
@@ -84,5 +101,5 @@ export interface Compaction {
 }
 
 export class CompactionService extends Context.Service<CompactionService, Compaction>()(
-  "@opencode/v2/PluginCompactionHook",
+  "@opencode/PluginCompactionHook",
 ) {}

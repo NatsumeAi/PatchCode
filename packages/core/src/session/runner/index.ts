@@ -27,4 +27,4 @@ export interface Interface {
   readonly compact: (sessionID: SessionSchema.ID) => Effect.Effect<void, RunError>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionRunner") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SessionRunner") {}

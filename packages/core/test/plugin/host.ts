@@ -1,11 +1,11 @@
-import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import type { PluginContext } from "@opencode-ai/plugin/effect"
+import { Agent } from "@opencode-ai/core/agent"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import type { IntegrationEnvMethod, IntegrationKeyMethod, IntegrationOAuthMethod } from "@opencode-ai/sdk/v2/types"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import type { IntegrationEnvMethod, IntegrationKeyMethod, IntegrationOAuthMethod } from "@opencode-ai/sdk/api/types"
 import { Effect } from "effect"
 
 type Overrides = Partial<Omit<PluginContext, "options">>
@@ -55,7 +55,7 @@ export function host(overrides: Overrides = {}): PluginContext {
   }
 }
 
-export function agentHost(agent: AgentV2.Interface): PluginContext["agent"] {
+export function agentHost(agent: Agent.Interface): PluginContext["agent"] {
   return {
     reload: agent.reload,
     transform: (callback) =>
@@ -63,17 +63,17 @@ export function agentHost(agent: AgentV2.Interface): PluginContext["agent"] {
         callback({
           list: () => draft.list().map(agentInfo),
           get: (id) => {
-            const value = draft.get(AgentV2.ID.make(id))
+            const value = draft.get(Agent.ID.make(id))
             return value && agentInfo(value)
           },
-          default: (id) => draft.default(id === undefined ? undefined : AgentV2.ID.make(id)),
+          default: (id) => draft.default(id === undefined ? undefined : Agent.ID.make(id)),
           update: (id, update) =>
-            draft.update(AgentV2.ID.make(id), (value) => {
+            draft.update(Agent.ID.make(id), (value) => {
               const current = agentInfo(value)
               update(current)
-              Object.assign(value, current, { id: AgentV2.ID.make(current.id) })
+              Object.assign(value, current, { id: Agent.ID.make(current.id) })
             }),
-          remove: (id) => draft.remove(AgentV2.ID.make(id)),
+          remove: (id) => draft.remove(Agent.ID.make(id)),
         }),
       ),
   }
@@ -92,7 +92,7 @@ export function catalogHost(catalog: Catalog.Interface): PluginContext["catalog"
                 models: new Map(Array.from(value.models, ([id, model]) => [id, modelInfo(model)])),
               })),
             get: (id) => {
-              const value = draft.provider.get(ProviderV2.ID.make(id))
+              const value = draft.provider.get(Provider.ID.make(id))
               return (
                 value && {
                   provider: providerInfo(value.provider),
@@ -101,41 +101,41 @@ export function catalogHost(catalog: Catalog.Interface): PluginContext["catalog"
               )
             },
             update: (id, update) =>
-              draft.provider.update(ProviderV2.ID.make(id), (value) => {
+              draft.provider.update(Provider.ID.make(id), (value) => {
                 const current = providerInfo(value)
                 update(current)
-                Object.assign(value, current, { id: ProviderV2.ID.make(current.id) })
+                Object.assign(value, current, { id: Provider.ID.make(current.id) })
               }),
-            remove: (id) => draft.provider.remove(ProviderV2.ID.make(id)),
+            remove: (id) => draft.provider.remove(Provider.ID.make(id)),
           },
           model: {
             get: (providerID, modelID) => {
-              const value = draft.model.get(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID))
+              const value = draft.model.get(Provider.ID.make(providerID), Model.ID.make(modelID))
               return value && modelInfo(value)
             },
             update: (providerID, modelID, update) =>
-              draft.model.update(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID), (value) => {
+              draft.model.update(Provider.ID.make(providerID), Model.ID.make(modelID), (value) => {
                 const current = modelInfo(value)
                 update(current)
                 Object.assign(value, current, {
-                  id: ModelV2.ID.make(current.id),
-                  providerID: ProviderV2.ID.make(current.providerID),
-                  family: current.family === undefined ? undefined : ModelV2.Family.make(current.family),
+                  id: Model.ID.make(current.id),
+                  providerID: Provider.ID.make(current.providerID),
+                  family: current.family === undefined ? undefined : Model.Family.make(current.family),
                   variants: current.variants.map((variant) => ({
                     ...variant,
-                    id: ModelV2.VariantID.make(variant.id),
+                    id: Model.VariantID.make(variant.id),
                   })),
                 })
               }),
             remove: (providerID, modelID) =>
-              draft.model.remove(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID)),
+              draft.model.remove(Provider.ID.make(providerID), Model.ID.make(modelID)),
             default: {
               get: () => {
                 const value = draft.model.default.get()
                 return value && { providerID: value.providerID, modelID: value.modelID }
               },
               set: (providerID, modelID) =>
-                draft.model.default.set(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID)),
+                draft.model.default.set(Provider.ID.make(providerID), Model.ID.make(modelID)),
             },
           },
         }),
@@ -263,7 +263,7 @@ function internalMethod(
   }
 }
 
-function agentInfo(value: AgentV2.Info) {
+function agentInfo(value: Agent.Info) {
   return {
     ...value,
     model: value.model && { ...value.model },
@@ -272,7 +272,7 @@ function agentInfo(value: AgentV2.Info) {
   }
 }
 
-function providerInfo(value: ProviderV2.MutableInfo) {
+function providerInfo(value: Provider.MutableInfo) {
   return {
     ...value,
     api: { ...value.api, settings: value.api.settings && { ...value.api.settings } },
@@ -280,7 +280,7 @@ function providerInfo(value: ProviderV2.MutableInfo) {
   }
 }
 
-function modelInfo(value: ModelV2.Info | ModelV2.MutableInfo) {
+function modelInfo(value: Model.Info | Model.MutableInfo) {
   return {
     ...value,
     api: { ...value.api, settings: value.api.settings && { ...value.api.settings } },

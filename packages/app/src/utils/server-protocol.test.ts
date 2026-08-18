@@ -15,26 +15,26 @@ describe("detectServerProtocol", () => {
       return Promise.resolve(json({ healthy: true, version: "2.0.0", pid: 123 }))
     })
 
-    expect(await detectServerProtocol(server, fetcher)).toBe("v1")
+    expect(await detectServerProtocol(server, fetcher)).toBe("legacy")
   })
 
-  test("recognizes V2 health by its process identifier", async () => {
+  test("recognizes current health by its process identifier", async () => {
     const fetcher = mockFetch((input) => {
       const path = new URL(input instanceof Request ? input.url : input).pathname
       if (path === "/global/health") return Promise.resolve(json({}, 404))
       return Promise.resolve(json({ healthy: true, version: "2.0.0", pid: 123 }))
     })
 
-    expect(await detectServerProtocol(server, fetcher)).toBe("v2")
+    expect(await detectServerProtocol(server, fetcher)).toBe("current")
   })
 
-  test("recognizes the transitional V1 API health response", async () => {
+  test("recognizes the transitional legacy API health response", async () => {
     const fetcher = mockFetch((input) => {
       const path = new URL(input instanceof Request ? input.url : input).pathname
       if (path === "/global/health") return Promise.resolve(json({}, 404))
       return Promise.resolve(json({ healthy: true }))
     })
 
-    expect(await detectServerProtocol(server, fetcher)).toBe("v1")
+    expect(await detectServerProtocol(server, fetcher)).toBe("legacy")
   })
 })

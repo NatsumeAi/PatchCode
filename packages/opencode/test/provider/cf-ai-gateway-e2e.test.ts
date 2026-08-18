@@ -13,8 +13,8 @@ import { createAiGateway } from "ai-gateway-provider"
 import { createUnified } from "ai-gateway-provider/providers/unified"
 import { ProviderTransform } from "@/provider/transform"
 import type * as Provider from "@/provider/provider"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
 
 type Captured = { url: string; outerBody: unknown }
 type ProviderOptions = Record<string, Record<string, JSONValue>>
@@ -57,8 +57,8 @@ afterEach(() => {
 })
 
 const cfModel = (apiId: string, releaseDate = "2026-03-05"): Provider.Model => ({
-  id: ModelV2.ID.make(`cloudflare-ai-gateway/${apiId}`),
-  providerID: ProviderV2.ID.make("cloudflare-ai-gateway"),
+  id: CoreModel.ID.make(`cloudflare-ai-gateway/${apiId}`),
+  providerID: CoreProvider.ID.make("cloudflare-ai-gateway"),
   name: apiId,
   api: { id: apiId, url: "https://gateway.ai.cloudflare.com/v1/compat", npm: "ai-gateway-provider" },
   capabilities: {

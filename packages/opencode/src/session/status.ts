@@ -1,7 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionID } from "./schema"
 import { Effect, Layer, Context } from "effect"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
 
 export const Info = SessionStatusEvent.Info
@@ -20,12 +20,12 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Se
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
 
     // Process-global map keyed by sessionID. Do NOT use InstanceState here:
     // SessionRunner publishes session.status from a location layer without
     // InstanceRef; InstanceState.get would Die("InstanceRef not provided") and
-    // abort the entire V2 drain.
+    // abort the entire session drain.
     const data = new Map<SessionID, Info>()
 
     const applyLocal = (sessionID: SessionID, status: Info) => {
@@ -63,6 +63,6 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventBridge.node] })
 
 export * as SessionStatus from "./status"

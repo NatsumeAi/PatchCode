@@ -11,8 +11,8 @@ import {
 import { createStore } from "solid-js/store"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { ProjectAvatar } from "@opencode-ai/ui/kit/project-avatar"
 import { getProjectAvatarVariant } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { displayName, getProjectAvatarSource } from "@/pages/layout/helpers"
@@ -292,14 +292,14 @@ export function PromptProjectSelector(props: {
         <DropdownMenu.Content
           ref={contentRef}
           id="prompt-project-menu"
-          class="w-[243px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 p-0 shadow-[var(--v2-elevation-floating)] focus:outline-none [&[data-closed]]:!animate-none"
+          class="w-[243px] overflow-hidden rounded-md border-0 bg-kit-background-bg-layer-01 p-0 shadow-[var(--kit-elevation-floating)] focus:outline-none [&[data-closed]]:!animate-none"
           onOpenAutoFocus={(event) => event.preventDefault()}
           onPointerDownOutside={dismiss.preventTriggerRestore}
           onFocusOutside={dismiss.preventTriggerRestore}
           onCloseAutoFocus={dismiss.onCloseAutoFocus}
         >
           <div class="flex flex-col p-0.5">
-            <div class="flex h-7 items-center gap-2 rounded-sm pl-3 pr-2.5 text-v2-icon-icon-muted">
+            <div class="flex h-7 items-center gap-2 rounded-sm pl-3 pr-2.5 text-kit-icon-icon-muted">
               <Icon name="magnifying-glass" size="small" class="shrink-0" />
               <input
                 ref={(el) => props.controller.setSearchRef(el)}
@@ -308,7 +308,7 @@ export function PromptProjectSelector(props: {
                 aria-autocomplete="list"
                 aria-controls="prompt-project-menu"
                 aria-activedescendant={props.controller.active() || undefined}
-                class="h-7 min-w-0 flex-1 border-0 bg-transparent text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint"
+                class="h-7 min-w-0 flex-1 border-0 bg-transparent text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base outline-none placeholder:text-kit-text-text-faint"
                 onInput={(event) => props.controller.setSearch(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Tab") {
@@ -347,7 +347,7 @@ export function PromptProjectSelector(props: {
               <Show when={props.controller.search().trim()}>
                 <button
                   type="button"
-                  class="flex size-5 items-center justify-center rounded-sm text-v2-icon-icon-muted hover:bg-v2-overlay-simple-overlay-hover"
+                  class="flex size-5 items-center justify-center rounded-sm text-kit-icon-icon-muted hover:bg-kit-overlay-simple-overlay-hover"
                   onPointerDown={(event) => event.preventDefault()}
                   onClick={() => props.controller.clearSearch()}
                   aria-label={props.controller.labels.clear()}
@@ -378,7 +378,7 @@ export function PromptProjectSelector(props: {
                 >
                   {(server) => (
                     <div>
-                      <div class="flex h-7 select-none items-center pl-1.5 pr-3 text-[11px] font-[530] leading-none tracking-[0.05px] text-v2-text-text-faint">
+                      <div class="flex h-7 select-none items-center pl-1.5 pr-3 text-[11px] font-[530] leading-none tracking-[0.05px] text-kit-text-text-faint">
                         {server!.name}
                       </div>
                       <DropdownMenu.RadioGroup value={selectedValue()}>
@@ -396,7 +396,7 @@ export function PromptProjectSelector(props: {
               </Show>
             </div>
           </div>
-          <div class="h-px bg-v2-border-border-muted" />
+          <div class="h-px bg-kit-border-border-muted" />
           <div class="flex flex-col p-0.5">
             <Show
               when={props.controller.servers().length > 1}
@@ -414,7 +414,7 @@ export function PromptProjectSelector(props: {
                   data-option-key={props.controller.actionKey()}
                   class={projectActionClass}
                   classList={{
-                    "!bg-v2-overlay-simple-overlay-hover": props.controller.active() === props.controller.actionKey(),
+                    "!bg-kit-overlay-simple-overlay-hover": props.controller.active() === props.controller.actionKey(),
                   }}
                   onMouseEnter={() => props.controller.setActive(props.controller.actionKey())}
                 >
@@ -422,10 +422,10 @@ export function PromptProjectSelector(props: {
                   <span data-slot="dropdown-menu-item-label" class="min-w-0 flex-1 truncate leading-5">
                     {props.controller.labels.add()}
                   </span>
-                  <Icon name="chevron-right" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+                  <Icon name="chevron-right" size="small" class="shrink-0 text-kit-icon-icon-muted" />
                 </DropdownMenu.SubTrigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.SubContent class="min-w-[180px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 p-0.5 shadow-[var(--v2-elevation-floating)] focus:outline-none">
+                  <DropdownMenu.SubContent class="min-w-[180px] overflow-hidden rounded-md border-0 bg-kit-background-bg-layer-01 p-0.5 shadow-[var(--kit-elevation-floating)] focus:outline-none">
                     <For each={props.controller.servers()}>
                       {(server) => <ServerAction server={server!} onSelect={selectAction} />}
                     </For>
@@ -445,12 +445,12 @@ export function PromptProjectAddButton(props: { controller: PromptProjectControl
     <button
       data-action="prompt-project"
       type="button"
-      class="flex h-7 min-w-0 max-w-[160px] items-center gap-1.5 rounded-sm px-2 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+      class="flex h-7 min-w-0 max-w-[160px] items-center gap-1.5 rounded-sm px-2 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-faint transition-colors hover:bg-kit-overlay-simple-overlay-hover focus-visible:bg-kit-overlay-simple-overlay-hover focus-visible:outline-none"
       onClick={() => props.controller.add()}
     >
-      <Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+      <Icon name="folder-add-left" size="small" class="shrink-0 text-kit-icon-icon-muted" />
       <span class="min-w-0 truncate leading-5">{props.controller.labels.new()}</span>
-      <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+      <Icon name="chevron-down" size="small" class="shrink-0 text-kit-icon-icon-muted" />
     </button>
   )
 }
@@ -463,12 +463,12 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
       {...rest}
       data-action="prompt-project"
       type="button"
-      class="flex h-7 min-w-0 max-w-[203px] items-center gap-1.5 rounded-sm px-1.5 transition-colors focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+      class="flex h-7 min-w-0 max-w-[203px] items-center gap-1.5 rounded-sm px-1.5 transition-colors focus-visible:bg-kit-overlay-simple-overlay-hover focus-visible:outline-none"
       classList={{
         ...local.classList,
-        "hover:bg-v2-overlay-simple-overlay-hover": !local.controller.open(),
-        "bg-v2-overlay-simple-overlay-pressed": local.controller.open(),
-        "text-v2-text-text-muted": local.controller.open(),
+        "hover:bg-kit-overlay-simple-overlay-hover": !local.controller.open(),
+        "bg-kit-overlay-simple-overlay-pressed": local.controller.open(),
+        "text-kit-text-text-muted": local.controller.open(),
       }}
       onClick={local.onClick ?? (() => local.controller.setOpen(true))}
       onKeyDown={(event) => {
@@ -482,7 +482,7 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
     >
       <Show
         when={project()}
-        fallback={<Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />}
+        fallback={<Icon name="folder-add-left" size="small" class="shrink-0 text-kit-icon-icon-muted" />}
       >
         {(item) => (
           <ProjectAvatar
@@ -495,7 +495,7 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
       <span class="min-w-0 truncate leading-5">
         {project() ? displayName(project()!) : local.controller.labels.new()}
       </span>
-      <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+      <Icon name="chevron-down" size="small" class="shrink-0 text-kit-icon-icon-muted" />
     </button>
   )
 }
@@ -511,15 +511,15 @@ function ProjectItem(props: {
       id={key()}
       value={key()}
       data-option-key={key()}
-      class="h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
-      classList={{ "!bg-v2-overlay-simple-overlay-hover": props.controller.active() === key() }}
+      class="h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base data-[highlighted]:!bg-kit-overlay-simple-overlay-hover"
+      classList={{ "!bg-kit-overlay-simple-overlay-hover": props.controller.active() === key() }}
       style={{
-        "font-family": "var(--v2-font-family-sans)",
+        "font-family": "var(--kit-font-family-sans)",
         "font-size": "13px",
         "font-weight": 440,
         "line-height": "20px",
         "letter-spacing": "-0.04px",
-        color: "var(--v2-text-text-base)",
+        color: "var(--kit-text-text-base)",
         padding: "0 12px",
       }}
       closeOnSelect
@@ -536,14 +536,14 @@ function ProjectItem(props: {
       />
       <DropdownMenu.ItemLabel class="min-w-0 truncate leading-5">{displayName(props.project)}</DropdownMenu.ItemLabel>
       <DropdownMenu.ItemIndicator style={{ width: "14px", height: "14px", right: "12px" }}>
-        <IconV2 name="check" size="small" class="shrink-0 text-v2-icon-icon-base" />
+        <KitIcon name="check" size="small" class="shrink-0 text-kit-icon-icon-base" />
       </DropdownMenu.ItemIndicator>
     </DropdownMenu.RadioItem>
   )
 }
 
 const projectActionClass =
-  "h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
+  "h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base [font-family:var(--kit-font-family-sans)] data-[highlighted]:!bg-kit-overlay-simple-overlay-hover"
 
 function ProjectAction(props: {
   server?: string
@@ -555,15 +555,15 @@ function ProjectAction(props: {
     <DropdownMenu.Item
       id={key()}
       data-option-key={key()}
-      class="h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base data-[highlighted]:!bg-v2-overlay-simple-overlay-hover"
-      classList={{ "!bg-v2-overlay-simple-overlay-hover": props.controller.active() === key() }}
+      class="h-7 gap-2 rounded-sm px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base data-[highlighted]:!bg-kit-overlay-simple-overlay-hover"
+      classList={{ "!bg-kit-overlay-simple-overlay-hover": props.controller.active() === key() }}
       style={{
-        "font-family": "var(--v2-font-family-sans)",
+        "font-family": "var(--kit-font-family-sans)",
         "font-size": "13px",
         "font-weight": 440,
         "line-height": "20px",
         "letter-spacing": "-0.04px",
-        color: "var(--v2-text-text-base)",
+        color: "var(--kit-text-text-base)",
         padding: "0 12px",
       }}
       onMouseEnter={() => {

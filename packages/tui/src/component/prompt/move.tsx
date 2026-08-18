@@ -37,7 +37,7 @@ export function usePromptMove(input: { projectID: () => string | undefined; sess
         { projectID, context },
         { throwOnError: true },
       )
-      const result = await sdk.client.v2.projectCopy.create(
+      const result = await sdk.client.api.projectCopy.create(
         {
           projectID,
           location: { directory: sdk.directory },

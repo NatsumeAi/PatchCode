@@ -2,11 +2,11 @@ export * as PluginInternal from "./internal"
 
 import { makeLocationNode } from "../effect/app-node"
 import { httpClient } from "../effect/app-node-platform"
-import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
+import type { PluginContext } from "@opencode-ai/plugin/effect"
 import { Effect, Layer, Scope } from "effect"
-import { AgentV2 } from "../agent"
+import { Agent } from "../agent"
 import { Catalog } from "../catalog"
-import { CommandV2 } from "../command"
+import { Command } from "../command"
 import { Config } from "../config"
 import { ConfigAgentPlugin } from "../config/plugin/agent"
 import { ConfigCommandPlugin } from "../config/plugin/command"
@@ -14,7 +14,7 @@ import { ConfigExternalPlugin } from "../config/plugin/external"
 import { ConfigProviderPlugin } from "../config/plugin/provider"
 import { ConfigReferencePlugin } from "../config/plugin/reference"
 import { ConfigSkillPlugin } from "../config/plugin/skill"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { FileSystem } from "../filesystem"
 import { FSUtil } from "../fs-util"
 import { Global } from "../global"
@@ -22,9 +22,9 @@ import { Integration } from "../integration"
 import { Location } from "../location"
 import { ModelsDev } from "../models-dev"
 import { Npm } from "../npm"
-import { PluginV2 } from "../plugin"
+import { Plugin as CorePlugin } from "../plugin"
 import { Reference } from "../reference"
-import { SkillV2 } from "../skill"
+import { Skill } from "../skill"
 import { State } from "../state"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { AgentPlugin } from "./agent"
@@ -35,11 +35,11 @@ import { SkillPlugin } from "./skill"
 import { VariantPlugin } from "./variant"
 
 export type Requirements =
-  | AgentV2.Service
+  | Agent.Service
   | Catalog.Service
-  | CommandV2.Service
+  | Command.Service
   | Config.Service
-  | EventV2.Service
+  | Event.Service
   | FileSystem.Service
   | FSUtil.Service
   | Global.Service
@@ -49,7 +49,7 @@ export type Requirements =
   | ModelsDev.Service
   | Npm.Service
   | Reference.Service
-  | SkillV2.Service
+  | Skill.Service
 
 export interface Plugin<R = never> {
   readonly id: string
@@ -63,20 +63,20 @@ export function define<R>(plugin: Plugin<R>) {
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const catalog = yield* Catalog.Service
-    const commands = yield* CommandV2.Service
-    const plugin = yield* PluginV2.Service
+    const commands = yield* Command.Service
+    const plugin = yield* CorePlugin.Service
     const integration = yield* Integration.Service
-    const agents = yield* AgentV2.Service
+    const agents = yield* Agent.Service
     const config = yield* Config.Service
     const location = yield* Location.Service
     const modelsDev = yield* ModelsDev.Service
     const npm = yield* Npm.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     const fs = yield* FSUtil.Service
     const filesystem = yield* FileSystem.Service
     const global = yield* Global.Service
     const http = yield* HttpClient.HttpClient
-    const skill = yield* SkillV2.Service
+    const skill = yield* Skill.Service
     const reference = yield* Reference.Service
     const add = <R>(input: Plugin<R>) => {
       const loaded = {
@@ -86,23 +86,23 @@ const layer = Layer.effectDiscard(
             .effect(context)
             .pipe(
               Effect.provideService(Catalog.Service, catalog),
-              Effect.provideService(CommandV2.Service, commands),
+              Effect.provideService(Command.Service, commands),
               Effect.provideService(Integration.Service, integration),
-              Effect.provideService(AgentV2.Service, agents),
+              Effect.provideService(Agent.Service, agents),
               Effect.provideService(Config.Service, config),
               Effect.provideService(Location.Service, location),
               Effect.provideService(ModelsDev.Service, modelsDev),
               Effect.provideService(Npm.Service, npm),
-              Effect.provideService(EventV2.Service, events),
+              Effect.provideService(Event.Service, events),
               Effect.provideService(FSUtil.Service, fs),
               Effect.provideService(FileSystem.Service, filesystem),
               Effect.provideService(Global.Service, global),
               Effect.provideService(HttpClient.HttpClient, http),
-              Effect.provideService(SkillV2.Service, skill),
+              Effect.provideService(Skill.Service, skill),
               Effect.provideService(Reference.Service, reference),
             ),
       }
-      return plugin.add(PluginV2.ID.make(loaded.id), loaded.effect)
+      return plugin.add(CorePlugin.ID.make(loaded.id), loaded.effect)
     }
 
     yield* Effect.gen(function* () {
@@ -123,7 +123,7 @@ const layer = Layer.effectDiscard(
         }),
       )
       // After the batch reloads Catalog. SessionRunnerModel waits on this id the
-      // way V1 Provider.getModel waited for InstanceState.make to finish.
+      // way the legacy Provider.getModel waited for InstanceState.make to finish.
       yield* add({
         id: "internal-boot",
         effect: () => Effect.void,
@@ -142,20 +142,20 @@ export const node = makeLocationNode({
   layer,
   deps: [
     Catalog.node,
-    CommandV2.node,
-    PluginV2.node,
+    Command.node,
+    CorePlugin.node,
     Integration.node,
-    AgentV2.node,
+    Agent.node,
     Config.node,
     Location.node,
     ModelsDev.node,
     Npm.node,
-    EventV2.node,
+    Event.node,
     FSUtil.node,
     FileSystem.node,
     Global.node,
     httpClient,
-    SkillV2.node,
+    Skill.node,
     Reference.node,
   ],
 })

@@ -1,7 +1,7 @@
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { Client, type ClientOptions } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -16,7 +16,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
-import { ConfigMCPV1 } from "@opencode-ai/core/config/legacy/mcp"
+import { ConfigMcpInput } from "@opencode-ai/core/config/legacy/mcp"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { withTimeout } from "@/util/timeout"
@@ -24,7 +24,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { McpOAuthPendingProvider, McpOAuthProvider, OAUTH_CALLBACK_PATH } from "./oauth-provider"
 import { McpOAuthCallback } from "./oauth-callback"
 import { McpAuth } from "./auth"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { TuiEvent } from "@/server/tui-event"
 import { Cause, Effect, Exit, Layer, Context, Schema, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
@@ -115,9 +115,9 @@ const pendingOAuthTransports = new Map<string, { transport: TransportWithAuth; p
 type PromptInfo = Awaited<ReturnType<MCPClient["listPrompts"]>>["prompts"][number]
 type ResourceInfo = Awaited<ReturnType<MCPClient["listResources"]>>["resources"][number]
 type ResourceTemplateInfo = Awaited<ReturnType<MCPClient["listResourceTemplates"]>>["resourceTemplates"][number]
-type McpEntry = NonNullable<ConfigV1.Info["mcp"]>[string]
+type McpEntry = NonNullable<ConfigInput.Info["mcp"]>[string]
 
-function isMcpConfigured(entry: McpEntry): entry is ConfigMCPV1.Info {
+function isMcpConfigured(entry: McpEntry): entry is ConfigMcpInput.Info {
   return typeof entry === "object" && entry !== null && "type" in entry
 }
 
@@ -141,7 +141,7 @@ interface AuthResult {
 // --- Effect Service ---
 
 interface State {
-  config: Record<string, ConfigMCPV1.Info>
+  config: Record<string, ConfigMcpInput.Info>
   status: Record<string, Status>
   clients: Record<string, MCPClient>
   defs: Record<string, MCPToolDef[]>
@@ -172,7 +172,7 @@ export interface Interface {
   readonly resourceTemplates: (
     clientName?: string,
   ) => Effect.Effect<Record<string, ResourceTemplateInfo & { client: string }>>
-  readonly add: (name: string, mcp: ConfigMCPV1.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
+  readonly add: (name: string, mcp: ConfigMcpInput.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
   readonly connect: (name: string) => Effect.Effect<void, NotFoundError>
   readonly disconnect: (name: string) => Effect.Effect<void, NotFoundError>
   readonly getPrompt: (
@@ -207,7 +207,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const auth = yield* McpAuth.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const browser = yield* McpBrowser.Service
 
     type Transport = StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
@@ -236,7 +236,7 @@ const layer = Layer.effect(
 
     const connectRemote = Effect.fn("MCP.connectRemote")(function* (
       key: string,
-      mcp: ConfigMCPV1.Info & { type: "remote" },
+      mcp: ConfigMcpInput.Info & { type: "remote" },
     ) {
       const oauthDisabled = mcp.oauth === false
       const oauthConfig = typeof mcp.oauth === "object" ? mcp.oauth : undefined
@@ -340,7 +340,7 @@ const layer = Layer.effect(
 
     const connectLocal = Effect.fn("MCP.connectLocal")(function* (
       key: string,
-      mcp: ConfigMCPV1.Info & { type: "local" },
+      mcp: ConfigMcpInput.Info & { type: "local" },
     ) {
       const [cmd, ...args] = mcp.command
       const baseDir = yield* InstanceState.directory
@@ -383,15 +383,15 @@ const layer = Layer.effect(
     })
 
     const create = Effect.fn("MCP.create")(
-      function* (key: string, mcp: ConfigMCPV1.Info) {
+      function* (key: string, mcp: ConfigMcpInput.Info) {
         if (mcp.enabled === false) {
           return DISABLED_RESULT
         }
 
         const { client: mcpClient, status } =
           mcp.type === "remote"
-            ? yield* connectRemote(key, mcp as ConfigMCPV1.Info & { type: "remote" })
-            : yield* connectLocal(key, mcp as ConfigMCPV1.Info & { type: "local" })
+            ? yield* connectRemote(key, mcp as ConfigMcpInput.Info & { type: "remote" })
+            : yield* connectLocal(key, mcp as ConfigMcpInput.Info & { type: "local" })
 
         if (!mcpClient) {
           if (status.status !== "connected" && status.status !== "disabled") {
@@ -536,7 +536,7 @@ const layer = Layer.effect(
                 s.defs[key] = result.defs!
                 if (result.instructions) s.instructions[key] = result.instructions
                 watch(s, key, result.mcpClient, bridge, mcp.timeout)
-                // Notify V2 dynamic-tools bridge so MCP tools register on connect.
+                // Notify the dynamic-tools bridge so MCP tools register on connect.
                 yield* events.publish(ToolsChanged, { server: key }).pipe(Effect.ignore)
               }
             }),
@@ -639,7 +639,7 @@ const layer = Layer.effect(
         }))
     })
 
-    const createAndStore = Effect.fn("MCP.createAndStore")(function* (name: string, mcp: ConfigMCPV1.Info) {
+    const createAndStore = Effect.fn("MCP.createAndStore")(function* (name: string, mcp: ConfigMcpInput.Info) {
       const s = yield* InstanceState.get(state)
       const result = yield* create(name, mcp)
 
@@ -653,7 +653,7 @@ const layer = Layer.effect(
       return yield* storeClient(s, name, result.mcpClient, result.defs!, result.instructions, mcp.timeout)
     })
 
-    const add = Effect.fn("MCP.add")(function* (name: string, mcp: ConfigMCPV1.Info) {
+    const add = Effect.fn("MCP.add")(function* (name: string, mcp: ConfigMcpInput.Info) {
       const s = yield* InstanceState.get(state)
       s.config[name] = mcp
       yield* createAndStore(name, mcp)
@@ -1013,7 +1013,7 @@ export type AuthStatus = "authenticated" | "expired" | "not_authenticated"
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node, McpBrowser.node],
+  deps: [CrossSpawnSpawner.node, McpAuth.node, EventBridge.node, Config.node, McpBrowser.node],
 })
 
 export * as MCP from "."

@@ -1,39 +1,39 @@
 import { createEffect, on, type Accessor } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
-import { createPromptInputV2Attachments, type PromptInputV2AttachmentConfig } from "./attachments"
-import { createPromptInputV2Store, type PromptInputV2StoreInput } from "./store"
+import { createPromptInputAttachments, type PromptInputAttachmentConfig } from "./attachments"
+import { createPromptInputStore, type PromptInputStoreInput } from "./store"
 import type {
-  PromptInputV2Attachment,
-  PromptInputV2Comment,
-  PromptInputV2History,
-  PromptInputV2HistoryEntry,
-  PromptInputV2Option,
-  PromptInputV2PersistedState,
-  PromptInputV2Suggestion,
+  PromptInputAttachment,
+  PromptInputComment,
+  PromptInputHistory,
+  PromptInputHistoryEntry,
+  PromptInputOption,
+  PromptInputPersistedState,
+  PromptInputSuggestion,
 } from "./types"
 import {
-  createPromptInputV2InteractionState,
-  transitionPromptInputV2,
-  type PromptInputV2InteractionCommand,
-  type PromptInputV2InteractionEvent,
+  createPromptInputInteractionState,
+  transitionPromptInput,
+  type PromptInputInteractionCommand,
+  type PromptInputInteractionEvent,
 } from "./machine"
 
-export type PromptInputV2SelectControl = {
-  options: Accessor<PromptInputV2Option[]>
+export type PromptInputSelectControl = {
+  options: Accessor<PromptInputOption[]>
   current: Accessor<string>
   onSelect: (id: string) => void
   keybind?: Accessor<string[]>
 }
 
-export type PromptInputV2ViewConfig = {
+export type PromptInputViewConfig = {
   placeholder?: Accessor<string>
   add?: {
     onAttach: () => void
   }
-  agent?: PromptInputV2SelectControl
-  model?: PromptInputV2SelectControl
-  variant?: PromptInputV2SelectControl
+  agent?: PromptInputSelectControl
+  model?: PromptInputSelectControl
+  variant?: PromptInputSelectControl
   submit: {
     stopping: Accessor<boolean>
     working?: Accessor<boolean>
@@ -49,34 +49,34 @@ export type PromptInputV2ViewConfig = {
   onDrop?: (event: DragEvent) => void
 }
 
-export function createPromptInputV2State() {
-  return createStore(createPromptInputV2InteractionState())
+export function createPromptInputState() {
+  return createStore(createPromptInputInteractionState())
 }
 
-export function createPromptInputV2Controller(input: {
-  store: PromptInputV2StoreInput
-  state?: ReturnType<typeof createPromptInputV2State>
+export function createPromptInputController(input: {
+  store: PromptInputStoreInput
+  state?: ReturnType<typeof createPromptInputState>
   identity?: Accessor<unknown>
-  history?: PromptInputV2History
-  commands: Accessor<PromptInputV2Suggestion[]>
-  context: Accessor<PromptInputV2Suggestion[]>
-  searchContextFiles: (query: string) => PromptInputV2Suggestion[] | Promise<PromptInputV2Suggestion[]>
-  openAttachment?: (attachment: PromptInputV2Attachment) => void
+  history?: PromptInputHistory
+  commands: Accessor<PromptInputSuggestion[]>
+  context: Accessor<PromptInputSuggestion[]>
+  searchContextFiles: (query: string) => PromptInputSuggestion[] | Promise<PromptInputSuggestion[]>
+  openAttachment?: (attachment: PromptInputAttachment) => void
   openContext?: (key: string) => void
-  onContextRemove?: (item: PromptInputV2Comment) => void
+  onContextRemove?: (item: PromptInputComment) => void
   onEditor?: (element: HTMLElement) => void
-  onSuggestionSelect?: (item: PromptInputV2Suggestion) => (() => void) | void
-  view: PromptInputV2ViewConfig
-  attachments?: PromptInputV2AttachmentConfig
+  onSuggestionSelect?: (item: PromptInputSuggestion) => (() => void) | void
+  view: PromptInputViewConfig
+  attachments?: PromptInputAttachmentConfig
 }) {
   let editor: HTMLElement | undefined
   let fileInput: HTMLInputElement | undefined
-  const draft = createPromptInputV2Store(input.store)
-  const [state, setState] = input.state ?? createPromptInputV2State()
+  const draft = createPromptInputStore(input.store)
+  const [state, setState] = input.state ?? createPromptInputState()
   if (input.identity) {
-    createEffect(on(input.identity, () => setState(reconcile(createPromptInputV2InteractionState())), { defer: true }))
+    createEffect(on(input.identity, () => setState(reconcile(createPromptInputInteractionState())), { defer: true }))
   }
-  function addPart(part: PromptInputV2PersistedState["prompt"][number]) {
+  function addPart(part: PromptInputPersistedState["prompt"][number]) {
     if (part.type === "image") return false
     if (part.type === "file" || part.type === "agent") {
       draft.addMention(part)
@@ -86,7 +86,7 @@ export function createPromptInputV2Controller(input: {
     return true
   }
   const attachments = input.attachments
-    ? createPromptInputV2Attachments({
+    ? createPromptInputAttachments({
         ...input.attachments,
         capture: () => ({
           current: () => draft.state.prompt,
@@ -106,7 +106,7 @@ export function createPromptInputV2Controller(input: {
     }
     attachments.pick(() => fileInput?.click())
   }
-  const contextList = useFilteredList<PromptInputV2Suggestion>({
+  const contextList = useFilteredList<PromptInputSuggestion>({
     items: async (query) => {
       const fixed = input.context().filter((item) => item.kind !== "file")
       const recent = input.context().filter((item) => item.kind === "file" && item.recent)
@@ -130,7 +130,7 @@ export function createPromptInputV2Controller(input: {
       return order.indexOf(a.category) - order.indexOf(b.category)
     },
   })
-  const commandList = useFilteredList<PromptInputV2Suggestion>({
+  const commandList = useFilteredList<PromptInputSuggestion>({
     items: () => input.commands(),
     key: (item) => item.id,
     filterKeys: ["trigger", "title"],
@@ -138,7 +138,7 @@ export function createPromptInputV2Controller(input: {
   const list = () => (state.popover.type === "context" ? contextList : commandList)
   const suggestions = () => list().flat()
 
-  const execute = (command: PromptInputV2InteractionCommand) => {
+  const execute = (command: PromptInputInteractionCommand) => {
     if (command.type === "draft.setText") {
       draft.setText(command.value)
       return
@@ -159,15 +159,15 @@ export function createPromptInputV2Controller(input: {
     if (command.type === "focus.editor") requestAnimationFrame(() => editor?.focus())
   }
 
-  function dispatch(event: PromptInputV2InteractionEvent) {
+  function dispatch(event: PromptInputInteractionEvent) {
     const mode = state.mode
-    const result = transitionPromptInputV2(state, event, draft.state)
+    const result = transitionPromptInput(state, event, draft.state)
     const action = event.type === "popover.select" ? input.onSuggestionSelect?.(event.item) : undefined
     if (event.type === "popover.select") {
       if (!action || state.popover.type !== "command-menu") result.commands.forEach(execute)
       if (action && event.item.kind === "command" && state.popover.type !== "command-menu") {
         draft.setPrompt(
-          draft.state.prompt.filter((part): part is PromptInputV2Attachment => part.type === "image"),
+          draft.state.prompt.filter((part): part is PromptInputAttachment => part.type === "image"),
           0,
         )
       }
@@ -250,7 +250,7 @@ export function createPromptInputV2Controller(input: {
     })
   }
 
-  const applyHistory = (entry: PromptInputV2HistoryEntry, position: "start" | "end") => {
+  const applyHistory = (entry: PromptInputHistoryEntry, position: "start" | "end") => {
     input.history?.restore?.(entry.metadata)
     const cursor = position === "start" ? 0 : promptLength(entry.prompt)
     draft.setPrompt(clonePrompt(entry.prompt), cursor)
@@ -308,8 +308,8 @@ export function createPromptInputV2Controller(input: {
     comments() {
       return draft.state.context.items.filter((item) => !!item.comment?.trim())
     },
-    attachments(): PromptInputV2Attachment[] {
-      return draft.state.prompt.filter((part): part is PromptInputV2Attachment => part.type === "image")
+    attachments(): PromptInputAttachment[] {
+      return draft.state.prompt.filter((part): part is PromptInputAttachment => part.type === "image")
     },
     toggleContext(id: string) {
       dispatch({ type: "context.active", id })
@@ -321,7 +321,7 @@ export function createPromptInputV2Controller(input: {
       draft.removeContext(id)
       if (state.activeContextID === id) dispatch({ type: "context.active", id })
     },
-    openAttachment(attachment: PromptInputV2Attachment) {
+    openAttachment(attachment: PromptInputAttachment) {
       input.openAttachment?.(attachment)
     },
     removeAttachment(id: string) {
@@ -338,7 +338,7 @@ export function createPromptInputV2Controller(input: {
       input.onEditor?.(element)
     },
     restoreFocus,
-    onInput(value: string, prompt?: PromptInputV2PersistedState["prompt"], cursor?: number) {
+    onInput(value: string, prompt?: PromptInputPersistedState["prompt"], cursor?: number) {
       if (prompt) draft.setPrompt(prompt, cursor)
       dispatch({ type: "input.changed", value, persist: !prompt })
     },
@@ -364,7 +364,7 @@ export function createPromptInputV2Controller(input: {
     stop() {
       input.view.submit.onStop()
     },
-    addHistory(prompt: PromptInputV2PersistedState["prompt"], mode: "normal" | "shell") {
+    addHistory(prompt: PromptInputPersistedState["prompt"], mode: "normal" | "shell") {
       input.history?.add(prompt, mode)
       setState({ historyIndex: -1, savedHistory: undefined })
     },
@@ -432,7 +432,7 @@ export function createPromptInputV2Controller(input: {
   }
 }
 
-export type PromptInputV2Interaction = ReturnType<typeof createPromptInputV2Controller>
+export type PromptInputInteraction = ReturnType<typeof createPromptInputController>
 
 function canNavigateHistory(direction: "up" | "down", text: string, cursor: number, inHistory: boolean) {
   const position = Math.max(0, Math.min(cursor, text.length))
@@ -441,13 +441,13 @@ function canNavigateHistory(direction: "up" | "down", text: string, cursor: numb
   return position === text.length
 }
 
-function clonePrompt(prompt: PromptInputV2PersistedState["prompt"]): PromptInputV2PersistedState["prompt"] {
+function clonePrompt(prompt: PromptInputPersistedState["prompt"]): PromptInputPersistedState["prompt"] {
   return prompt.map((part) =>
     part.type === "file" ? { ...part, selection: part.selection ? { ...part.selection } : undefined } : { ...part },
   )
 }
 
-function promptLength(prompt: PromptInputV2PersistedState["prompt"]) {
+function promptLength(prompt: PromptInputPersistedState["prompt"]) {
   return prompt.reduce((length, part) => length + ("content" in part ? part.content.length : 0), 0)
 }
 

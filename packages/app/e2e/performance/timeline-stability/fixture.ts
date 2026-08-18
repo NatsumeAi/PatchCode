@@ -1,7 +1,7 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Event } from "@opencode-ai/schema/event"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
-import { SessionV1 } from "@opencode-ai/schema/session-legacy"
+import { SessionWire } from "@opencode-ai/schema/session-legacy"
 import type {
   AssistantMessage,
   GlobalEvent,
@@ -12,7 +12,7 @@ import type {
   ToolPart,
   ToolState,
   UserMessage,
-} from "@opencode-ai/sdk/v2/client"
+} from "@opencode-ai/sdk/api/client"
 import { expect, type Page } from "@playwright/test"
 import { Schema } from "effect"
 import { mockOpenCodeServer } from "../../utils/mock-server"
@@ -70,15 +70,15 @@ type ToolOptions<State extends ToolStatus> = State extends "pending"
       : { output?: string; title?: string; metadata?: Record<string, unknown>; error?: never }
 
 const decodeOptions = { errors: "all", onExcessProperty: "error" } as const
-const decodeMessage = Schema.decodeUnknownSync(SessionV1.WithParts)
-const decodePart = Schema.decodeUnknownSync(SessionV1.Part)
+const decodeMessage = Schema.decodeUnknownSync(SessionWire.WithParts)
+const decodePart = Schema.decodeUnknownSync(SessionWire.Part)
 const decodeStatus = Schema.decodeUnknownSync(SessionStatusEvent.Info)
 const timelineEventSchema = Schema.Union([
-  eventSchema("message.updated", SessionV1.Event.MessageUpdated.data),
-  eventSchema("message.removed", SessionV1.Event.MessageRemoved.data),
-  eventSchema("message.part.updated", SessionV1.Event.PartUpdated.data),
-  eventSchema("message.part.removed", SessionV1.Event.PartRemoved.data),
-  eventSchema("message.part.delta", SessionV1.Event.PartDelta.data),
+  eventSchema("message.updated", SessionWire.Event.MessageUpdated.data),
+  eventSchema("message.removed", SessionWire.Event.MessageRemoved.data),
+  eventSchema("message.part.updated", SessionWire.Event.PartUpdated.data),
+  eventSchema("message.part.removed", SessionWire.Event.PartRemoved.data),
+  eventSchema("message.part.delta", SessionWire.Event.PartDelta.data),
   eventSchema("session.status", SessionStatusEvent.Status.data),
 ])
 const decodeEvent = Schema.decodeUnknownSync(timelineEventSchema)
@@ -97,7 +97,7 @@ export async function setupTimeline(
     locale?: string
     deviceScaleFactor?: number
     seedHistory?: boolean
-    protocol?: "v1" | "v2"
+    protocol?: "legacy" | "current"
   } = {},
 ) {
   const sessions = input.sessions ?? [session()]

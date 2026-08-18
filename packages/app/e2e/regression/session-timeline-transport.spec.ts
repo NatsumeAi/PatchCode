@@ -89,8 +89,8 @@ test("reconnects after a stream error", async ({ page }) => {
   expect((await timeline.transport.connections())[0]?.endedBy).toBe("error")
 })
 
-test("does not request replay when reconnecting the volatile V2 event stream", async ({ page }) => {
-  const timeline = await setupTimeline(page, { eventRetry: 10, protocol: "v2" })
+test("does not request replay when reconnecting the volatile event stream", async ({ page }) => {
+  const timeline = await setupTimeline(page, { eventRetry: 10, protocol: "current" })
   const first = await timeline.transport.send(partUpdated(textPart("prt_transport_id", "event with id")), {
     id: "timeline-event-7",
   })

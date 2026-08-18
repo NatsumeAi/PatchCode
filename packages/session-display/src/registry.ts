@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/api"
 import type { DisplayConfig } from "./config"
 import type { BodyModel, DisplayMode, DisplayPolicy, HeaderModel, ToolFamily } from "./mode"
 

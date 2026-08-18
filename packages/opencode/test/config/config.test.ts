@@ -1,5 +1,5 @@
 import { test, expect, describe, afterEach, beforeEach, spyOn } from "bun:test"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { Cause, Effect, Exit, Layer, Option } from "effect"
@@ -34,10 +34,10 @@ import fs from "fs/promises"
 import os from "os"
 import { pathToFileURL } from "url"
 import { Global } from "@opencode-ai/core/global"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { Filesystem } from "@/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
-import { ConfigPluginV1 } from "@opencode-ai/core/config/legacy/plugin"
+import { ConfigPluginInput } from "@opencode-ai/core/config/legacy/plugin"
 import { AccountTest } from "../fake/account"
 import { AuthTest } from "../fake/auth"
 import { NpmTest } from "../fake/npm"
@@ -277,7 +277,7 @@ async function check(map: (dir: string) => string) {
         const cfg = await load(ctx)
         expect(cfg.snapshot).toBe(true)
         expect(ctx.directory).toBe(Filesystem.resolve(tmp.path))
-        expect(ctx.project.id).not.toBe(ProjectV2.ID.global)
+        expect(ctx.project.id).not.toBe(CoreProject.ID.global)
       },
     })
   } finally {
@@ -364,7 +364,7 @@ it.instance("updates config and preserves empty shell sentinel", () =>
       "config.json",
     )
 
-    yield* Config.Service.use((svc) => svc.update(ConfigParse.schema(ConfigV1.Info, { shell: "" }, "test:config")))
+    yield* Config.Service.use((svc) => svc.update(ConfigParse.schema(ConfigInput.Info, { shell: "" }, "test:config")))
 
     const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "config.json"))
     expect(writtenConfig).toMatchObject({ shell: "" })
@@ -389,7 +389,7 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
 
       const file = path.join(dir, "opencode.jsonc")
       const writtenConfig = yield* FSUtil.use.readFileString(file)
-      const parsed = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(writtenConfig, file), file)
+      const parsed = ConfigParse.schema(ConfigInput.Info, ConfigParse.jsonc(writtenConfig, file), file)
       expect(writtenConfig).not.toContain('"shell"')
       expect(parsed.shell).toBeUndefined()
       expect(parsed.model).toBe("test/model")
@@ -894,7 +894,7 @@ it.instance("updates config and writes to file", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     yield* Config.Service.use((svc) =>
-      svc.update(ConfigParse.schema(ConfigV1.Info, { model: "updated/model" }, "test:config")),
+      svc.update(ConfigParse.schema(ConfigInput.Info, { model: "updated/model" }, "test:config")),
     )
 
     const writtenConfig = yield* FSUtil.use.readJson(path.join(test.directory, "config.json"))
@@ -1333,7 +1333,7 @@ it.instance("permission config preserves user key order", () =>
 
 test("config parser preserves permission order while rejecting unknown top-level keys", () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     {
       permission: {
         bash: "allow",
@@ -1346,7 +1346,7 @@ test("config parser preserves permission order while rejecting unknown top-level
 
   expect(Object.keys(config.permission!)).toEqual(["bash", "*", "edit"])
   try {
-    ConfigParse.schema(ConfigV1.Info, { invalid_field: true }, "test")
+    ConfigParse.schema(ConfigInput.Info, { invalid_field: true }, "test")
     throw new Error("expected config parse to fail")
   } catch (err) {
     const error = err as { data?: { issues?: Array<{ code?: string; keys?: string[]; path?: string[] }> } }
@@ -1747,7 +1747,7 @@ describe("resolvePluginSpec", () => {
 })
 
 describe("deduplicatePluginOrigins", () => {
-  const dedupe = (plugins: ConfigPluginV1.Spec[]) =>
+  const dedupe = (plugins: ConfigPluginInput.Spec[]) =>
     ConfigPlugin.deduplicatePluginOrigins(
       plugins.map((spec) => ({
         spec,
@@ -1946,7 +1946,7 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
 
 test("parseManagedPlist strips MDM metadata keys", async () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -1974,7 +1974,7 @@ test("parseManagedPlist strips MDM metadata keys", async () => {
 
 test("parseManagedPlist parses server settings", async () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -1994,7 +1994,7 @@ test("parseManagedPlist parses server settings", async () => {
 
 test("parseManagedPlist parses permission rules", async () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -2024,7 +2024,7 @@ test("parseManagedPlist parses permission rules", async () => {
 
 test("parseManagedPlist parses enabled_providers", async () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -2041,7 +2041,7 @@ test("parseManagedPlist parses enabled_providers", async () => {
 
 test("parseManagedPlist handles empty config", async () => {
   const config = ConfigParse.schema(
-    ConfigV1.Info,
+    ConfigInput.Info,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(JSON.stringify({ $schema: "https://opencode.ai/config.json" })),
       "test:mobileconfig",

@@ -42,7 +42,7 @@ export class VersionMismatch extends Error {
 
 const CURRENT_VERSION = 1
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SubagentLifecycle") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SubagentLifecycle") {}
 
 export const make: Effect.Effect<Interface> = Effect.gen(function* () {
   const contributors = yield* SynchronizedRef.make(new Map<string, Contributor>())

@@ -1,0 +1,190 @@
+/* Above modal dialogs (z-index 50); matches select-kit-content. */
+[data-popper-positioner]:has([data-component="menu-kit-content"]) {
+  z-index: 60;
+}
+
+[data-component="menu-kit-content"] {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 2px;
+  min-width: 160px;
+  z-index: 60;
+  pointer-events: auto;
+
+  background: var(--kit-background-bg-layer-01);
+  border-radius: 6px;
+  box-shadow: var(--kit-elevation-floating);
+
+  outline: none;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+
+  transform-origin: var(--kb-menu-content-transform-origin);
+  animation: menu-kit-in 120ms ease-out;
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+[data-component="menu-kit-item"] {
+  --menu-kit-fg: var(--kit-text-text-base);
+  --menu-kit-fg-muted: var(--kit-text-text-faint);
+  --menu-kit-fg-subtle: var(--kit-text-text-muted);
+  --menu-kit-icon: var(--kit-icon-icon-base);
+  --menu-kit-accent: var(--kit-text-text-accent);
+  --menu-kit-badge-bg: var(--kit-background-bg-layer-02);
+  --menu-kit-badge-border: var(--kit-border-border-base);
+  --menu-kit-hover: var(--kit-overlay-simple-overlay-hover);
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  border-radius: 4px;
+  outline: none;
+  cursor: default;
+  user-select: none;
+
+  font-variation-settings: "slnt" 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--menu-kit-fg);
+
+  [data-slot="menu-kit-item-content"] {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+
+    font-size: 13px;
+    font-weight: 440;
+    line-height: 100%;
+    letter-spacing: -0.04px;
+    color: var(--menu-kit-fg);
+  }
+
+  [data-slot="menu-kit-item-shortcut"] {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 11px;
+
+    font-size: 11px;
+    font-weight: 530;
+    line-height: 100%;
+    letter-spacing: 0.05px;
+    color: var(--menu-kit-fg-muted);
+    white-space: nowrap;
+  }
+
+  [data-slot="menu-kit-item-badge"] {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    gap: 4px;
+    height: 16px;
+    padding: 0 4px;
+
+    background: var(--menu-kit-badge-bg);
+    border: 0.5px solid var(--menu-kit-badge-border);
+    border-radius: 2px;
+
+    font-size: 11px;
+    font-weight: 530;
+    line-height: 100%;
+    letter-spacing: 0.05px;
+    color: var(--menu-kit-fg-subtle);
+    white-space: nowrap;
+  }
+
+  [data-slot="menu-kit-item-indicator"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--menu-kit-icon);
+  }
+
+  [data-slot="menu-kit-item-indicator"]:not([data-checked]) > svg {
+    visibility: hidden;
+  }
+
+  [data-slot="menu-kit-item-chevron"] {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--menu-kit-fg-muted);
+  }
+
+  &[data-highlighted] {
+    background: var(--menu-kit-hover);
+  }
+
+  &[data-checked] [data-slot="menu-kit-item-content"] {
+    font-weight: 530;
+    color: var(--menu-kit-accent);
+  }
+
+  &[data-checked] [data-slot="menu-kit-item-indicator"] {
+    color: var(--menu-kit-accent);
+  }
+
+  &[data-disabled] {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+}
+
+[data-slot="menu-kit-separator"] {
+  height: 1px;
+  width: calc(100% + 4px);
+  margin: 2px -2px;
+  background: var(--kit-border-border-muted);
+  border: none;
+}
+
+[data-slot="menu-kit-group-label"] {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+
+  font-size: 11px;
+  font-weight: 530;
+  line-height: 100%;
+  letter-spacing: 0.05px;
+  color: var(--kit-text-text-faint);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes menu-kit-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

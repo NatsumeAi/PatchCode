@@ -1,4 +1,4 @@
-export * as ConfigConsoleStateV1 from "./console-state"
+export * as ConfigConsoleStateInput from "./console-state"
 
 import { Schema } from "effect"
 import { NonNegativeInt } from "../../schema"

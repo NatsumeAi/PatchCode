@@ -1,8 +1,8 @@
 import { For, Show } from "solid-js"
-import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Menu } from "@opencode-ai/ui/kit/menu"
+import { Tooltip } from "@opencode-ai/ui/kit/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { useLanguage } from "@/context/language"
 
@@ -41,58 +41,58 @@ export function PromptWorkspaceSelector(props: {
   return (
     <>
       <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
-      <MenuV2 placement="bottom" gutter={4} onOpenChange={onOpenChange}>
-        <MenuV2.Trigger class="flex h-7 min-w-0 max-w-[203px] items-center gap-1.5 rounded-sm px-1.5 hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none data-[expanded]:bg-v2-overlay-simple-overlay-pressed data-[expanded]:text-v2-text-text-muted">
-          <IconV2 name={icon()} class="shrink-0 text-v2-icon-icon-muted" />
+      <Menu placement="bottom" gutter={4} onOpenChange={onOpenChange}>
+        <Menu.Trigger class="flex h-7 min-w-0 max-w-[203px] items-center gap-1.5 rounded-sm px-1.5 hover:bg-kit-overlay-simple-overlay-hover focus-visible:bg-kit-overlay-simple-overlay-hover focus-visible:outline-none data-[expanded]:bg-kit-overlay-simple-overlay-pressed data-[expanded]:text-kit-text-text-muted">
+          <KitIcon name={icon()} class="shrink-0 text-kit-icon-icon-muted" />
           <span class="min-w-0 truncate">{label()}</span>
-          <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
-        </MenuV2.Trigger>
-        <MenuV2.Portal>
-          <MenuV2.Content class="w-[180px]">
-            <MenuV2.Group>
-              <MenuV2.GroupLabel>{language.t("session.new.workspace.runIn")}</MenuV2.GroupLabel>
-              <MenuV2.Item onSelect={() => select("main")}>
-                <IconV2 name="monitor" />
+          <Icon name="chevron-down" size="small" class="shrink-0 text-kit-icon-icon-muted" />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Content class="w-[180px]">
+            <Menu.Group>
+              <Menu.GroupLabel>{language.t("session.new.workspace.runIn")}</Menu.GroupLabel>
+              <Menu.Item onSelect={() => select("main")}>
+                <KitIcon name="monitor" />
                 <span class="min-w-0 flex-1 truncate">{language.t("session.new.workspace.local")}</span>
                 <Show when={selected() === "main"}>
                   <Icon name="check" size="small" class="shrink-0" />
                 </Show>
-              </MenuV2.Item>
-              <MenuV2.Item onSelect={() => select("create")}>
-                <IconV2 name="workspace-new" />
+              </Menu.Item>
+              <Menu.Item onSelect={() => select("create")}>
+                <KitIcon name="workspace-new" />
                 <span class="min-w-0 flex-1 truncate">{language.t("workspace.new")}</span>
                 <Show when={selected() === "create"}>
                   <Icon name="check" size="small" class="shrink-0" />
                 </Show>
-              </MenuV2.Item>
-            </MenuV2.Group>
+              </Menu.Item>
+            </Menu.Group>
             <Show when={props.workspaces.length > 0}>
-              <MenuV2.Separator />
-              <MenuV2.Sub gutter={0} overlap overflowPadding={8}>
-                <MenuV2.SubTrigger>
-                  <IconV2 name="workspace" />
+              <Menu.Separator />
+              <Menu.Sub gutter={0} overlap overflowPadding={8}>
+                <Menu.SubTrigger>
+                  <KitIcon name="workspace" />
                   {language.t("session.new.workspace.existing")}
-                </MenuV2.SubTrigger>
-                <MenuV2.Portal>
-                  <MenuV2.SubContent class="max-w-[200px]">
+                </Menu.SubTrigger>
+                <Menu.Portal>
+                  <Menu.SubContent class="max-w-[200px]">
                     <For each={props.workspaces}>
                       {(workspace) => (
-                        <MenuV2.Item onSelect={() => select(workspace)}>
-                          <IconV2 name="workspace-isolated" />
+                        <Menu.Item onSelect={() => select(workspace)}>
+                          <KitIcon name="workspace-isolated" />
                           <span class="min-w-0 flex-1 truncate">{getFilename(workspace)}</span>
                           <Show when={selected() === workspace}>
                             <Icon name="check" size="small" class="shrink-0" />
                           </Show>
-                        </MenuV2.Item>
+                        </Menu.Item>
                       )}
                     </For>
-                  </MenuV2.SubContent>
-                </MenuV2.Portal>
-              </MenuV2.Sub>
+                  </Menu.SubContent>
+                </Menu.Portal>
+              </Menu.Sub>
             </Show>
-          </MenuV2.Content>
-        </MenuV2.Portal>
-      </MenuV2>
+          </Menu.Content>
+        </Menu.Portal>
+      </Menu>
       <PromptGitStatus branch={props.branch} />
     </>
   )
@@ -110,17 +110,17 @@ export function PromptGitStatus(props: { branch?: string; noGit?: boolean }) {
       {(value) => (
         <>
           <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
-          <TooltipV2
+          <Tooltip
             placement="top"
             value={value()}
             class="min-w-0 max-w-[220px]"
             contentClass="max-w-[calc(100vw-32px)] break-all"
           >
             <div class="flex h-7 min-w-0 max-w-[220px] items-center gap-1.5 px-2 text-[13px] font-[440] leading-5 tracking-[-0.04px]">
-              <Icon name="branch" size="small" class="shrink-0 text-v2-icon-icon-muted" />
+              <Icon name="branch" size="small" class="shrink-0 text-kit-icon-icon-muted" />
               <span class="min-w-0 truncate">{value()}</span>
             </div>
-          </TooltipV2>
+          </Tooltip>
         </>
       )}
     </Show>

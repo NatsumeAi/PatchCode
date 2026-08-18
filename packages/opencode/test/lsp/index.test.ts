@@ -2,7 +2,7 @@ import { describe, expect, spyOn } from "bun:test"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Deferred, Effect, Layer } from "effect"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LSP } from "@/lsp/lsp"
@@ -12,7 +12,7 @@ import { TestInstance } from "../fixture/fixture"
 import { awaitWithTimeout, testEffect } from "../lib/effect"
 
 const lspLayer = (flags: Parameters<typeof RuntimeFlags.layer>[0] = {}) =>
-  LayerNode.compile(LayerNode.group([LSP.node, Config.node, RuntimeFlags.node, EventV2Bridge.node]), [
+  LayerNode.compile(LayerNode.group([LSP.node, Config.node, RuntimeFlags.node, EventBridge.node]), [
     [RuntimeFlags.node, RuntimeFlags.layer(flags)],
   ])
 
@@ -100,7 +100,7 @@ describe("lsp.spawn", () => {
         const dir = (yield* TestInstance).directory
         const lsp = yield* LSP.Service
         const updated = yield* Deferred.make<void>()
-        const events = yield* EventV2Bridge.Service
+        const events = yield* EventBridge.Service
         const unsubscribe = yield* events.listen((event) => {
           if (event.type === LSP.Event.Updated.type) Deferred.doneUnsafe(updated, Effect.void)
           return Effect.void

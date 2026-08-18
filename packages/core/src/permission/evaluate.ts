@@ -18,3 +18,16 @@ export function evaluate(action: string, resource: string, ...rulesets: Permissi
 export function merge(...rulesets: Permission.Ruleset[]): Permission.Ruleset {
   return rulesets.flat()
 }
+
+/** Hide a tool only when the last matching action rule is a `*` resource deny. */
+export function disabled(tools: string[], ruleset: Permission.Ruleset): Set<string> {
+  const edits = ["edit", "write", "apply_patch"]
+  const reads = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
+  return new Set(
+    tools.filter((tool) => {
+      const action = edits.includes(tool) ? "edit" : reads.includes(tool) ? "read" : tool
+      const rule = ruleset.findLast((item) => Wildcard.match(action, item.action))
+      return rule?.resource === "*" && rule.effect === "deny"
+    }),
+  )
+}

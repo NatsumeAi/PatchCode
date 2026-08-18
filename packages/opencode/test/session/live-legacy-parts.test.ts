@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Event } from "@opencode-ai/sdk/v2"
+import type { Event } from "@opencode-ai/sdk/api"
 import { createLivePartState, leftoverPartsFromLive, liveSessionID } from "@/session/live-legacy-parts"
 
 function event(type: Event["type"], properties: Record<string, unknown>): Event {

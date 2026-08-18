@@ -3,7 +3,7 @@
  *
  * Pulls durable facts (decisions, file paths, errors) from the messages that
  * are about to leave the context window, so the compaction summary (Task 9)
- * can re-inject them. V1 is fully deterministic — no LLM — to avoid double
+ * can re-inject them. Extraction is fully deterministic — no LLM — to avoid double
  * token burn with flush. An optional LLM refinement pass can be layered on
  * later via `PRECOMPRESS_SYSTEM` (see prompts.ts), gated on the
  * OPENCODE_MEMORY_PRECOMPRESS env var (read by the compaction wiring).

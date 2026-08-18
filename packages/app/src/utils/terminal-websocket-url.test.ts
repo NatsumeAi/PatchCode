@@ -23,7 +23,7 @@ describe("terminalWebSocketURL", () => {
 
   test("uses query auth without embedding credentials in websocket URL for v1", () => {
     const url = terminalWebSocketURL({
-      protocol: "v1",
+      protocol: "legacy",
       url: "http://127.0.0.1:49365",
       id: "pty_test",
       directory: "/tmp/project",
@@ -43,7 +43,7 @@ describe("terminalWebSocketURL", () => {
 
   test("omits query auth for same-origin saved credentials for v1", () => {
     const url = terminalWebSocketURL({
-      protocol: "v1",
+      protocol: "legacy",
       url: "https://app.example.test",
       id: "pty_test",
       directory: "/tmp/project",
@@ -61,7 +61,7 @@ describe("terminalWebSocketURL", () => {
 
   test("uses query auth for same-origin credentials from auth_token for v1", () => {
     const url = terminalWebSocketURL({
-      protocol: "v1",
+      protocol: "legacy",
       url: "https://app.example.test",
       id: "pty_test",
       directory: "/tmp/project",

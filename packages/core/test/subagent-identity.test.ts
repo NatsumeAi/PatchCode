@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { validateResumeIdentity } from "../src/session/subagent-identity"
 import { SessionSchema } from "../src/session/schema"
-import { AgentV2 } from "../src/agent"
+import { Agent } from "../src/agent"
 
 const parentID = SessionSchema.ID.make("ses_parent")
 const childID = SessionSchema.ID.make("ses_child")
@@ -11,7 +11,7 @@ const child = (overrides: Partial<Parameters<typeof makeChild>[0]> = {}) => make
 function makeChild(overrides: {
   id?: SessionSchema.ID
   parentID?: SessionSchema.ID
-  agent?: AgentV2.ID
+  agent?: Agent.ID
   model?: { id: string; providerID: string; variant?: string }
 }): SessionSchema.Info {
   return {
@@ -19,7 +19,7 @@ function makeChild(overrides: {
     projectID: "prj_test",
     title: "t",
     parentID: overrides.parentID ?? parentID,
-    agent: overrides.agent ?? AgentV2.ID.make("explore"),
+    agent: overrides.agent ?? Agent.ID.make("explore"),
     model: overrides.model,
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -65,7 +65,7 @@ describe("validateResumeIdentity", () => {
 
   test("rejects when agent name does not match", () => {
     const result = validateResumeIdentity({
-      child: child({ agent: AgentV2.ID.make("general") }),
+      child: child({ agent: Agent.ID.make("general") }),
       parentSessionID: parentID,
       subagentType: "explore",
     })

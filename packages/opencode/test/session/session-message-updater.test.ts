@@ -2,9 +2,9 @@ import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import * as DateTime from "effect/DateTime"
 import { SessionID } from "../../src/session/schema"
-import { EventV2 } from "@opencode-ai/core/event"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessageUpdater } from "@opencode-ai/core/session/message-updater"
 import { SessionMessage } from "@opencode-ai/core/session/message"
@@ -16,7 +16,7 @@ test.skip("step snapshots carry over to assistant messages", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.step.started",
       data: {
         sessionID,
@@ -24,9 +24,9 @@ test.skip("step snapshots carry over to assistant messages", () => {
         timestamp: DateTime.makeUnsafe(1),
         agent: "build",
         model: {
-          id: ModelV2.ID.make("model"),
-          providerID: ProviderV2.ID.make("provider"),
-          variant: ModelV2.VariantID.make("default"),
+          id: Model.ID.make("model"),
+          providerID: Provider.ID.make("provider"),
+          variant: Model.VariantID.make("default"),
         },
         snapshot: "before",
       },
@@ -37,7 +37,7 @@ test.skip("step snapshots carry over to assistant messages", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.step.ended",
       data: {
         sessionID,
@@ -69,7 +69,7 @@ test.skip("text ended populates assistant text content", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.step.started",
       data: {
         sessionID,
@@ -77,9 +77,9 @@ test.skip("text ended populates assistant text content", () => {
         timestamp: DateTime.makeUnsafe(1),
         agent: "build",
         model: {
-          id: ModelV2.ID.make("model"),
-          providerID: ProviderV2.ID.make("provider"),
-          variant: ModelV2.VariantID.make("default"),
+          id: Model.ID.make("model"),
+          providerID: Provider.ID.make("provider"),
+          variant: Model.VariantID.make("default"),
         },
       },
     } satisfies SessionEvent.Event),
@@ -87,7 +87,7 @@ test.skip("text ended populates assistant text content", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.text.started",
       data: {
         sessionID,
@@ -100,7 +100,7 @@ test.skip("text ended populates assistant text content", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.text.ended",
       data: {
         sessionID,
@@ -125,7 +125,7 @@ test.skip("tool completion stores completed timestamp", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.step.started",
       data: {
         sessionID,
@@ -133,9 +133,9 @@ test.skip("tool completion stores completed timestamp", () => {
         timestamp: DateTime.makeUnsafe(1),
         agent: "build",
         model: {
-          id: ModelV2.ID.make("model"),
-          providerID: ProviderV2.ID.make("provider"),
-          variant: ModelV2.VariantID.make("default"),
+          id: Model.ID.make("model"),
+          providerID: Provider.ID.make("provider"),
+          variant: Model.VariantID.make("default"),
         },
       },
     } satisfies SessionEvent.Event),
@@ -143,7 +143,7 @@ test.skip("tool completion stores completed timestamp", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.tool.input.started",
       data: {
         sessionID,
@@ -157,7 +157,7 @@ test.skip("tool completion stores completed timestamp", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.tool.called",
       data: {
         sessionID,
@@ -173,7 +173,7 @@ test.skip("tool completion stores completed timestamp", () => {
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.tool.success",
       data: {
         sessionID,
@@ -198,7 +198,7 @@ test.skip("tool completion stores completed timestamp", () => {
 test("compaction events reduce to compaction message only when completed", () => {
   const state: SessionMessageUpdater.MemoryState = { messages: [] }
   const sessionID = SessionID.make("session")
-  const id = EventV2.ID.create()
+  const id = CoreEvent.ID.create()
   const compactionID = SessionMessage.ID.create()
 
   Effect.runSync(
@@ -218,7 +218,7 @@ test("compaction events reduce to compaction message only when completed", () =>
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.compaction.delta",
       data: {
         sessionID,
@@ -231,7 +231,7 @@ test("compaction events reduce to compaction message only when completed", () =>
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.compaction.delta",
       data: {
         sessionID,
@@ -244,7 +244,7 @@ test("compaction events reduce to compaction message only when completed", () =>
 
   Effect.runSync(
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
-      id: EventV2.ID.create(),
+      id: CoreEvent.ID.create(),
       type: "session.next.compaction.ended",
       data: {
         sessionID,

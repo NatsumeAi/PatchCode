@@ -7,7 +7,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { WorktreeTool } from "@opencode-ai/core/tool/worktree"
@@ -20,7 +20,7 @@ import { testEffect } from "../lib/effect"
 import { toolIdentity, executeTool } from "../lib/tool"
 
 const skipWin = process.platform === "win32"
-const sessionID = SessionV2.ID.make("ses_worktree_tool")
+const sessionID = Session.ID.make("ses_worktree_tool")
 
 const permission = Layer.succeed(
   Permission.Service,

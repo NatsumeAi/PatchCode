@@ -189,33 +189,33 @@ describe("OpenAPI.fromSpec", () => {
       path: "/api/fs/read/*",
       reason: "binary responses are not supported",
     })
-    expect(toolAt(result.tools, "v2.health.get")).not.toBeUndefined()
-    expect(toolAt(result.tools, "v2.session.get")).not.toBeUndefined()
-    expect(toolAt(result.tools, "v2.session.create")).not.toBeUndefined()
+    expect(toolAt(result.tools, "api.health.get")).not.toBeUndefined()
+    expect(toolAt(result.tools, "api.session.get")).not.toBeUndefined()
+    expect(toolAt(result.tools, "api.session.create")).not.toBeUndefined()
 
-    const sessionGet = toolAt(result.tools, "v2.session.get")
+    const sessionGet = toolAt(result.tools, "api.session.get")
     expect(Tool.isDefinition(sessionGet)).toBe(true)
-    if (!Tool.isDefinition(sessionGet)) throw new Error("v2.session.get was not generated")
+    if (!Tool.isDefinition(sessionGet)) throw new Error("api.session.get was not generated")
     expect(inputTypeScript(sessionGet)).toBe("{ sessionID: string }")
     expect(outputTypeScript(sessionGet)).toContain("id: string")
     expect(outputTypeScript(sessionGet)).toContain("additions: number")
 
-    const switchAgent = toolAt(result.tools, "v2.session.switchAgent")
+    const switchAgent = toolAt(result.tools, "api.session.switchAgent")
     expect(Tool.isDefinition(switchAgent)).toBe(true)
-    if (!Tool.isDefinition(switchAgent)) throw new Error("v2.session.switchAgent was not generated")
+    if (!Tool.isDefinition(switchAgent)) throw new Error("api.session.switchAgent was not generated")
     expect(inputTypeScript(switchAgent)).toBe("{ sessionID: string; agent: string }")
 
-    const contextEntryPut = toolAt(result.tools, "v2.session.contextEntry.put")
+    const contextEntryPut = toolAt(result.tools, "api.session.contextEntry.put")
     expect(Tool.isDefinition(contextEntryPut)).toBe(true)
-    if (!Tool.isDefinition(contextEntryPut)) throw new Error("v2.session.contextEntry.put was not generated")
+    if (!Tool.isDefinition(contextEntryPut)) throw new Error("api.session.contextEntry.put was not generated")
     expect(inputTypeScript(contextEntryPut)).toBe("{ sessionID: string; key: string; value: unknown }")
     expect(toolAt(result.tools, "v2_session_context_entry_put_2")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.pty.connect")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.session.log")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.event.subscribe")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.event.changes")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.fs.read")).toBeUndefined()
-    expect(toolAt(result.tools, "v2.pty.connectToken")).not.toBeUndefined()
+    expect(toolAt(result.tools, "api.pty.connect")).toBeUndefined()
+    expect(toolAt(result.tools, "api.session.log")).toBeUndefined()
+    expect(toolAt(result.tools, "api.event.subscribe")).toBeUndefined()
+    expect(toolAt(result.tools, "api.event.changes")).toBeUndefined()
+    expect(toolAt(result.tools, "api.fs.read")).toBeUndefined()
+    expect(toolAt(result.tools, "api.pty.connectToken")).not.toBeUndefined()
   })
 
   test("preserves operation path sanitization and collision handling", () => {
@@ -362,7 +362,7 @@ describe("OpenAPI.fromSpec", () => {
 
     expect(spec.security).toStrictEqual([])
     expect(isRecord(components.securitySchemes) ? Object.keys(components.securitySchemes) : []).toStrictEqual([])
-    const health = toolAt(result.tools, "v2.health.get")
+    const health = toolAt(result.tools, "api.health.get")
     const healthInput = isRecord(health) ? health.input : undefined
     expect(healthInput).toMatchObject({ type: "object", properties: {} })
     const input = isRecord(healthInput) ? healthInput : {}
@@ -389,7 +389,7 @@ describe("OpenAPI.fromSpec", () => {
     expect(result.value).toMatchObject({
       items: [
         {
-          path: "tools.opencode.v2.health.get",
+          path: "tools.opencode.api.health.get",
           description: "Check whether the API server is ready to accept requests.",
         },
       ],
@@ -410,8 +410,8 @@ describe("OpenAPI.fromSpec", () => {
       runtime
         .execute(
           `
-          const existing = await tools.opencode.v2.session.get({ sessionID: "ses_123" })
-          const created = await tools.opencode.v2.session.create({ id: "ses_456" })
+          const existing = await tools.opencode.api.session.get({ sessionID: "ses_123" })
+          const created = await tools.opencode.api.session.create({ id: "ses_456" })
           return { existing, created }
         `,
         )
@@ -431,8 +431,8 @@ describe("OpenAPI.fromSpec", () => {
 
   test("serializes deep-object query parameters from the opencode fixture", async () => {
     const client = recordingClient(() => json({ directory: "/tmp" }))
-    const location = toolAt(OpenAPI.fromSpec({ spec: await opencodeSpec(), baseUrl }).tools, "v2.location.get")
-    if (!Tool.isDefinition(location)) throw new Error("v2.location.get was not generated")
+    const location = toolAt(OpenAPI.fromSpec({ spec: await opencodeSpec(), baseUrl }).tools, "api.location.get")
+    if (!Tool.isDefinition(location)) throw new Error("api.location.get was not generated")
 
     await Effect.runPromise(
       location.run({ location: { directory: "/tmp", workspace: "workspace-1" } }).pipe(Effect.provide(client.layer)),
@@ -810,7 +810,7 @@ describe("OpenAPI.fromSpec", () => {
     })
 
     const result = await Effect.runPromise(
-      runtime.execute("return await tools.opencode.v2.session.get({})").pipe(Effect.provide(layer)),
+      runtime.execute("return await tools.opencode.api.session.get({})").pipe(Effect.provide(layer)),
     )
 
     expect(result).toMatchObject({ ok: false })

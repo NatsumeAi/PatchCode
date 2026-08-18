@@ -1,10 +1,10 @@
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { Permission } from "@opencode-ai/schema/permission"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 
 import { Session } from "@/session/session"
-import { MessageV2 } from "@/session/session-message-wire"
+import { MessageWire } from "@/session/session-message-wire"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
@@ -22,8 +22,8 @@ import {
 import { ApiNotFoundError, PermissionNotFoundError, SessionBusyError } from "../errors"
 import { described } from "./metadata"
 import { QueryBoolean } from "./query"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 
 const root = "/session"
 export const ListQuery = Schema.Struct({
@@ -48,7 +48,7 @@ export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
 export const UpdatePayload = Schema.Struct({
   title: Schema.optional(Schema.String),
   metadata: Schema.optional(Session.Metadata),
-  permission: Schema.optional(PermissionV1.Ruleset),
+  permission: Schema.optional(Permission.Ruleset),
   time: Schema.optional(
     Schema.Struct({
       archived: Schema.optional(Session.ArchivedTimestamp),
@@ -57,21 +57,21 @@ export const UpdatePayload = Schema.Struct({
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const InitPayload = Schema.Struct({
-  modelID: ModelV2.ID,
-  providerID: ProviderV2.ID,
+  modelID: Model.ID,
+  providerID: Provider.ID,
   messageID: MessageID,
 })
 export const SummarizePayload = Schema.Struct({
-  providerID: ProviderV2.ID,
-  modelID: ModelV2.ID,
+  providerID: Provider.ID,
+  modelID: Model.ID,
   auto: Schema.optional(Schema.Boolean),
 })
 export const UncompactPayload = Schema.Struct({
   checkpointID: Schema.optional(Schema.String),
 })
 const ModelRef = Schema.Struct({
-  providerID: ProviderV2.ID,
-  modelID: ModelV2.ID,
+  providerID: Provider.ID,
+  modelID: Model.ID,
 })
 
 export const PromptPayload = Schema.Struct({
@@ -83,15 +83,15 @@ export const PromptPayload = Schema.Struct({
     description:
       "@deprecated tools and permissions have been merged, you can set permissions on the session itself now",
   }),
-  format: Schema.optional(SessionV1.Format),
+  format: Schema.optional(SessionWire.Format),
   system: Schema.optional(Schema.String),
   variant: Schema.optional(Schema.String),
   parts: Schema.Array(
     Schema.Union([
-      SessionV1.TextPartInput,
-      SessionV1.FilePartInput,
-      SessionV1.AgentPartInput,
-      SessionV1.SubtaskPartInput,
+      SessionWire.TextPartInput,
+      SessionWire.FilePartInput,
+      SessionWire.AgentPartInput,
+      SessionWire.SubtaskPartInput,
     ]).annotate({ discriminator: "type" }),
   ),
 })
@@ -117,7 +117,7 @@ export const CommandPayload = Schema.Struct({
           mime: Schema.String,
           filename: Schema.optional(Schema.String),
           url: Schema.String,
-          source: Schema.optional(SessionV1.FilePartSource),
+          source: Schema.optional(SessionWire.FilePartSource),
         }),
       ]).annotate({ discriminator: "type" }),
     ),
@@ -128,7 +128,7 @@ export const RevertPayload = Schema.Struct({
   partID: Schema.optional(PartID),
 })
 export const PermissionResponsePayload = Schema.Struct({
-  response: PermissionV1.Reply,
+  response: Permission.Reply,
 })
 export const JobID = Schema.String
 export const JobInfo = Schema.Struct({
@@ -149,6 +149,7 @@ export const TrustPayload = Schema.Struct({
   grant: Schema.Boolean,
   directory: Schema.optional(Schema.String),
 })
+export const HooksList = Schema.Struct({
   loaded: Schema.Array(
     Schema.Struct({
       id: Schema.String,
@@ -279,7 +280,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("messages", SessionPaths.messages, {
           params: { sessionID: SessionID },
           query: MessagesQuery,
-          success: described(Schema.Array(SessionV1.WithParts), "List of messages"),
+          success: described(Schema.Array(SessionWire.WithParts), "List of messages"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
@@ -291,7 +292,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("message", SessionPaths.message, {
           params: { sessionID: SessionID, messageID: MessageID },
           query: WorkspaceRoutingQuery,
-          success: described(SessionV1.WithParts, "Message"),
+          success: described(SessionWire.WithParts, "Message"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
@@ -469,7 +470,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           query: WorkspaceRoutingQuery,
           payload: CommandPayload,
-          success: described(SessionV1.WithParts, "Created message"),
+          success: described(SessionWire.WithParts, "Created message"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
@@ -518,7 +519,7 @@ export const SessionApi = HttpApi.make("session")
           }),
         ),
         HttpApiEndpoint.post("permissionRespond", SessionPaths.permissions, {
-          params: { sessionID: SessionID, permissionID: PermissionV1.ID },
+          params: { sessionID: SessionID, permissionID: Permission.ID },
           query: WorkspaceRoutingQuery,
           payload: PermissionResponsePayload,
           success: described(Schema.Boolean, "Permission processed successfully"),
@@ -558,8 +559,8 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.patch("updatePart", SessionPaths.updatePart, {
           params: { sessionID: SessionID, messageID: MessageID, partID: PartID },
           query: WorkspaceRoutingQuery,
-          payload: SessionV1.Part,
-          success: described(SessionV1.Part, "Successfully updated part"),
+          payload: SessionWire.Part,
+          success: described(SessionWire.Part, "Successfully updated part"),
           error: [HttpApiError.BadRequest, ApiNotFoundError, SessionBusyError],
         }).annotateMerge(
           OpenApi.annotations({

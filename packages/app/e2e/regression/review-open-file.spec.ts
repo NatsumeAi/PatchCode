@@ -90,7 +90,7 @@ test("opens and searches project files inline", async ({ page }) => {
   await expectSessionTitle(page, title)
 
   const panel = page.locator("#review-panel")
-  const sidebar = panel.locator('[data-slot="session-review-v2-sidebar"]')
+  const sidebar = panel.locator('[data-slot="session-review-kit-sidebar"]')
   const sidebarToggle = panel.getByRole("button", { name: "Toggle file tree" })
   const contextButton = page.getByRole("button", { name: "View context usage" })
   await contextButton.click()

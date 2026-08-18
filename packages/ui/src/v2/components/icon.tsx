@@ -7,7 +7,7 @@ const icons = {
   },
   "folder-add-left": {
     viewBox: "0 0 16 16",
-    body: `<path d="M7.5 13.3333H1.5V2H6.83333L8.83333 4H14.8333V6M10.1667 11.3333H15.5M12.8333 8.66667V14" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>`,
+    body: `<path d="M7.5 13.3333H1.5H6.83333L8.83333 4H14.8333V6M10.1667 11.3333H15.5M12.8333 8.66667V14" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>`,
   },
   folder: {
     viewBox: "0 0 16 16",
@@ -19,7 +19,7 @@ const icons = {
   },
   "grid-plus": {
     viewBox: "0 0 16 16",
-    body: `<path d="M13.9948 11.668H9.32812M11.6641 9.33203V13.9987M6.66667 9.33203V13.9987H2V9.33203H6.66667ZM6.66667 2V6.66667H2V2H6.66667ZM13.9948 2V6.66667H9.32812V2H13.9948Z" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>`,
+    body: `<path d="M13.9948 11.668H9.32812M11.6641 9.33203V13.9987M6.66667 9.33203V13.9987H2V9.33203H6.66667ZM6.66667 2V6.66667H2H6.66667ZM13.9948 2V6.66667H9.32812H13.9948Z" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>`,
   },
   help: {
     viewBox: "0 0 16 16",
@@ -31,11 +31,11 @@ const icons = {
   },
   status: {
     viewBox: "0 0 20 20",
-    body: `<path d="M2 10V18H18V10M2 10V2H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
+    body: `<path d="M2 10V18H18V10M2 10H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
   },
   "status-active": {
     viewBox: "0 0 20 20",
-    body: `<path d="M18 2H2V10H18V2Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 18H18V10H2V18Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 10V18H18V10M2 10V2H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
+    body: `<path d="M18 2H2V10H18Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 18H18V10H2V18Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 10V18H18V10M2 10H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
   },
   "magnifying-glass": {
     viewBox: "0 0 16 16",
@@ -71,7 +71,7 @@ const icons = {
   },
   "workspace-new": {
     viewBox: "0 0 16 16",
-    body: `<path d="M2 10.7578V14.0011H5.24324M13.9991 5.24324V2H10.7559M13.9991 10.7578V14.0011H10.7559M2 5.24324V2H5.24324" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/><path d="M8 4.5V11.5M4.5 8H11.5" stroke="currentColor" stroke-linejoin="round"/>`,
+    body: `<path d="M2 10.7578V14.0011H5.24324M13.9991 5.24324H10.7559M13.9991 10.7578V14.0011H10.7559M2 5.24324H5.24324" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/><path d="M8 4.5V11.5M4.5 8H11.5" stroke="currentColor" stroke-linejoin="round"/>`,
   },
   "workspace-isolated": {
     viewBox: "0 0 16 16",
@@ -79,7 +79,7 @@ const icons = {
   },
   workspace: {
     viewBox: "0 0 16 16",
-    body: `<path d="M2 10.668V14.0013H10.6667M13.9974 10.6667V2H2.66406M13.9974 10.668V14.0013H10.6641M2 10V2H5.33333" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/><path d="M10.6693 10.6654V5.33203H5.33594V10.6654H10.6693Z" fill="currentColor"/>`,
+    body: `<path d="M2 10.668V14.0013H10.6667M13.9974 10.6667H2.66406M13.9974 10.668V14.0013H10.6641M2 10H5.33333" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/><path d="M10.6693 10.6654V5.33203H5.33594V10.6654H10.6693Z" fill="currentColor"/>`,
   },
   close: {
     viewBox: "0 0 20 20",
@@ -119,7 +119,7 @@ const icons = {
   },
   review: {
     viewBox: "0 0 20 20",
-    body: `<path d="M7 14.5H13M7 7.99512H10.0049M10.0049 7.99512H13M10.0049 7.99512V5M10.0049 7.99512V11M18 18V2L2 2L2 18H18Z" stroke="currentColor"/>`,
+    body: `<path d="M7 14.5H13M7 7.99512H10.0049M10.0049 7.99512H13M10.0049 7.99512V5M10.0049 7.99512V11M18 18L2 2L2 18H18Z" stroke="currentColor"/>`,
   },
   "outline-sliders": {
     viewBox: "0 0 16 16",
@@ -151,14 +151,15 @@ const icons = {
   },
 }
 
-const spriteID = "opencode-v2-icon-sprite"
-const symbol = (name: keyof typeof icons) => `opencode-v2-icon-${name}`
+const spriteID = "opencode-kit-icon-sprite"
+const legacySpriteID = "opencode-v2-icon-sprite"
+const symbol = (name: keyof typeof icons) => `opencode-kit-icon-${name}`
 let spriteInserted = false
 
 function ensureSprite() {
   if (spriteInserted) return
   if (typeof document === "undefined") return
-  if (document.getElementById(spriteID)) {
+  if (document.getElementById(spriteID) || document.getElementById(legacySpriteID)) {
     spriteInserted = true
     return
   }

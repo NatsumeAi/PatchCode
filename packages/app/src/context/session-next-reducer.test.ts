@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import type { SessionMessageInfo } from "@opencode-ai/client/promise"
-import { createV2SessionReducer, type V2SessionEvent } from "./session-next-reducer"
+import { createSessionReducer, type SessionReduceEvent } from "./session-next-reducer"
 
-const event = (input: object) => input as V2SessionEvent
+const event = (input: object) => input as SessionReduceEvent
 const ts = 1000
 const base = { created: ts, location: { directory: "/repo" }, durable: { aggregateID: "ses_1", seq: 1, version: 1 } }
 
-describe("v2 session reducer", () => {
+describe("current session reducer", () => {
   test("projects prompted input and streaming assistant content", () => {
-    const reducer = createV2SessionReducer()
+    const reducer = createSessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
       const result = reducer.reduce(messages, event(input))
@@ -62,7 +62,7 @@ describe("v2 session reducer", () => {
   })
 
   test("folds tool, retry, and completion events", () => {
-    const reducer = createV2SessionReducer()
+    const reducer = createSessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
       const result = reducer.reduce(messages, event(input))
@@ -154,7 +154,7 @@ describe("v2 session reducer", () => {
   })
 
   test("projects prompted user message with files", () => {
-    const reducer = createV2SessionReducer()
+    const reducer = createSessionReducer()
     const result = reducer.reduce(
       [],
       event({
@@ -185,7 +185,7 @@ describe("v2 session reducer", () => {
   })
 
   test("compaction started and ended fold into one checkpoint", () => {
-    const reducer = createV2SessionReducer()
+    const reducer = createSessionReducer()
     let messages: SessionMessageInfo[] = []
     const apply = (input: object) => {
       const result = reducer.reduce(messages, event(input))

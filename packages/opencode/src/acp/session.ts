@@ -1,14 +1,14 @@
 import type { McpServer } from "@agentclientprotocol/sdk"
-import type { Message, Part } from "@opencode-ai/sdk/v2"
+import type { Message, Part } from "@opencode-ai/sdk/api"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { Context, Effect, Layer, Ref } from "effect"
 import * as ACPError from "./error"
 
 export type SelectedModel = {
-  providerID: ProviderV2.ID
-  modelID: ModelV2.ID
+  providerID: Provider.ID
+  modelID: Model.ID
 }
 
 export type KnownMessagePartMetadata = {

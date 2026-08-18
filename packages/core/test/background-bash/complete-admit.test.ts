@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { formatJobResult, notifyJobFinished } from "@opencode-ai/core/session/job-complete"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
@@ -35,14 +35,14 @@ describe("job completion admit", () => {
       const prompts: Array<{ resume?: boolean; text: string }> = []
       const wakes: string[] = []
       const session = Layer.succeed(
-        SessionV2.Service,
+        Session.Service,
         {
           prompt: (input: { resume?: boolean; prompt: { text: string } }) =>
             Effect.sync(() => {
               prompts.push({ resume: input.resume, text: input.prompt.text })
               return { admittedSeq: 1 }
             }),
-        } as unknown as SessionV2.Interface,
+        } as unknown as Session.Interface,
       )
       const execution = Layer.succeed(
         SessionExecution.Service,
@@ -74,11 +74,11 @@ describe("job completion admit", () => {
     Effect.gen(function* () {
       const wakes: string[] = []
       const session = Layer.succeed(
-        SessionV2.Service,
+        Session.Service,
         {
           prompt: (input: { resume?: boolean; prompt: { text: string } }) =>
             Effect.sync(() => ({ admittedSeq: 1, resume: input.resume })),
-        } as unknown as SessionV2.Interface,
+        } as unknown as Session.Interface,
       )
       const execution = Layer.succeed(
         SessionExecution.Service,
@@ -107,10 +107,10 @@ describe("job completion admit", () => {
     Effect.gen(function* () {
       const wakes: string[] = []
       const session = Layer.succeed(
-        SessionV2.Service,
+        Session.Service,
         {
           prompt: () => Effect.succeed({ admittedSeq: 1 }),
-        } as unknown as SessionV2.Interface,
+        } as unknown as Session.Interface,
       )
       const execution = Layer.succeed(
         SessionExecution.Service,
@@ -135,14 +135,14 @@ describe("job completion admit", () => {
     Effect.gen(function* () {
       const prompts: unknown[] = []
       const session = Layer.succeed(
-        SessionV2.Service,
+        Session.Service,
         {
           prompt: () =>
             Effect.sync(() => {
               prompts.push("called")
               return { admittedSeq: 1 }
             }),
-        } as unknown as SessionV2.Interface,
+        } as unknown as Session.Interface,
       )
       yield* notifyJobFinished(bashInfo("completed", { type: "task" })).pipe(Effect.provide(session))
       expect(prompts).toEqual([])

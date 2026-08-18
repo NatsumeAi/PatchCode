@@ -6,13 +6,13 @@ import { Effect, Layer } from "effect"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { BashTool } from "@opencode-ai/core/tool/bash"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -20,7 +20,7 @@ import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { location } from "../fixture/location"
 import { executeTool, settleTool, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_bash_live_sandbox")
+const sessionID = Session.ID.make("ses_bash_live_sandbox")
 
 const permission = Layer.succeed(
   Permission.Service,
@@ -35,10 +35,10 @@ const permission = Layer.succeed(
   }),
 )
 const events = Layer.succeed(
-  EventV2.Service,
+  Event.Service,
   {
     publish: () => Effect.succeed({ durable: { aggregateID: sessionID, seq: 1, version: 1 } }),
-  } as unknown as EventV2.Interface,
+  } as unknown as Event.Interface,
 )
 const config = Layer.succeed(
   Config.Service,
@@ -99,7 +99,7 @@ const withLive = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
           [Location.node, activeLocation],
           [Permission.node, permission],
           [Config.node, config],
-          [EventV2.node, events],
+          [Event.node, events],
           [BackgroundJob.node, inlineJobs],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
         ],

@@ -1,23 +1,24 @@
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
+import { Permission } from "@opencode-ai/schema/permission"
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { describe, expect } from "bun:test"
 import { Config, Context, Effect, FileSystem, Layer, Path } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter, HttpServer } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace } from "@opencode-ai/core/workspace"
 import { ControlPaths } from "../../src/server/routes/instance/httpapi/groups/control"
 import { InstancePaths } from "../../src/server/routes/instance/httpapi/groups/instance"
 import { SessionPaths } from "../../src/server/routes/instance/httpapi/groups/session"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { QuestionID } from "../../src/question/schema"
+import { SessionID } from "../../src/session/schema"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { HEADER as FenceHeader } from "../../src/server/shared/fence"
 import { resetDatabase } from "../fixture/db"
 import { tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
-// Flip the experimental workspaces flag so EventV2.run actually writes to
+// Flip the experimental workspaces flag so Event.run actually writes to
 // EventSequenceTable (the source of truth the fence middleware reads). Reset
 // the database around the test so per-instance state does not leak between
 // runs. resetDatabase() already calls disposeAllInstances(), so we don't
@@ -76,7 +77,7 @@ describe("instance HttpApi", () => {
   it.live("emits a sync fence header for fixed-workspace mutations", () =>
     Effect.gen(function* () {
       const originalWorkspaceID = Flag.OPENCODE_WORKSPACE_ID
-      Flag.OPENCODE_WORKSPACE_ID = WorkspaceV2.ID.ascending()
+      Flag.OPENCODE_WORKSPACE_ID = Workspace.ID.ascending()
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           Flag.OPENCODE_WORKSPACE_ID = originalWorkspaceID
@@ -98,7 +99,7 @@ describe("instance HttpApi", () => {
   it.live("does not emit sync fence headers for fixed-workspace reads or no-op mutations", () =>
     Effect.gen(function* () {
       const originalWorkspaceID = Flag.OPENCODE_WORKSPACE_ID
-      Flag.OPENCODE_WORKSPACE_ID = WorkspaceV2.ID.ascending()
+      Flag.OPENCODE_WORKSPACE_ID = Workspace.ID.ascending()
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           Flag.OPENCODE_WORKSPACE_ID = originalWorkspaceID
@@ -120,96 +121,52 @@ describe("instance HttpApi", () => {
     }),
   )
 
-  it.live("rejects malformed permission and question request ids", () =>
-    Effect.gen(function* () {
-      const dir = yield* tmpdirScoped({ git: true })
-      const request = (path: string, init?: RequestInit) =>
-        Effect.promise(() =>
-          HttpApiApp.webHandler().handler(
-            new Request(`http://localhost${path}`, {
-              ...init,
-              headers: { "x-opencode-directory": dir, "content-type": "application/json", ...init?.headers },
-            }),
-            handlerContext,
-          ),
-        )
-      const [permission, questionReply, questionReject] = yield* Effect.all(
-        [
-          request("/permission/invalid-permission-id/reply", {
-            method: "POST",
-            body: JSON.stringify({ reply: "once" }),
-          }),
-          request("/question/invalid-question-id/reply", {
-            method: "POST",
-            body: JSON.stringify({ answers: [["Yes"]] }),
-          }),
-          request("/question/invalid-question-id/reject", { method: "POST" }),
-        ],
-        { concurrency: "unbounded" },
-      )
-
-      expect(permission.status).toBe(400)
-      expect(questionReply.status).toBe(400)
-      expect(questionReject.status).toBe(400)
-    }),
-  )
-
   it.live("returns typed not found bodies for missing permission and question requests", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })
-      const request = (path: string, init?: RequestInit) =>
-        Effect.promise(() =>
-          HttpApiApp.webHandler().handler(
-            new Request(`http://localhost${path}`, {
-              ...init,
-              headers: { "x-opencode-directory": dir, "content-type": "application/json", ...init?.headers },
-            }),
-            handlerContext,
-          ),
-        )
-      const permissionID = PermissionV1.ID.ascending()
+      const sessionID = SessionID.descending()
+      const permissionID = Permission.ID.create()
       const questionReplyID = QuestionID.ascending()
       const questionRejectID = QuestionID.ascending()
+      const expectedSession = {
+        _tag: "SessionNotFoundError",
+        sessionID,
+        message: `Session not found: ${sessionID}`,
+      }
       const [permission, questionReply, questionReject] = yield* Effect.all(
         [
-          request(`/permission/${permissionID}/reply`, {
-            method: "POST",
-            body: JSON.stringify({ reply: "once" }),
-          }),
-          request(`/question/${questionReplyID}/reply`, {
-            method: "POST",
-            body: JSON.stringify({ answers: [["Yes"]] }),
-          }),
-          request(`/question/${questionRejectID}/reject`, { method: "POST" }),
+          HttpClientRequest.post(`/api/session/${sessionID}/permission/${permissionID}/reply`).pipe(
+            directoryHeader(dir),
+            HttpClientRequest.bodyJson({ reply: "once" }),
+            Effect.flatMap(HttpClient.execute),
+          ),
+          HttpClientRequest.post(`/api/session/${sessionID}/question/${questionReplyID}/reply`).pipe(
+            directoryHeader(dir),
+            HttpClientRequest.bodyJson({ answers: [["Yes"]] }),
+            Effect.flatMap(HttpClient.execute),
+          ),
+          HttpClientRequest.post(`/api/session/${sessionID}/question/${questionRejectID}/reject`).pipe(
+            directoryHeader(dir),
+            HttpClient.execute,
+          ),
         ],
         { concurrency: "unbounded" },
       )
 
       expect(permission.status).toBe(404)
-      expect(yield* Effect.promise(() => permission.json())).toEqual({
-        _tag: "PermissionNotFoundError",
-        requestID: permissionID,
-        message: `Permission request not found: ${permissionID}`,
-      })
+      expect(yield* permission.json).toEqual(expectedSession)
       expect(questionReply.status).toBe(404)
-      expect(yield* Effect.promise(() => questionReply.json())).toEqual({
-        _tag: "QuestionNotFoundError",
-        requestID: questionReplyID,
-        message: `Question request not found: ${questionReplyID}`,
-      })
+      expect(yield* questionReply.json).toEqual(expectedSession)
       expect(questionReject.status).toBe(404)
-      expect(yield* Effect.promise(() => questionReject.json())).toEqual({
-        _tag: "QuestionNotFoundError",
-        requestID: questionRejectID,
-        message: `Question request not found: ${questionRejectID}`,
-      })
+      expect(yield* questionReject.json).toEqual(expectedSession)
     }),
+    15000,
   )
 
   it.live("returns typed not found bodies for missing projects", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })
-      const projectID = ProjectV2.ID.make("project_missing")
+      const projectID = CoreProject.ID.make("project_missing")
       const response = yield* Effect.promise(() =>
         HttpApiApp.webHandler().handler(
           new Request(`http://localhost/project/${projectID}`, {

@@ -20,23 +20,23 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
-import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Keybind } from "@opencode-ai/ui/kit/keybind"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
+import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/api"
 import type { FileDiffInfo } from "@opencode-ai/client/promise"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
-import { normalizeFileTreeV2Path } from "@/components/file-tree-v2-model"
+import { normalizeFileTreePath } from "@/components/file-tree-kit-model"
 import { SessionContextUsage } from "@/components/session-context-usage"
 
 const reviewTabID = "session-side-panel-review-tab"
 const reviewTabPanelID = "session-side-panel-review-tabpanel"
 const fileBrowserTabPanelID = "session-side-panel-file-browser-tabpanel"
-import { SessionContextTab, SortableTab, SortableTabV2, FileVisual } from "@/components/session"
-import { OpenInAppV2 } from "@/components/session/open-in-app-v2"
+import { SessionContextTab, SortableTab, SortableTabKit, FileVisual } from "@/components/session"
+import { OpenInApp } from "@/components/session/open-in-app-kit"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -55,7 +55,7 @@ import {
 } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { SessionFileBrowserTab, type SessionFileBrowserState } from "@/pages/session/v2/session-file-browser-tab"
+import { SessionFileBrowserTab, type SessionFileBrowserState } from "@/pages/session/kit/session-file-browser-tab"
 
 type ReviewDiff = FileDiffInfo | SnapshotFileDiff | VcsFileDiff
 type RenderDiff = FileDiffInfo | (SnapshotFileDiff & { file: string }) | VcsFileDiff
@@ -123,7 +123,7 @@ export function SessionSidePanel(props: {
 
     const out = new Map<string, "add" | "del" | "mix">()
     for (const diff of diffs()) {
-      const file = normalizeFileTreeV2Path(diff.file)
+      const file = normalizeFileTreePath(diff.file)
       const kind = diff.status === "added" ? "add" : diff.status === "deleted" ? "del" : "mix"
 
       out.set(file, kind)
@@ -294,14 +294,14 @@ export function SessionSidePanel(props: {
         inert={!open()}
         class="relative min-w-0 flex overflow-hidden"
         classList={{
-          "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+          "bg-kit-background-bg-base": settings.general.newLayoutDesigns(),
           "bg-background-base": !settings.general.newLayoutDesigns(),
           "h-full shrink-0": !props.stacked,
           "h-full min-h-0": props.stacked,
           "pointer-events-none": !open(),
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
             !props.size.active() && !props.reviewSnap,
-          "rounded-[10px] shadow-[var(--v2-elevation-raised)] overflow-hidden": settings.general.newLayoutDesigns(),
+          "rounded-[10px] shadow-[var(--kit-elevation-raised)] overflow-hidden": settings.general.newLayoutDesigns(),
           "flex-1": reviewOpen(),
         }}
         style={{ width: panelWidth() }}
@@ -317,14 +317,14 @@ export function SessionSidePanel(props: {
               <div
                 class="relative min-w-0 h-full flex-1 overflow-hidden"
                 classList={{
-                  "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                  "bg-kit-background-bg-base": settings.general.newLayoutDesigns(),
                   "bg-background-base": !settings.general.newLayoutDesigns(),
                 }}
               >
                 <div
                   class="size-full min-w-0 h-full"
                   classList={{
-                    "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                    "bg-kit-background-bg-base": settings.general.newLayoutDesigns(),
                     "bg-background-base": !settings.general.newLayoutDesigns(),
                   }}
                 >
@@ -436,7 +436,7 @@ export function SessionSidePanel(props: {
                               <div
                                 class="h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3"
                                 classList={{
-                                  "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                                  "bg-kit-background-bg-base": settings.general.newLayoutDesigns(),
                                   "bg-background-stronger": !settings.general.newLayoutDesigns(),
                                 }}
                               >
@@ -524,7 +524,7 @@ export function SessionSidePanel(props: {
                           preventActivation: (event) =>
                             event.target instanceof Element &&
                             (!!event.target.closest('[data-slot="tabs-trigger-close-button"]') ||
-                              !!event.target.closest(".session-review-v2-open-in-app-slot")),
+                              !!event.target.closest(".session-review-kit-open-in-app-slot")),
                         }),
                       ]}
                       modifiers={[
@@ -543,7 +543,7 @@ export function SessionSidePanel(props: {
                       }}
                     >
                       <Tabs value={activeTab()} onChange={activateTab}>
-                        <div class="session-review-v2-tabs-bar sticky top-0 shrink-0 flex items-center">
+                        <div class="session-review-kit-tabs-bar sticky top-0 shrink-0 flex items-center">
                           <Tabs.List
                             ref={(el: HTMLDivElement) => {
                               tabList = el
@@ -553,7 +553,7 @@ export function SessionSidePanel(props: {
                           >
                             <Show when={props.reviewSidebarToggle}>
                               {(toggle) => (
-                                <div class="session-review-v2-sidebar-toggle-slot h-full shrink-0 sticky left-0 z-10 flex items-center justify-center bg-v2-background-bg-base">
+                                <div class="session-review-kit-sidebar-toggle-slot h-full shrink-0 sticky left-0 z-10 flex items-center justify-center bg-kit-background-bg-base">
                                   {toggle()(activeTab() === SESSION_OPEN_FILE_TAB)}
                                 </div>
                               )}
@@ -573,12 +573,12 @@ export function SessionSidePanel(props: {
                               <Tabs.Trigger
                                 value="context"
                                 closeButton={
-                                  <TooltipV2
+                                  <KitTooltip
                                     value={
                                       <>
                                         {language.t("common.closeTab")}
                                         <Show when={closeTabKeybind().length > 0}>
-                                          <KeybindV2 keys={closeTabKeybind()} variant="neutral" />
+                                          <Keybind keys={closeTabKeybind()} variant="neutral" />
                                         </Show>
                                       </>
                                     }
@@ -592,7 +592,7 @@ export function SessionSidePanel(props: {
                                       onClick={() => tabs().close("context")}
                                       aria-label={language.t("common.closeTab")}
                                     />
-                                  </TooltipV2>
+                                  </KitTooltip>
                                 }
                                 hideCloseButton
                                 onMiddleClick={() => tabs().close("context")}
@@ -608,7 +608,7 @@ export function SessionSidePanel(props: {
                                 <Show
                                   when={tab === SESSION_OPEN_FILE_TAB}
                                   fallback={
-                                    <SortableTabV2
+                                    <SortableTabKit
                                       tab={tab}
                                       index={() => tabs().all().indexOf(tab)}
                                       temporary={temporaryTab() === tab}
@@ -620,12 +620,12 @@ export function SessionSidePanel(props: {
                                   <Tabs.Trigger
                                     value={SESSION_OPEN_FILE_TAB}
                                     closeButton={
-                                      <TooltipV2
+                                      <KitTooltip
                                         value={
                                           <>
                                             {language.t("common.closeTab")}
                                             <Show when={closeTabKeybind().length > 0}>
-                                              <KeybindV2 keys={closeTabKeybind()} variant="neutral" />
+                                              <Keybind keys={closeTabKeybind()} variant="neutral" />
                                             </Show>
                                           </>
                                         }
@@ -639,7 +639,7 @@ export function SessionSidePanel(props: {
                                           onClick={() => tabs().close(SESSION_OPEN_FILE_TAB)}
                                           aria-label={language.t("common.closeTab")}
                                         />
-                                      </TooltipV2>
+                                      </KitTooltip>
                                     }
                                     hideCloseButton
                                     onMiddleClick={() => tabs().close(SESSION_OPEN_FILE_TAB)}
@@ -655,38 +655,38 @@ export function SessionSidePanel(props: {
                             <div
                               class="h-full shrink-0 sticky right-0 z-10 flex items-center justify-center"
                               classList={{
-                                "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                                "bg-kit-background-bg-base": settings.general.newLayoutDesigns(),
                                 "bg-background-stronger": !settings.general.newLayoutDesigns(),
                               }}
                             >
-                              <TooltipV2
+                              <KitTooltip
                                 value={
                                   <>
                                     {language.t("command.file.open")}
                                     <Show when={openFileKeybind().length > 0}>
-                                      <KeybindV2 keys={openFileKeybind()} variant="neutral" />
+                                      <Keybind keys={openFileKeybind()} variant="neutral" />
                                     </Show>
                                   </>
                                 }
                                 placement="bottom"
                                 class="flex items-center"
                               >
-                                <IconButtonV2
+                                <KitIconButton
                                   icon={<Icon name="plus-small" />}
                                   variant="ghost-muted"
                                   size="large"
                                   onClick={() => openFileBrowser()}
                                   aria-label={language.t("command.file.open")}
                                 />
-                              </TooltipV2>
+                              </KitTooltip>
                             </div>
                           </Tabs.List>
                           <div
-                            class="session-review-v2-open-in-app-slot shrink-0 flex items-center pr-3"
+                            class="session-review-kit-open-in-app-slot shrink-0 flex items-center pr-3"
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => event.stopPropagation()}
                           >
-                            <OpenInAppV2 directory={projectDirectory} />
+                            <OpenInApp directory={projectDirectory} />
                           </div>
                         </div>
 

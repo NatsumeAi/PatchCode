@@ -1,4 +1,4 @@
-import type { LspStatus } from "@opencode-ai/sdk/v2/client"
+import type { LspStatus } from "@opencode-ai/sdk/api/client"
 import type { McpServer } from "@opencode-ai/client/promise"
 
 export function hasServiceNeedingAttention(input: { mcp: Array<McpServer["status"]["status"]> }) {
@@ -23,7 +23,7 @@ export function serverStatusDotClass(input: {
 }) {
   if (input.serverHealth === false) return "bg-icon-critical-base"
   if (!input.ready || input.serverHealth === undefined) return "bg-border-weak-base"
-  if (input.attention) return "bg-v2-background-bg-accent"
+  if (input.attention) return "bg-kit-background-bg-accent"
   if (input.issue) return "bg-icon-warning-base"
   if (input.serverHealth === true) return "bg-icon-success-base"
   return "bg-border-weak-base"

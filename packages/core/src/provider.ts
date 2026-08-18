@@ -1,25 +1,25 @@
-export * as ProviderV2 from "./provider"
+export * as Provider from "./provider"
 
 import { Types } from "effect"
-import { Provider } from "@opencode-ai/schema/provider"
+import { Provider as ProviderSchema } from "@opencode-ai/schema/provider"
 
-export const ID = Provider.ID
+export const ID = ProviderSchema.ID
 export type ID = typeof ID.Type
 
-export const AISDK = Provider.AISDK
+export const AISDK = ProviderSchema.AISDK
 
-export const Native = Provider.Native
+export const Native = ProviderSchema.Native
 
-export const Api = Provider.Api
-export type Api = Provider.Api
+export const Api = ProviderSchema.Api
+export type Api = ProviderSchema.Api
 export type MutableApi<T extends Api = Api> = T extends Api
   ? Omit<Types.DeepMutable<T>, "settings"> & (undefined extends T["settings"] ? { settings?: any } : { settings: any })
   : never
 
-export const Request = Provider.Request
-export type Request = Provider.Request
+export const Request = ProviderSchema.Request
+export type Request = ProviderSchema.Request
 
-export const Info = Provider.Info
-export type Info = Provider.Info
+export const Info = ProviderSchema.Info
+export type Info = ProviderSchema.Info
 
 export type MutableInfo = Omit<Types.DeepMutable<Info>, "api"> & { api: MutableApi }

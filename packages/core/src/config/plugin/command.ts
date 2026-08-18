@@ -3,10 +3,10 @@ export * as ConfigCommandPlugin from "./command"
 import { define } from "../../plugin/internal"
 import path from "path"
 import { Effect, Option, Schema } from "effect"
-import { CommandV2 } from "../../command"
+import { Command } from "../../command"
 import { Config } from "../../config"
 import { FSUtil } from "../../fs-util"
-import { ModelV2 } from "../../model"
+import { Model } from "../../model"
 import { ConfigCommand } from "../command"
 import { ConfigMarkdown } from "../markdown"
 
@@ -34,11 +34,11 @@ export const Plugin = define({
               if (command.description !== undefined) item.description = command.description
               if (command.agent !== undefined) item.agent = command.agent
               if (command.model !== undefined) {
-                const model = ModelV2.parse(command.model)
+                const model = Model.parse(command.model)
                 item.model = { id: model.modelID, providerID: model.providerID, variant: item.model?.variant }
               }
               if (command.variant !== undefined && item.model !== undefined) {
-                item.model.variant = ModelV2.VariantID.make(command.variant)
+                item.model.variant = Model.VariantID.make(command.variant)
               }
               if (command.subtask !== undefined) item.subtask = command.subtask
             })

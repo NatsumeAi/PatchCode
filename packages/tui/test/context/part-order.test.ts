@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/api"
 import { comparePartOrder, insertPartIndex, partOrderKey } from "../../src/context/part-order"
 
 function reasoning(id: string, start: number): ReasoningPart {

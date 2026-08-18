@@ -1,8 +1,7 @@
 export * as SubagentPermissions from "./subagent-permissions"
 
 import { Permission } from "@opencode-ai/schema/permission"
-import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
-import { AgentV2 } from "../agent"
+import { Agent } from "../agent"
 import { Wildcard } from "../util/wildcard"
 
 export type CapabilityMode = "read-only" | "read-write" | "execute" | "all"
@@ -29,21 +28,9 @@ export function tightenCapability(
 }
 
 
-/** Convert a legacy rule ({permission, pattern, action}) to the current rule shape ({action, resource, effect}). */
-export function toCurrentRule(rule: PermissionV1.Rule): Permission.Rule {
-  return { action: rule.permission, resource: rule.pattern, effect: rule.action }
-}
-
-/** Convert a current-shape rule back to legacy shape for the session permission column. */
-export function toLegacyRule(rule: Permission.Rule): PermissionV1.Rule {
-  return { permission: rule.action, pattern: rule.resource, action: rule.effect }
-}
-
-function isWritable(subagent: AgentV2.Info): boolean {
-  // Ruleset-derived (no explicit writable field on AgentV2.Info): an agent whose
+function isWritable(subagent: Agent.Info): boolean {
+  // Ruleset-derived (no explicit writable field on Agent.Info): an agent whose
   // own ruleset grants `edit` is an executor (writable); otherwise read-only.
-  // Local findLast evaluation keeps this module import-cycle-free (permission.ts
-  // imports toCurrentRule from here).
   const rule = subagent.permissions.findLast(
     (r) => Wildcard.match("edit", r.action) && Wildcard.match("*", r.resource),
   )
@@ -51,9 +38,8 @@ function isWritable(subagent: AgentV2.Info): boolean {
 }
 
 /**
- * Build the V2 permission ruleset for a subagent's session when spawned via the
- * task tool. Migrated from v1 deriveSubagentSessionPermission (opencode/src/agent/
- * subagent-permissions.ts) with capability filtering added.
+ * Build the permission ruleset for a subagent's session when spawned via the
+ * task tool. Capability filtering stays on this path.
  *
  * 1. Parent deny + parent external_directory rules are inherited as hard ceilings.
  * 2. todowrite/task denied by default unless the subagent's own ruleset permits
@@ -67,7 +53,7 @@ function isWritable(subagent: AgentV2.Info): boolean {
  */
 export function deriveSubagentPermission(input: {
   parentPermissions: Permission.Ruleset
-  subagent: AgentV2.Info
+  subagent: Agent.Info
   capability?: CapabilityMode
 }): Permission.Ruleset {
   const canTask = input.subagent.permissions.some((rule) => rule.action === "task")

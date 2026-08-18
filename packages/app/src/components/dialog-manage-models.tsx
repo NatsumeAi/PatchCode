@@ -3,12 +3,12 @@ import { List } from "@opencode-ai/ui/list"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Button } from "@opencode-ai/ui/button"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { Dialog as DialogV2, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode-ai/ui/v2/dialog-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
-import { Switch as SwitchV2 } from "@opencode-ai/ui/v2/switch-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
+import { Dialog as KitDialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode-ai/ui/kit/dialog"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { TextInput as KitTextInput } from "@opencode-ai/ui/kit/text-input"
+import { Switch as KitSwitch } from "@opencode-ai/ui/kit/switch"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { For, Show, type Component } from "solid-js"
@@ -18,9 +18,9 @@ import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { decode64 } from "@/utils/base64"
-import { SettingsListV2 } from "./settings-v2/parts/list"
-import { SettingsRowV2 } from "./settings-v2/parts/row"
-import "./settings-v2/settings-v2.css"
+import { SettingsList as SettingsListKit } from "./settings-kit/parts/list"
+import { SettingsRow as SettingsRowKit } from "./settings-kit/parts/row"
+import "./settings-kit/settings.css"
 
 type ModelItem = ReturnType<ReturnType<typeof useLocal>["model"]["list"]>[number]
 
@@ -116,7 +116,7 @@ export const DialogManageModels: Component = () => {
   )
 }
 
-export const DialogManageModelsV2: Component = () => {
+export const DialogManageModelsKit: Component = () => {
   const local = useLocal()
   const language = useLanguage()
   const dialog = useDialog()
@@ -154,20 +154,20 @@ export const DialogManageModelsV2: Component = () => {
   })
 
   return (
-    <DialogV2 size="large" variant="settings" class="settings-v2-manage-models-dialog">
+    <KitDialog size="large" variant="settings" class="settings-kit-manage-models-dialog">
       <DialogHeader hideClose={true} closeLabel={language.t("common.close")}>
         <DialogTitleGroup
           title={language.t("dialog.model.manage")}
           description={language.t("dialog.model.manage.description")}
         />
-        <ButtonV2 variant="neutral" icon="plus" onClick={handleConnectProvider}>
+        <KitButton variant="neutral" icon="plus" onClick={handleConnectProvider}>
           {language.t("command.provider.connect")}
-        </ButtonV2>
+        </KitButton>
       </DialogHeader>
       <DialogBody class="flex min-h-0 flex-1 flex-col">
         <div class="px-4 pt-px pb-3">
           <div class="relative">
-            <TextInputV2
+            <KitTextInput
               type="search"
               appearance="base"
               class="!w-full self-stretch"
@@ -182,12 +182,12 @@ export const DialogManageModelsV2: Component = () => {
               aria-label={language.t("dialog.model.search.placeholder")}
             />
             <Show when={list.filter()}>
-              <IconButtonV2
+              <KitIconButton
                 type="button"
                 variant="ghost-muted"
                 size="small"
-                class="settings-v2-tab-search-clear"
-                icon={<IconV2 name="close" size="large" class="text-v2-icon-icon-muted" />}
+                class="settings-kit-tab-search-clear"
+                icon={<KitIcon name="close" size="large" class="text-kit-icon-icon-muted" />}
                 onClick={() => list.clear()}
                 aria-label={language.t("common.clear")}
               />
@@ -195,11 +195,11 @@ export const DialogManageModelsV2: Component = () => {
           </div>
         </div>
         <div data-slot="manage-models-scroll" class="relative min-h-0 flex-1">
-          <div class="settings-v2-panel settings-v2-models h-full px-4 pt-4 pb-4">
+          <div class="settings-kit-panel settings-kit-models h-full px-4 pt-4 pb-4">
             <Show
               when={!list.grouped.loading}
               fallback={
-                <div class="settings-v2-models-status">
+                <div class="settings-kit-models-status">
                   {language.t("common.loading")}
                   {language.t("common.loading.ellipsis")}
                 </div>
@@ -208,50 +208,50 @@ export const DialogManageModelsV2: Component = () => {
               <Show
                 when={list.flat().length > 0}
                 fallback={
-                  <div class="settings-v2-models-status">
+                  <div class="settings-kit-models-status">
                     <span>{language.t("dialog.model.empty")}</span>
                     <Show when={list.filter()}>
-                      <span class="settings-v2-models-status-filter">&quot;{list.filter()}&quot;</span>
+                      <span class="settings-kit-models-status-filter">&quot;{list.filter()}&quot;</span>
                     </Show>
                   </div>
                 }
               >
                 <For each={list.grouped.latest}>
                   {(group) => (
-                    <div class="settings-v2-section" data-component="settings-models-provider">
-                      <div class="settings-v2-models-group-header justify-between">
+                    <div class="settings-kit-section" data-component="settings-models-provider">
+                      <div class="settings-kit-models-group-header justify-between">
                         <div class="flex min-w-0 items-center gap-2">
                           <ProviderIcon id={group.category} width={16} height={16} class="ml-4 shrink-0" />
-                          <h3 class="settings-v2-section-title">{group.items[0].provider.name}</h3>
+                          <h3 class="settings-kit-section-title">{group.items[0].provider.name}</h3>
                         </div>
                         <div>
-                          <SwitchV2
+                          <KitSwitch
                             class="mr-6"
                             checked={providerVisible(group.category)}
                             onChange={(checked) => setProviderVisibility(group.category, checked)}
                             hideLabel
                           >
                             {group.items[0].provider.name}
-                          </SwitchV2>
+                          </KitSwitch>
                         </div>
                       </div>
-                      <SettingsListV2>
+                      <SettingsListKit>
                         <For each={group.items}>
                           {(item) => (
-                            <SettingsRowV2 title={item.name} description="">
+                            <SettingsRowKit title={item.name} description="">
                               <div>
-                                <SwitchV2
+                                <KitSwitch
                                   checked={local.model.visible({ modelID: item.id, providerID: item.provider.id })}
                                   onChange={(checked) => setModelVisibility(item, checked)}
                                   hideLabel
                                 >
                                   {item.name}
-                                </SwitchV2>
+                                </KitSwitch>
                               </div>
-                            </SettingsRowV2>
+                            </SettingsRowKit>
                           )}
                         </For>
-                      </SettingsListV2>
+                      </SettingsListKit>
                     </div>
                   )}
                 </For>
@@ -260,6 +260,6 @@ export const DialogManageModelsV2: Component = () => {
           </div>
         </div>
       </DialogBody>
-    </DialogV2>
+    </KitDialog>
   )
 }

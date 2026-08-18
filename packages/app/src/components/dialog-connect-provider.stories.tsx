@@ -48,7 +48,7 @@ export default {
   id: "app-dialog-connect-provider",
 }
 
-export const V2 = {
+export const Kit = {
   render: () => (
     <QueryClientProvider client={new QueryClient()}>
       <ConnectProviderDialogStory />

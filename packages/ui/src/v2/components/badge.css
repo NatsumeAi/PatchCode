@@ -1,0 +1,33 @@
+[data-component="tag"] {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 16px;
+  padding: 0 4px;
+  user-select: none;
+
+  border-radius: 2px;
+  border: 0.5px solid var(--kit-border-border-base);
+  background: var(--kit-background-bg-layer-02);
+
+  font-style: normal;
+  font-weight: 530;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.05px;
+  color: var(--kit-text-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-component="tag"][data-high-contrast] {
+  border-color: var(--kit-border-border-strong);
+}
+
+[data-component="tag"][data-variant="accent"] {
+  border: 0;
+  background: var(--kit-background-bg-accent);
+  color: var(--kit-text-text-contrast);
+}

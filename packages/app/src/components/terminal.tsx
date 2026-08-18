@@ -1,8 +1,6 @@
-import { withAlpha } from "@opencode-ai/ui/theme/color"
+import { resolveKitThemeVariant, resolveThemeVariant, withAlpha } from "@opencode-ai/ui/theme"
 import { useTheme } from "@opencode-ai/ui/theme/context"
-import { resolveThemeVariant } from "@opencode-ai/ui/theme/resolve"
-import { resolveThemeVariantV2 } from "@opencode-ai/ui/theme/v2/resolve"
-import type { HexColor, ResolvedV2Theme } from "@opencode-ai/ui/theme/types"
+import type { HexColor, ResolvedKitTheme } from "@opencode-ai/ui/theme/types"
 import { showToast } from "@/utils/toast"
 import type { FitAddon, Ghostty, Terminal as Term } from "ghostty-web"
 import { type ComponentProps, createEffect, createMemo, onCleanup, onMount, splitProps } from "solid-js"
@@ -70,7 +68,7 @@ const debugTerminal = (...values: unknown[]) => {
   console.debug("[terminal]", ...values)
 }
 
-const resolveV2Token = (tokens: ResolvedV2Theme, key: string) => {
+const resolveKitToken = (tokens: ResolvedKitTheme, key: string) => {
   let current = tokens[key]
   for (let i = 0; i < 8 && current; i++) {
     const match = /^var\(--([^)]+)\)$/.exec(current.trim())
@@ -241,7 +239,7 @@ export const Terminal = (props: TerminalProps) => {
   }
 
   const pushSize = async (cols: number, rows: number) => {
-    if ((await sdk().protocol) === "v1") {
+    if ((await sdk().protocol) === "legacy") {
       return sdk()
         .client.pty.update({
           ptyID: id,
@@ -272,7 +270,7 @@ export const Terminal = (props: TerminalProps) => {
     const resolved = resolveThemeVariant(variant, mode === "dark")
     const text = resolved["text-stronger"] ?? fallback.foreground
     const background = settings.general.newLayoutDesigns()
-      ? (resolveV2Token(resolveThemeVariantV2(variant, mode === "dark"), "v2-background-bg-base") ??
+      ? (resolveKitToken(resolveKitThemeVariant(variant, mode === "dark"), "kit-background-bg-base") ??
         fallback.background)
       : (resolved["background-stronger"] ?? fallback.background)
     const alpha = mode === "dark" ? 0.25 : 0.2
@@ -533,7 +531,7 @@ export const Terminal = (props: TerminalProps) => {
       }
 
       const gone = async () => {
-        if ((await sdk().protocol) === "v1") {
+        if ((await sdk().protocol) === "legacy") {
           return sdk()
             .client.pty.get({ ptyID: id }, { throwOnError: false })
             .then((result) => result.response.status === 404)
@@ -553,7 +551,7 @@ export const Terminal = (props: TerminalProps) => {
       }
 
       const connectToken = async () => {
-        if ((await sdk().protocol) === "v1") {
+        if ((await sdk().protocol) === "legacy") {
           const result = await sdk()
             .client.pty.connectToken(
               { ptyID: id, directory },
@@ -610,7 +608,7 @@ export const Terminal = (props: TerminalProps) => {
           return undefined
         })
         const protocol = await sdk().protocol
-        // if (protocol === "v2" && !ticket) return
+        // if (protocol === "current" && !ticket) return
         if (once.value) return
         if (disposed) return
 

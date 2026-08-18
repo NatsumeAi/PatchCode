@@ -5,4 +5,3 @@ export function ModelSelectorPopover(props: { trigger: (props: Record<string, un
   return <>{local.trigger({})}</>
 }
 
-export const ModelSelectorPopoverV2 = ModelSelectorPopover

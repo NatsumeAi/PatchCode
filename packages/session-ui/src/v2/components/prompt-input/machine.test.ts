@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import type { PromptInputV2PersistedState, PromptInputV2Suggestion } from "./types"
-import { createPromptInputV2InteractionState, transitionPromptInputV2 } from "./machine"
+import type { PromptInputPersistedState, PromptInputSuggestion } from "./types"
+import { createPromptInputInteractionState, transitionPromptInput } from "./machine"
 
-const command: PromptInputV2Suggestion = {
+const command: PromptInputSuggestion = {
   id: "review",
   kind: "command",
   label: "/review",
 }
 
-function persisted(value = ""): PromptInputV2PersistedState {
+function persisted(value = ""): PromptInputPersistedState {
   return {
     prompt: [{ type: "text", content: value, start: 0, end: value.length }],
     cursor: value.length,
@@ -18,22 +18,22 @@ function persisted(value = ""): PromptInputV2PersistedState {
 
 describe("prompt input v2 interaction machine", () => {
   test("opens inline commands only when slash is the entire prompt", () => {
-    const state = createPromptInputV2InteractionState()
-    const open = transitionPromptInputV2(state, { type: "input.changed", value: "/re" }, persisted())
-    const closed = transitionPromptInputV2(state, { type: "input.changed", value: "explain /re" }, persisted())
+    const state = createPromptInputInteractionState()
+    const open = transitionPromptInput(state, { type: "input.changed", value: "/re" }, persisted())
+    const closed = transitionPromptInput(state, { type: "input.changed", value: "explain /re" }, persisted())
 
     expect(open.state.popover).toEqual({ type: "command-inline", query: "re" })
     expect(closed.state.popover).toEqual({ type: "closed" })
   })
 
   test("completes nested slash command names", () => {
-    const open = transitionPromptInputV2(
-      createPromptInputV2InteractionState(),
+    const open = transitionPromptInput(
+      createPromptInputInteractionState(),
       { type: "input.changed", value: "/review/" },
       persisted(),
     )
     const item = { ...command, label: "/review/nested" }
-    const selected = transitionPromptInputV2(open.state, { type: "popover.select", item }, persisted("/review/"))
+    const selected = transitionPromptInput(open.state, { type: "popover.select", item }, persisted("/review/"))
 
     expect(open.state.popover).toEqual({ type: "command-inline", query: "review/" })
     expect(selected.commands).toContainEqual({ type: "draft.setText", value: "/review/nested " })
@@ -44,8 +44,8 @@ describe("prompt input v2 interaction machine", () => {
     const input = persisted(value)
     input.cursor = 9
 
-    const result = transitionPromptInputV2(
-      createPromptInputV2InteractionState(),
+    const result = transitionPromptInput(
+      createPromptInputInteractionState(),
       { type: "input.changed", value, persist: false },
       input,
     )
@@ -54,8 +54,8 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("enters shell mode from an initial exclamation mark", () => {
-    const result = transitionPromptInputV2(
-      createPromptInputV2InteractionState(),
+    const result = transitionPromptInput(
+      createPromptInputInteractionState(),
       { type: "input.changed", value: "!", persist: false },
       persisted("!"),
     )
@@ -65,8 +65,8 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("leaves shell mode with escape", () => {
-    const state = { ...createPromptInputV2InteractionState(), mode: "shell" as const }
-    const result = transitionPromptInputV2(
+    const state = { ...createPromptInputInteractionState(), mode: "shell" as const }
+    const result = transitionPromptInput(
       state,
       { type: "key.down", key: "Escape", ctrl: false, composing: false, ids: [] },
       persisted(),
@@ -77,8 +77,8 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("leaves shell mode with backspace when empty", () => {
-    const state = { ...createPromptInputV2InteractionState(), mode: "shell" as const }
-    const result = transitionPromptInputV2(
+    const state = { ...createPromptInputInteractionState(), mode: "shell" as const }
+    const result = transitionPromptInput(
       state,
       { type: "key.down", key: "Backspace", ctrl: false, composing: false, ids: [], empty: true },
       persisted(),
@@ -90,10 +90,10 @@ describe("prompt input v2 interaction machine", () => {
 
   test("closes a popover with ctrl-g before stopping a run", () => {
     const state = {
-      ...createPromptInputV2InteractionState(),
+      ...createPromptInputInteractionState(),
       popover: { type: "context" as const, query: "", activeID: "first" },
     }
-    const result = transitionPromptInputV2(
+    const result = transitionPromptInput(
       state,
       { type: "key.down", key: "g", ctrl: true, composing: false, ids: ["first"] },
       persisted(),
@@ -104,8 +104,8 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("opens the searchable command menu for a populated draft", () => {
-    const result = transitionPromptInputV2(
-      createPromptInputV2InteractionState(),
+    const result = transitionPromptInput(
+      createPromptInputInteractionState(),
       { type: "commands.open" },
       persisted("existing text"),
     )
@@ -115,12 +115,12 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("prepends a menu command and preserves existing text as arguments", () => {
-    const open = transitionPromptInputV2(
-      createPromptInputV2InteractionState(),
+    const open = transitionPromptInput(
+      createPromptInputInteractionState(),
       { type: "commands.open" },
       persisted("existing text"),
     )
-    const selected = transitionPromptInputV2(
+    const selected = transitionPromptInput(
       open.state,
       { type: "popover.select", item: command },
       persisted("existing text"),
@@ -131,28 +131,28 @@ describe("prompt input v2 interaction machine", () => {
   })
 
   test("stores selected context files as prompt file parts", () => {
-    const item: PromptInputV2Suggestion = {
+    const item: PromptInputSuggestion = {
       id: "src/index.ts",
       kind: "file",
       label: "index.ts",
       path: "src/index.ts",
     }
     const state = {
-      ...createPromptInputV2InteractionState(),
+      ...createPromptInputInteractionState(),
       popover: { type: "context" as const, query: "index" },
     }
 
-    const selected = transitionPromptInputV2(state, { type: "popover.select", item }, persisted("@index"))
+    const selected = transitionPromptInput(state, { type: "popover.select", item }, persisted("@index"))
 
     expect(selected.commands).toContainEqual({ type: "mention.add", item })
   })
 
   test("loops active popover items with arrow keys", () => {
     const state = {
-      ...createPromptInputV2InteractionState(),
+      ...createPromptInputInteractionState(),
       popover: { type: "context" as const, query: "", activeID: "second" },
     }
-    const result = transitionPromptInputV2(
+    const result = transitionPromptInput(
       state,
       { type: "key.down", key: "ArrowDown", ctrl: false, composing: false, ids: ["first", "second"] },
       persisted(),

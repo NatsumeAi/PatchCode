@@ -12,10 +12,10 @@
     ".": "./src/index.ts",
     "./tool": "./src/tool.ts",
     "./tui": "./src/tui.ts",
-    "./v2/effect": "./src/v2/effect/index.ts",
-    "./v2/effect/integration": "./src/v2/effect/integration.ts",
-    "./v2/effect/plugin": "./src/v2/effect/plugin.ts",
-    "./v2/promise": "./src/v2/promise/index.ts"
+    "./effect": "./src/v2/effect/index.ts",
+    "./effect/integration": "./src/v2/effect/integration.ts",
+    "./effect/plugin": "./src/v2/effect/plugin.ts",
+    "./promise": "./src/v2/promise/index.ts"
   },
   "files": [
     "dist"

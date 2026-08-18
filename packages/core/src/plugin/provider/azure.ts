@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
 function selectLanguage(sdk: any, modelID: string, useChat: boolean) {
   if (useChat && sdk.chat) return sdk.chat(modelID)
@@ -31,7 +31,7 @@ export const AzurePlugin = define({
     yield* ctx.aisdk.sdk(
       Effect.fn(function* (evt) {
         if (evt.package !== "@ai-sdk/azure") return
-        if (evt.model.providerID === ProviderV2.ID.azure) {
+        if (evt.model.providerID === Provider.ID.azure) {
           if (
             !evt.options.resourceName &&
             !evt.options.baseURL &&
@@ -48,7 +48,7 @@ export const AzurePlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.azure) return
+        if (evt.model.providerID !== Provider.ID.azure) return
         evt.language = selectLanguage(evt.sdk, evt.model.api.id, Boolean(evt.options.useCompletionUrls))
       }),
     )
@@ -74,7 +74,7 @@ export const AzureCognitiveServicesPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.make("azure-cognitive-services")) return
+        if (evt.model.providerID !== Provider.ID.make("azure-cognitive-services")) return
         evt.language = selectLanguage(evt.sdk, evt.model.api.id, Boolean(evt.options.useCompletionUrls))
       }),
     )

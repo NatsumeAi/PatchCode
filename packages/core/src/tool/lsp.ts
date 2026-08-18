@@ -91,7 +91,7 @@ export interface Host {
   readonly outgoingCalls: (input: { file: string; line: number; character: number }) => Effect.Effect<unknown[]>
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/LspTool.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/LspTool.Host") {}
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {

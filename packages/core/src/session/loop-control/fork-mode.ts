@@ -1,6 +1,6 @@
 /**
- * Legacy V1 adapter over session/fork-mode (single authority for projection).
- * V2 host uses projectParentTrace / projectParentMessagesForInsert directly.
+ * Legacy adapter over session/fork-mode (single authority for projection).
+ * The session host uses projectParentTrace / projectParentMessagesForInsert directly.
  */
 import { Effect } from "effect"
 import { projectParentTrace, ForkMode as SessionForkMode } from "../fork-mode"
@@ -19,7 +19,7 @@ interface BuildForkInput {
   promptOverride?: string
 }
 
-/** Legacy V1 adapter: role/content pairs → text projection. */
+/** Legacy adapter: role/content pairs → text projection. */
 export const buildForkPrompt = (input: BuildForkInput) =>
   Effect.gen(function* () {
     if (input.mode === "PromptOnly") {

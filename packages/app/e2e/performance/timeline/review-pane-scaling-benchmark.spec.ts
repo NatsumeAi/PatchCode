@@ -110,8 +110,8 @@ async function measureBroadReviewSearch(page: Page, expectedRows: number) {
       let previous = -1
       let streak = 0
       const sample = () => {
-        const tree = document.querySelector<HTMLElement>('#review-panel [data-component="file-tree-v2"]')
-        const rows = [...document.querySelectorAll<HTMLElement>('#review-panel [data-slot="file-tree-v2-row"]')]
+        const tree = document.querySelector<HTMLElement>('#review-panel [data-component="file-tree-kit"]')
+        const rows = [...document.querySelectorAll<HTMLElement>('#review-panel [data-slot="file-tree-kit-row"]')]
         const logicalRows = Number(tree?.dataset.totalRows ?? rows.length)
         const ready =
           logicalRows === expectedRows && rows.length > 0 && rows.every((row) => row.textContent?.includes("file-"))
@@ -243,11 +243,11 @@ async function installReviewPaneScalingProbe(page: Page, input: { expectedFile: 
       const sample = (time: number) => {
         if (!running || probe.startedAt === undefined) return
         const panel = document.querySelector<HTMLElement>("#review-panel")
-        const tree = panel?.querySelector<HTMLElement>('[data-component="file-tree-v2"]')
-        const rows = panel?.querySelectorAll('[data-slot="file-tree-v2-row"]') ?? []
-        const fileRows = panel?.querySelectorAll('button[data-slot="file-tree-v2-row"]') ?? []
+        const tree = panel?.querySelector<HTMLElement>('[data-component="file-tree-kit"]')
+        const rows = panel?.querySelectorAll('[data-slot="file-tree-kit-row"]') ?? []
+        const fileRows = panel?.querySelectorAll('button[data-slot="file-tree-kit-row"]') ?? []
         const header =
-          panel?.querySelector<HTMLElement>('[data-slot="session-review-v2-file-header"]')?.textContent?.trim() ?? ""
+          panel?.querySelector<HTMLElement>('[data-slot="session-review-kit-file-header"]')?.textContent?.trim() ?? ""
         const viewers = panel
           ? [...panel.querySelectorAll<HTMLElement>('[data-component="file"][data-mode="diff"]')]
           : []

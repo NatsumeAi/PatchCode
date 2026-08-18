@@ -26,13 +26,13 @@ type ModelInfo = {
 function ModelTooltipRow(props: { name: JSX.Element; value: JSX.Element }) {
   return (
     <div class="flex min-w-0 items-center gap-4">
-      <span class="shrink-0 text-v2-text-text-muted">{props.name}</span>
-      <span class="ml-auto min-w-0 truncate text-right text-v2-text-text-base">{props.value}</span>
+      <span class="shrink-0 text-kit-text-text-muted">{props.name}</span>
+      <span class="ml-auto min-w-0 truncate text-right text-kit-text-text-base">{props.value}</span>
     </div>
   )
 }
 
-export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?: boolean; v2?: boolean }> = (
+export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?: boolean; kit?: boolean }> = (
   props,
 ) => {
   const language = useLanguage()
@@ -93,7 +93,7 @@ export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?
   const context = () => language.t("model.tooltip.context", { limit: props.model.limit.context.toLocaleString() })
   const contextLimit = () => props.model.limit.context.toLocaleString(language.intl())
 
-  if (props.v2) {
+  if (props.kit) {
     return (
       <div class="flex w-[180px] flex-col gap-2">
         <ModelTooltipRow name={language.t("model.tooltip.model")} value={name()} />

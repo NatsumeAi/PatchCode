@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { sessionMessageToLegacy, type LegacySessionMeta } from "../../src/context/session-message-bridge"
-import type { SessionMessage } from "@opencode-ai/sdk/v2"
+import type { SessionMessage } from "@opencode-ai/sdk/api"
 
 const meta: LegacySessionMeta = {
   agent: "build",

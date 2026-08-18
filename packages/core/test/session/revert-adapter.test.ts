@@ -2,11 +2,11 @@
  * Golden semantics for Instance HTTP → V2 revert adapter.
  *
  * Mapping (locked in docs/superpowers/specs/2026-08-07-dual-path-classification.md):
- *   session.revert   → SessionV2.revert.stage
- *   session.unrevert → SessionV2.revert.clear
- *   cleanup (prompt/shell/summarize) → SessionV2.revert.commit
+ *   session.revert   → Session.revert.stage
+ *   session.unrevert → Session.revert.clear
+ *   cleanup (prompt/shell/summarize) → Session.revert.commit
  *
- * Busy check for Instance handlers: SessionV2.active / SessionExecution.active
+ * Busy check for Instance handlers: Session.active / SessionExecution.active
  * (not SessionRunState).
  */
 import { describe, expect } from "bun:test"
@@ -15,13 +15,13 @@ import { eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Event } from "@opencode-ai/core/event"
+import { Model } from "@opencode-ai/core/model"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { fromRow } from "@opencode-ai/core/session/info"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
@@ -32,14 +32,14 @@ import { Snapshot } from "@opencode-ai/core/snapshot"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, SessionProjector.node])).pipe(
+  AppNodeBuilder.build(LayerNode.group([Database.node, Event.node, SessionProjector.node])).pipe(
     Layer.provideMerge(Snapshot.noopLayer),
   ),
 )
 
-const sessionID = SessionV2.ID.make("ses_revert_adapter_golden")
+const sessionID = Session.ID.make("ses_revert_adapter_golden")
 const created = DateTime.makeUnsafe(0)
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
 
 const assistantRow = (id: SessionMessage.ID, seq: number) => {
@@ -60,7 +60,7 @@ const assistantRow = (id: SessionMessage.ID, seq: number) => {
   return { id, session_id: sessionID, type, seq, time_created: DateTime.toEpochMillis(created), data }
 }
 
-describe("revert V2 adapter golden (stage/clear/commit)", () => {
+describe("revert adapter golden (stage/clear/commit)", () => {
   it.effect("stage sets SessionTable.revert; clear clears; commit truncates tail", () =>
     Effect.gen(function* () {
       const database = yield* Database.Service
@@ -84,7 +84,7 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
       const later = SessionMessage.ID.make("msg_later")
       yield* db.insert(SessionMessageTable).values([assistantRow(boundary, 1), assistantRow(later, 2)]).run()
 
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       const load = () =>
         db
           .select()
@@ -99,20 +99,20 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
       // Instance HTTP revert → stage (files:false skips restore map; Snapshot.noop for capture)
       yield* SessionRevert.stage({ session: yield* load(), messageID: boundary, files: false }).pipe(
         Effect.provideService(Database.Service, database),
-        Effect.provideService(EventV2.Service, events),
+        Effect.provideService(Event.Service, events),
       )
       expect((yield* load()).revert?.messageID).toBe(boundary)
 
       // Instance HTTP unrevert → clear
-      yield* SessionRevert.clear(yield* load()).pipe(Effect.provideService(EventV2.Service, events))
+      yield* SessionRevert.clear(yield* load()).pipe(Effect.provideService(Event.Service, events))
       expect((yield* load()).revert).toBeUndefined()
 
       // cleanup-on-prompt → commit
       yield* SessionRevert.stage({ session: yield* load(), messageID: boundary, files: false }).pipe(
         Effect.provideService(Database.Service, database),
-        Effect.provideService(EventV2.Service, events),
+        Effect.provideService(Event.Service, events),
       )
-      yield* SessionRevert.commit(yield* load()).pipe(Effect.provideService(EventV2.Service, events))
+      yield* SessionRevert.commit(yield* load()).pipe(Effect.provideService(Event.Service, events))
       expect((yield* load()).revert).toBeUndefined()
       expect(
         (yield* db.select({ id: SessionMessageTable.id }).from(SessionMessageTable).all()).map((row) => row.id),
@@ -129,7 +129,7 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
         .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
         .run()
         .pipe(Effect.catch(() => Effect.void))
-      const sid = SessionV2.ID.make("ses_revert_part")
+      const sid = Session.ID.make("ses_revert_part")
       yield* db
         .insert(SessionTable)
         .values({
@@ -166,7 +166,7 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
       const laterRow = assistantRow(later, 2)
       yield* db.insert(SessionMessageTable).values({ ...laterRow, session_id: sid }).run()
 
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       const load = () =>
         db
           .select()
@@ -183,7 +183,7 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
         messageID,
         partID: "missing",
         files: false,
-      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(EventV2.Service, events))
+      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(Event.Service, events))
       expect(unknown).toBeUndefined()
       expect((yield* load()).revert).toBeUndefined()
 
@@ -192,10 +192,10 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
         messageID,
         partID: "txt_drop",
         files: false,
-      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(EventV2.Service, events))
+      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(Event.Service, events))
       expect((yield* load()).revert?.partID).toBe("txt_drop")
 
-      yield* SessionRevert.commit(yield* load()).pipe(Effect.provideService(EventV2.Service, events))
+      yield* SessionRevert.commit(yield* load()).pipe(Effect.provideService(Event.Service, events))
       const remaining = yield* db.select().from(SessionMessageTable).where(eq(SessionMessageTable.session_id, sid)).all()
       expect(remaining.map((row) => row.id)).toEqual([messageID])
       const decoded = Schema.decodeUnknownSync(SessionMessage.Message)({

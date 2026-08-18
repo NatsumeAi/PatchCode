@@ -1,7 +1,7 @@
 export * as PluginPromise from "./promise"
 
-import { define } from "@opencode-ai/plugin/v2/effect"
-import type { Plugin, PluginContext, Registration } from "@opencode-ai/plugin/v2/promise"
+import { define } from "@opencode-ai/plugin/effect"
+import type { Plugin, PluginContext, Registration } from "@opencode-ai/plugin/promise"
 import { Effect, Scope } from "effect"
 
 // The Effect host hands back this registration shape; mirror it structurally so
@@ -10,7 +10,7 @@ type HostRegistration = { readonly dispose: Effect.Effect<void> }
 
 /**
  * Adapts a Promise plugin into an Effect plugin so the existing Effect-only
- * loader (`PluginV2` / `PluginInternal`) can run it unchanged.
+ * loader (`CorePlugin` / `PluginInternal`) can run it unchanged.
  *
  * Hook registrations created during the async `setup` attach to the plugin's
  * scope, so unloading the plugin disposes them. The captured fiber context

@@ -31,7 +31,7 @@ for (const deviceScaleFactor of [1.25, 1.5]) {
       // Match a rounded-down measurement at a fractional device-pixel phase.
       element.style.height = `${outputRect.bottom - rowRect.top - 0.49}px`
       element.style.transform = "translateY(0.25px)"
-      output.style.setProperty("--v2-border-border-base", "rgb(255, 0, 255)")
+      output.style.setProperty("--kit-border-border-base", "rgb(255, 0, 255)")
       output.style.setProperty("background", "rgb(0, 0, 0)", "important")
       const style = getComputedStyle(output)
       return {

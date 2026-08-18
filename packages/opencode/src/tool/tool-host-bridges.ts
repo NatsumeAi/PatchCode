@@ -1,9 +1,9 @@
 /**
- * Provides Host bridges so core V2 tools (lsp, task) can call opencode services
+ * Provides Host bridges so core tools (lsp, task) can call opencode services
  * (LSP stack, subagent spawn) without pulling them into core.
  *
- * Task host uses V2 Session primitives (admit + wake/resume + SessionMessageTable)
- * rather than V1 SessionPrompt, so child history is projected correctly.
+ * Task host uses Session primitives (admit + wake/resume + SessionMessageTable)
+ * rather than the legacy prompt loop, so child history is projected correctly.
  */
 export * as ToolHostBridges from "./tool-host-bridges"
 
@@ -18,13 +18,11 @@ import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
+import { Agent } from "@opencode-ai/core/agent"
 import {
   deriveSubagentPermission,
   tightenCapability,
-  toLegacyRule,
-  toCurrentRule,
 } from "@opencode-ai/core/session/subagent-permissions"
 import { Permission } from "@opencode-ai/core/permission"
 import { SubagentLifecycle } from "@opencode-ai/core/session/subagent-lifecycle"
@@ -34,7 +32,7 @@ import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { validateResumeIdentity } from "@opencode-ai/core/session/subagent-identity"
 import { projectParentMessagesForInsert, projectParentTrace } from "@opencode-ai/core/session/fork-mode"
 import { SessionEvent } from "@opencode-ai/core/session/event"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { EventBridge } from "@opencode-ai/core/session/loop-control/event-bridge"
 import { SpawnEdge } from "@opencode-ai/core/session/loop-control/spawn-edge"
@@ -45,10 +43,10 @@ import { PersonaLoader } from "@opencode-ai/core/session/persona/loader"
 import { PersonaResolve } from "@opencode-ai/core/session/persona/resolve"
 import { PersonaStore } from "@opencode-ai/core/session/persona/store"
 import { Database } from "@opencode-ai/core/database/database"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Model } from "@opencode-ai/core/model"
+import { Workspace } from "@opencode-ai/core/workspace"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { Prompt } from "@opencode-ai/core/session/prompt"
@@ -60,7 +58,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Format } from "../format"
 import { LSP } from "@/lsp/lsp"
 import * as Bom from "@/util/bom"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge as CoreEventBridge } from "@/event-bridge"
 import { DateTime, Duration, Effect, Layer, Option, Schedule, Scope, Stream } from "effect"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -103,7 +101,7 @@ const mutationEffectsLayer = Layer.effect(
   FileMutation.EffectsService,
   Effect.gen(function* () {
     const format = yield* Format.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* CoreEventBridge.Service
     const lsp = yield* LSP.Service
     const fs = yield* FSUtil.Service
     return FileMutation.EffectsService.of({
@@ -155,7 +153,7 @@ const mutationEffectsLayer = Layer.effect(
 export const mutationEffectsNode = makeGlobalNode({
   service: FileMutation.EffectsService,
   layer: mutationEffectsLayer,
-  deps: [Format.node, EventV2Bridge.node, LSP.node, FSUtil.node],
+  deps: [Format.node, CoreEventBridge.node, LSP.node, FSUtil.node],
 })
 
 const lspHostLayer = Layer.effect(
@@ -233,11 +231,11 @@ export function detectBudgetExhausted(input: {
 const taskHostLayer = Layer.effect(
   TaskTool.HostService,
   Effect.gen(function* () {
-    // Process-scoped services available in the app graph (no SessionV2 — avoids cycles).
+    // Process-scoped services available in the app graph (no CoreSession — avoids cycles).
     const store = yield* SessionStore.Service
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const database = yield* Database.Service
-    const projects = yield* ProjectV2.Service
+    const projects = yield* Project.Service
     const background = yield* BackgroundJob.Service
     const registryOpt = yield* Effect.serviceOption(SubagentRegistry.Service)
     const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
@@ -520,12 +518,12 @@ const taskHostLayer = Layer.effect(
     return TaskTool.HostService.of({
       run: (input) =>
         Effect.gen(function* () {
-          // SessionExecution + AgentV2 are available on the V2 drain fiber.
+          // SessionExecution + Agent are available on the session drain fiber.
           const executionOpt = yield* Effect.serviceOption(SessionExecution.Service)
-          const agentsOpt = yield* Effect.serviceOption(AgentV2.Service)
+          const agentsOpt = yield* Effect.serviceOption(Agent.Service)
           if (Option.isNone(executionOpt) || Option.isNone(agentsOpt)) {
             return yield* Effect.die(
-              new Error("Task host requires SessionExecution and AgentV2 (run from a V2 session drain)"),
+              new Error("Task host requires SessionExecution and Agent (run from a session drain)"),
             )
           }
           const execution = executionOpt.value
@@ -565,7 +563,7 @@ const taskHostLayer = Layer.effect(
               return yield* Effect.die(new Error(`Permission denied: task (${input.subagentType})`))
             }
           } else {
-            const rules = parentPermission.map((rule) => toCurrentRule(rule))
+            const rules = parentPermission
             if (Permission.evaluate("task", input.subagentType, rules).effect === "deny") {
               return yield* Effect.die(new Error(`Permission denied: task (${input.subagentType})`))
             }
@@ -698,7 +696,7 @@ const taskHostLayer = Layer.effect(
               .run()
               .pipe(Effect.orDie)
             const now = Date.now()
-            const agentID = AgentV2.ID.make(String(agentInfo.id))
+            const agentID = Agent.ID.make(String(agentInfo.id))
             let childDirectory = resolveChildDirectory({
               projectDirectory: project.directory,
               parentDirectory: parent.location.directory,
@@ -740,7 +738,7 @@ const taskHostLayer = Layer.effect(
               agentInfo.capability as "read-only" | "read-write" | "execute" | "all" | undefined,
               effective.capabilityTighten,
             )
-            const info = SessionV1.SessionInfo.make({
+            const info = SessionWire.SessionInfo.make({
               id: sessionID,
               slug: slug.create(),
               version: InstallationVersion,
@@ -748,14 +746,14 @@ const taskHostLayer = Layer.effect(
               directory: childDirectory,
               path: path.relative(project.directory, childDirectory).replaceAll("\\", "/"),
               workspaceID: parent.location.workspaceID
-                ? WorkspaceV2.ID.make(parent.location.workspaceID)
+                ? Workspace.ID.make(parent.location.workspaceID)
                 : undefined,
               parentID,
               title: `${input.description} (@${agentInfo.id} subagent)`,
               agent: agentID,
               model: parent.model
                 ? {
-                    id: ModelV2.ID.make(parent.model.id),
+                    id: Model.ID.make(parent.model.id),
                     providerID: parent.model.providerID,
                     variant: parent.model.variant,
                   }
@@ -764,14 +762,14 @@ const taskHostLayer = Layer.effect(
               tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
               time: { created: now, updated: now },
               permission: deriveSubagentPermission({
-                parentPermissions: parentPermission.map((rule) => toCurrentRule(rule)),
+                parentPermissions: parentPermission,
                 subagent: agentInfo,
                 capability,
-              }).map((rule) => toLegacyRule(rule)),
+              }),
               metadata: { sandboxProfile: parent.sandboxProfile ?? "off" },
             })
             yield* events
-              .publish(SessionV1.Event.Created, { sessionID, info }, { location: parent.location })
+              .publish(SessionWire.Event.Created, { sessionID, info }, { location: parent.location })
               .pipe(
                 Effect.catchDefect((defect) => {
                   if (!(defect instanceof SessionProjector.SessionAlreadyProjected)) return Effect.die(defect)
@@ -1133,9 +1131,9 @@ export const taskHostNode = makeGlobalNode({
   deps: [
     BackgroundJob.node,
     SessionStore.node,
-    EventV2.node,
+    CoreEvent.node,
     Database.node,
-    ProjectV2.node,
+    Project.node,
     SubagentRegistry.node,
     SessionRuntime.node,
     PersonaStore.node,
@@ -1233,6 +1231,43 @@ const chatHookLayer = Layer.effect(
 export const chatHookNode = makeGlobalNode({
   service: PluginHooks.ChatService,
   layer: chatHookLayer,
+  deps: [],
+})
+
+const permissionAskHookLayer = Layer.effect(
+  PluginHooks.PermissionAskService,
+  Effect.gen(function* () {
+    const pluginOpt = yield* Effect.serviceOption(Plugin.Service)
+    return PluginHooks.PermissionAskService.of({
+      intercept: Effect.fn("PluginPermissionAskHook.intercept")(function* (input) {
+        const output = { effect: input.effect }
+        if (Option.isNone(pluginOpt)) return output.effect
+        yield* pluginOpt.value
+          .trigger(
+            "permission.ask",
+            {
+              id: input.id ?? "",
+              sessionID: input.sessionID,
+              action: input.action,
+              resources: [...input.resources],
+              save: input.save ? [...input.save] : undefined,
+              metadata: input.metadata,
+              source: input.source,
+            } as never,
+            output,
+          )
+          .pipe(Effect.catchCause(() => Effect.sync(() => {
+            output.effect = "deny"
+          })))
+        return output.effect
+      }),
+    })
+  }),
+)
+
+export const permissionAskHookNode = makeGlobalNode({
+  service: PluginHooks.PermissionAskService,
+  layer: permissionAskHookLayer,
   deps: [],
 })
 
@@ -1345,6 +1380,7 @@ export const node = LayerNode.group([
   bashHostNode,
   definitionHookNode,
   chatHookNode,
+  permissionAskHookNode,
   commandHookNode,
   textCompleteHookNode,
   compactionHookNode,

@@ -3,15 +3,15 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -28,8 +28,8 @@ const dummy = Tool.make({
 })
 
 const call = {
-  sessionID: SessionV2.ID.make("ses_hooks_trust"),
-  agent: AgentV2.ID.make("build"),
+  sessionID: Session.ID.make("ses_hooks_trust"),
+  agent: Agent.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_hooks_trust"),
   call: { type: "tool-call" as const, id: "call-dummy", name: "dummy", input: {} },
 }
@@ -37,14 +37,14 @@ const call = {
 const events: Array<{ type: string; data: Record<string, unknown> }> = []
 
 const eventLayer = Layer.succeed(
-  EventV2.Service,
+  Event.Service,
   {
     publish: (definition: { readonly type: string }, data: Record<string, unknown>) =>
       Effect.sync(() => {
         events.push({ type: definition.type, data })
         return { durable: { aggregateID: "ses_hooks_location", seq: events.length, version: 1 } }
       }),
-  } as unknown as EventV2.Interface,
+  } as unknown as Event.Interface,
 )
 
 const graphFor = (directory: string) => {
@@ -55,7 +55,7 @@ const graphFor = (directory: string) => {
   return Layer.provideMerge(
     AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, ToolRegistry.toolsNode, Hooks.node]), [
       [Location.node, current],
-      [EventV2.node, eventLayer],
+      [Event.node, eventLayer],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
     ]),
     eventLayer,

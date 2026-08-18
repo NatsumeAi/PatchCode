@@ -12,10 +12,10 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { LLMClient, LLMEvent, Model } from "@opencode-ai/llm"
 import { routes as openAICompatibleRoutes } from "@opencode-ai/llm/providers/openai-compatible"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ProjectV2 } from "@opencode-ai/core/project"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Model as CoreModel } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Project } from "@opencode-ai/core/project"
+import { Session } from "@opencode-ai/core/session"
 import {
   embedFlushDedupVectors,
   flushSession,
@@ -34,9 +34,9 @@ import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 
 const sessionID = SessionSchema.ID.make("ses_flush_test")
-const session = SessionV2.Info.make({
+const session = Session.Info.make({
   id: sessionID,
-  projectID: ProjectV2.ID.global,
+  projectID: Project.ID.global,
   title: "test",
   cost: 0,
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -55,7 +55,7 @@ const messages = [
     id: SessionMessage.ID.make("msg_f2"),
     type: "assistant",
     agent: "build",
-    model: { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") },
+    model: { id: CoreModel.ID.make("model"), providerID: Provider.ID.make("provider") },
     content: [{ type: "text", id: "block1", text: "use effect layers for the flush pipeline" }],
     time: { created: DateTime.makeUnsafe(0) },
   }),
@@ -344,7 +344,7 @@ describe("Memory flush", () => {
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
           resetFlushGuardForTests()
-          const child = SessionV2.Info.make({
+          const child = Session.Info.make({
             ...session,
             id: SessionSchema.ID.make("ses_flush_child"),
             parentID: SessionSchema.ID.make("ses_flush_parent"),

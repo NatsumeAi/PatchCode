@@ -3,11 +3,11 @@ import { LegacyEvent } from "../src/legacy-event"
 import { PermissionV1 } from "../src/permission-legacy"
 import { QuestionV1 } from "../src/question-legacy"
 import { Project } from "../src/project"
-import { SessionV1 } from "../src/session-legacy"
+import { SessionWire } from "../src/session-legacy"
 
 describe("legacy public event schemas", () => {
-  test("owns all SessionV1 definitions", () => {
-    expect(SessionV1.Event.Definitions.map((event) => event.type)).toEqual([
+  test("owns all SessionWire definitions", () => {
+    expect(SessionWire.Event.Definitions.map((event) => event.type)).toEqual([
       "session.created",
       "session.updated",
       "session.deleted",
@@ -19,7 +19,7 @@ describe("legacy public event schemas", () => {
       "session.diff",
       "session.error",
     ])
-    const durable = SessionV1.Event.Definitions.filter((event) => event.durable !== undefined)
+    const durable = SessionWire.Event.Definitions.filter((event) => event.durable !== undefined)
     expect(durable).toHaveLength(7)
     expect(durable.every((event) => event.durable?.aggregate === "sessionID")).toBe(true)
     expect(durable.every((event) => event.durable?.version === 1)).toBe(true)
@@ -27,9 +27,9 @@ describe("legacy public event schemas", () => {
 
   test("owns the legacy transient public definitions", () => {
     expect([
-      SessionV1.PartDelta.type,
-      SessionV1.Diff.type,
-      SessionV1.Error.type,
+      SessionWire.PartDelta.type,
+      SessionWire.Diff.type,
+      SessionWire.Error.type,
       PermissionV1.Event.Asked.type,
       PermissionV1.Event.Replied.type,
       QuestionV1.Event.Asked.type,

@@ -1,5 +1,5 @@
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton } from "@opencode-ai/ui/kit/icon-button"
 import { createSignal, Show } from "solid-js"
 import { Drawer, DrawerClose, DrawerContent } from "@/components/ui/drawer"
 import { usePlatform } from "@/context/platform"
@@ -22,7 +22,7 @@ export function TabsInfoPopup() {
     <Drawer open={drawerOpen()} onOpenChange={setDrawerOpen} side="right">
       <Show when={settings.general.shouldDisplayTabsToast()}>
         <div
-          class="fixed bottom-5 right-5 z-50 h-[240px] w-[192px] rounded-[8px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-floating)]"
+          class="fixed bottom-5 right-5 z-50 h-[240px] w-[192px] rounded-[8px] bg-kit-background-bg-base p-1 shadow-[var(--kit-elevation-floating)]"
           aria-label="Introducing Tabs. Organize your work and active sessions with tabs"
         >
           <button
@@ -85,41 +85,41 @@ export function TabsInfoPopup() {
       >
         <Show when={windows()}>
           <DrawerClose
-            as={IconButtonV2}
+            as={IconButton}
             type="button"
             size="small"
             variant="neutral"
             aria-label="Close"
-            icon={<IconV2 name="xmark-small" />}
+            icon={<KitIcon name="xmark-small" />}
             class="absolute top-[10px] left-[-36px]"
           />
         </Show>
         <div
-          class="flex w-full shrink-0 items-center gap-4 self-stretch border-b border-v2-border-border-muted"
+          class="flex w-full shrink-0 items-center gap-4 self-stretch border-b border-kit-border-border-muted"
           classList={{
             "h-[40px] px-4": windows(),
             "h-[52px] p-4": !windows(),
           }}
         >
-          <p class="min-h-0 min-w-0 flex-1 text-[13px] font-[530] leading-5 tracking-[-0.04px] tabular-nums text-v2-text-text-muted">
+          <p class="min-h-0 min-w-0 flex-1 text-[13px] font-[530] leading-5 tracking-[-0.04px] tabular-nums text-kit-text-text-muted">
             July 14
           </p>
           <Show when={!windows()}>
             <DrawerClose
-              as={IconButtonV2}
+              as={IconButton}
               type="button"
               size="small"
               variant="ghost-muted"
               aria-label="Close"
-              icon={<IconV2 name="xmark-small" />}
+              icon={<KitIcon name="xmark-small" />}
             />
           </Show>
         </div>
         <div class="relative flex min-h-0 w-full flex-1 flex-col items-start gap-6 overflow-y-auto p-8">
-          <p class="w-full shrink-0 self-stretch text-[21px] font-[610] leading-6 tracking-[-0.37px] tabular-nums text-v2-text-text-base">
+          <p class="w-full shrink-0 self-stretch text-[21px] font-[610] leading-6 tracking-[-0.37px] tabular-nums text-kit-text-text-base">
             Introducing Tabs
           </p>
-          <div class="flex w-full flex-1 flex-col gap-4 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base">
+          <div class="flex w-full flex-1 flex-col gap-4 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base">
             <p>OpenCode Desktop is now built around tabs.</p>
             <img src={tabsImage} alt="" class="aspect-video w-full rounded-[6px] object-cover" />
             <p>

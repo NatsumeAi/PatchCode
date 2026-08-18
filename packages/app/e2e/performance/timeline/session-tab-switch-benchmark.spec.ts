@@ -27,7 +27,7 @@ benchmark("benchmarks cold and hot session tab switching", async ({ browser, rep
 })
 
 benchmark(
-  "benchmarks v2 session tab switching with and without the review pane",
+  "benchmarks kit session tab switching with and without the review pane",
   async ({ browser, report }, testInfo) => {
     benchmark.setTimeout(360_000)
     const runs = Number(process.env.SESSION_TAB_SWITCH_RUNS ?? 5)
@@ -41,7 +41,7 @@ benchmark(
           results[reviewPane][mode].push(
             await withBenchmarkPage(
               browser,
-              `session-tab-switch-v2-${reviewPane}-${mode}-${run}`,
+              `session-tab-switch-kit-${reviewPane}-${mode}-${run}`,
               (page) => trial(page, mode, { newLayoutDesigns: true, reviewPane }),
               testInfo,
             ),

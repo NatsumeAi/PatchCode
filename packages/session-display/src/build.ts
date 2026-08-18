@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/api"
 import { normalizeToolName } from "./normalize"
 import { getDescriptor } from "./registry"
 import { genericDescriptor } from "./tools/generic"

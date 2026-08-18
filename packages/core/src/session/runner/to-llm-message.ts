@@ -171,7 +171,7 @@ ${message.summary}
 }
 
 /**
- * Translate projected V2 Session history into canonical @opencode-ai/llm context.
+ * Translate projected Session history into canonical @opencode-ai/llm context.
  *
  * The compaction checkpoint is hoisted to the front (design §6: summary first,
  * then the kept selected/recent messages in original order) so the model reads

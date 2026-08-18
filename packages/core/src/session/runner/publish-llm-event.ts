@@ -1,7 +1,7 @@
 import { ToolOutput, type LLMEvent, type ProviderMetadata, type ToolResultValue, type Usage } from "@opencode-ai/llm"
 import { DateTime, Effect } from "effect"
-import { EventV2 } from "../../event"
-import { ModelV2 } from "../../model"
+import { Event } from "../../event"
+import { Model } from "../../model"
 import { SessionEvent } from "../event"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
@@ -9,7 +9,7 @@ import { SessionSchema } from "../schema"
 type Input = {
   readonly sessionID: SessionSchema.ID
   readonly agent: string
-  readonly model: ModelV2.Ref
+  readonly model: Model.Ref
   readonly snapshot?: string
 }
 
@@ -75,7 +75,7 @@ const settledOutput = (value: ToolOutput | undefined, result: ToolResultValue): 
 }
 
 /** Persist one provider turn without executing tools or starting a continuation turn. */
-export const createLLMEventPublisher = (events: EventV2.Interface, input: Input) => {
+export const createLLMEventPublisher = (events: Event.Interface, input: Input) => {
   const tools = new Map<
     string,
     {

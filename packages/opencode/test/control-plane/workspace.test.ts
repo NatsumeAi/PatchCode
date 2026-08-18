@@ -9,7 +9,7 @@ import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { eq } from "drizzle-orm"
 import { GlobalBus, type GlobalEvent } from "@/bus/global"
 import { Database } from "@opencode-ai/core/database/database"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Session as SessionNs } from "@/session/session"
@@ -23,7 +23,7 @@ import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, provideTmpdirInstance, requireInstance, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { registerAdapter } from "../../src/control-plane/adapters"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import { WorkspaceTable } from "@opencode-ai/core/control-plane/workspace.sql"
 import type { Target, WorkspaceAdapter, WorkspaceInfo } from "../../src/control-plane/types"
 import * as Workspace from "../../src/control-plane/workspace"
@@ -131,7 +131,7 @@ async function initGitRepo(dir: string) {
   await $`git commit -m "base"`.cwd(dir).quiet()
 }
 
-const startWorkspaceSyncingWithFlag = (projectID: ProjectV2.ID, experimentalWorkspaces: boolean) =>
+const startWorkspaceSyncingWithFlag = (projectID: Project.ID, experimentalWorkspaces: boolean) =>
   Effect.runPromise(
     Workspace.use.startWorkspaceSyncing(projectID).pipe(Effect.provide(workspaceLayer(experimentalWorkspaces))),
   )
@@ -267,9 +267,9 @@ function serverUrl() {
   })
 }
 
-function workspaceInfo(projectID: ProjectV2.ID, type: string, input?: Partial<Workspace.Info>): Workspace.Info {
+function workspaceInfo(projectID: Project.ID, type: string, input?: Partial<Workspace.Info>): Workspace.Info {
   return {
-    id: input?.id ?? WorkspaceV2.ID.ascending(),
+    id: input?.id ?? CoreWorkspace.ID.ascending(),
     type,
     name: input?.name ?? unique("workspace"),
     branch: input?.branch ?? null,
@@ -299,7 +299,7 @@ function insertWorkspace(info: Workspace.Info) {
   )
 }
 
-function insertProject(id: ProjectV2.ID, worktree: string) {
+function insertProject(id: Project.ID, worktree: string) {
   return Database.Service.use(({ db }) =>
     db
       .insert(ProjectTable)
@@ -317,7 +317,7 @@ function insertProject(id: ProjectV2.ID, worktree: string) {
   )
 }
 
-function attachSessionToWorkspace(sessionID: SessionID, workspaceID: WorkspaceV2.ID) {
+function attachSessionToWorkspace(sessionID: SessionID, workspaceID: CoreWorkspace.ID) {
   return Database.Service.use(({ db }) =>
     db
       .update(SessionTable)
@@ -365,10 +365,10 @@ describe("workspace schemas and exports", () => {
 
   test("validates create input with workspace id, project id, branch, type, and extra", () => {
     const input = {
-      id: WorkspaceV2.ID.ascending("wrk_schema_create"),
+      id: CoreWorkspace.ID.ascending("wrk_schema_create"),
       type: "worktree",
       branch: "feature/schema",
-      projectID: ProjectV2.ID.make("project-schema"),
+      projectID: Project.ID.make("project-schema"),
       extra: { nested: true },
     }
 
@@ -385,7 +385,7 @@ describe("workspace CRUD", () => {
     () =>
       Effect.gen(function* () {
         const workspace = yield* Workspace.Service
-        expect(yield* workspace.get(WorkspaceV2.ID.ascending("wrk_missing_get"))).toBeUndefined()
+        expect(yield* workspace.get(CoreWorkspace.ID.ascending("wrk_missing_get"))).toBeUndefined()
       }),
     { git: true },
   )
@@ -396,21 +396,21 @@ describe("workspace CRUD", () => {
       Effect.gen(function* () {
         const instance = yield* requireInstance
         const workspace = yield* Workspace.Service
-        const otherProjectID = ProjectV2.ID.make("project-other")
+        const otherProjectID = Project.ID.make("project-other")
         yield* insertProject(otherProjectID, "/tmp/other")
         const a = workspaceInfo(instance.project.id, "manual", {
-          id: WorkspaceV2.ID.ascending("wrk_a_list"),
+          id: CoreWorkspace.ID.ascending("wrk_a_list"),
           branch: "a",
           directory: "/a",
           extra: { a: true },
         })
         const b = workspaceInfo(instance.project.id, "manual", {
-          id: WorkspaceV2.ID.ascending("wrk_b_list"),
+          id: CoreWorkspace.ID.ascending("wrk_b_list"),
           branch: "b",
           directory: "/b",
           extra: ["b"],
         })
-        const other = workspaceInfo(otherProjectID, "manual", { id: WorkspaceV2.ID.ascending("wrk_c_list") })
+        const other = workspaceInfo(otherProjectID, "manual", { id: CoreWorkspace.ID.ascending("wrk_c_list") })
         yield* insertWorkspace(b)
         yield* insertWorkspace(other)
         yield* insertWorkspace(a)
@@ -431,7 +431,7 @@ describe("workspace CRUD", () => {
         process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otel.test"
         process.env.OTEL_RESOURCE_ATTRIBUTES = "service.name=opencode-test"
 
-        const workspaceID = WorkspaceV2.ID.ascending("wrk_create_local")
+        const workspaceID = CoreWorkspace.ID.ascending("wrk_create_local")
         const type = unique("create-local")
         const targetDir = path.join(instance.directory, "created-local")
         const recorded = recordedAdapter({
@@ -591,7 +591,7 @@ describe("workspace CRUD", () => {
         const workspace = yield* Workspace.Service
         const type = unique("list-sync")
         const existing = workspaceInfo(instance.project.id, type, {
-          id: WorkspaceV2.ID.ascending("wrk_list_sync_existing"),
+          id: CoreWorkspace.ID.ascending("wrk_list_sync_existing"),
           name: "existing",
           directory: path.join(instance.directory, "existing"),
         })
@@ -761,7 +761,7 @@ describe("workspace CRUD", () => {
     () =>
       Effect.gen(function* () {
         const workspace = yield* Workspace.Service
-        expect(yield* workspace.remove(WorkspaceV2.ID.ascending("wrk_missing_remove"))).toBeUndefined()
+        expect(yield* workspace.remove(CoreWorkspace.ID.ascending("wrk_missing_remove"))).toBeUndefined()
       }),
     { git: true },
   )
@@ -810,7 +810,7 @@ describe("workspace CRUD", () => {
         const instance = yield* requireInstance
         const workspace = yield* Workspace.Service
         const type = unique("remove-throws")
-        const info = workspaceInfo(instance.project.id, type, { id: WorkspaceV2.ID.ascending("wrk_remove_throws") })
+        const info = workspaceInfo(instance.project.id, type, { id: CoreWorkspace.ID.ascending("wrk_remove_throws") })
         registerAdapter(
           instance.project.id,
           type,
@@ -1577,7 +1577,7 @@ describe("workspace waitForSync", () => {
     () =>
       Effect.gen(function* () {
         const workspace = yield* Workspace.Service
-        expect(yield* workspace.waitForSync(WorkspaceV2.ID.ascending("wrk_wait_empty"), {})).toBeUndefined()
+        expect(yield* workspace.waitForSync(CoreWorkspace.ID.ascending("wrk_wait_empty"), {})).toBeUndefined()
       }),
     { git: true },
   )
@@ -1592,10 +1592,10 @@ describe("workspace waitForSync", () => {
         yield* db.insert(EventSequenceTable).values({ aggregate_id: sessionID, seq: 4 }).run().pipe(Effect.orDie)
 
         expect(
-          yield* workspace.waitForSync(WorkspaceV2.ID.ascending("wrk_wait_done"), { [sessionID]: 4 }),
+          yield* workspace.waitForSync(CoreWorkspace.ID.ascending("wrk_wait_done"), { [sessionID]: 4 }),
         ).toBeUndefined()
         expect(
-          yield* workspace.waitForSync(WorkspaceV2.ID.ascending("wrk_wait_done_2"), { [sessionID]: 3 }),
+          yield* workspace.waitForSync(CoreWorkspace.ID.ascending("wrk_wait_done_2"), { [sessionID]: 3 }),
         ).toBeUndefined()
       }),
     { git: true },
@@ -1606,7 +1606,7 @@ describe("workspace waitForSync", () => {
     () =>
       Effect.gen(function* () {
         const workspace = yield* Workspace.Service
-        const workspaceID = WorkspaceV2.ID.ascending("wrk_wait_event")
+        const workspaceID = CoreWorkspace.ID.ascending("wrk_wait_event")
         const sessionID = SessionID.descending("ses_wait_event")
         const { db } = yield* Database.Service
         yield* db.insert(EventSequenceTable).values({ aggregate_id: sessionID, seq: 1 }).run().pipe(Effect.orDie)
@@ -1636,7 +1636,7 @@ describe("workspace waitForSync", () => {
     () =>
       Effect.gen(function* () {
         const workspace = yield* Workspace.Service
-        const workspaceID = WorkspaceV2.ID.ascending("wrk_wait_sync_any")
+        const workspaceID = CoreWorkspace.ID.ascending("wrk_wait_sync_any")
         const sessionID = SessionID.descending("ses_wait_sync_any")
         const { db } = yield* Database.Service
         yield* db.insert(EventSequenceTable).values({ aggregate_id: sessionID, seq: 0 }).run().pipe(Effect.orDie)
@@ -1653,7 +1653,7 @@ describe("workspace waitForSync", () => {
                 .run()
                 .pipe(Effect.orDie)
               GlobalBus.emit("event", {
-                workspace: WorkspaceV2.ID.ascending("wrk_other_workspace"),
+                workspace: CoreWorkspace.ID.ascending("wrk_other_workspace"),
                 payload: { type: "sync" },
               })
             }),
@@ -1673,7 +1673,7 @@ describe("workspace waitForSync", () => {
         const reason = new Error("caller aborted")
         const fiber = yield* Effect.forkChild(
           workspace.waitForSync(
-            WorkspaceV2.ID.ascending("wrk_wait_abort"),
+            CoreWorkspace.ID.ascending("wrk_wait_abort"),
             { [SessionID.descending("ses_wait_abort")]: 1 },
             abort.signal,
           ),
@@ -1693,7 +1693,7 @@ describe("workspace waitForSync", () => {
         const sessionID = SessionID.descending("ses_wait_timeout")
         expectExitContains(
           yield* Effect.exit(
-            workspace.waitForSync(WorkspaceV2.ID.ascending("wrk_wait_timeout"), { [sessionID]: 1 }, undefined, 25),
+            workspace.waitForSync(CoreWorkspace.ID.ascending("wrk_wait_timeout"), { [sessionID]: 1 }, undefined, 25),
           ),
           `Timed out waiting for sync fence: {"${sessionID}":1}`,
         )

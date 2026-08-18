@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
 export const XAIPlugin = define({
   id: "xai",
@@ -14,7 +14,7 @@ export const XAIPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.make("xai")) return
+        if (evt.model.providerID !== Provider.ID.make("xai")) return
         evt.language = evt.sdk.responses(evt.model.api.id)
       }),
     )

@@ -1,11 +1,11 @@
-export * as SkillV2 from "./skill"
+export * as Skill from "./skill"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
 import { mkdir, copyFile } from "node:fs/promises"
 import { Context, Effect, Layer, Schema, Types } from "effect"
-import { Skill } from "@opencode-ai/schema/skill"
-import { AgentV2 } from "./agent"
+import { Skill as SkillSchema } from "@opencode-ai/schema/skill"
+import { Agent } from "./agent"
 import { ConfigMarkdown } from "./config/markdown"
 import { FSUtil } from "./fs-util"
 import { Global } from "./global"
@@ -18,22 +18,22 @@ import { State } from "./state"
 import { Trust } from "./trust"
 import { scanForThreatsInScope } from "./memory/scan"
 
-export const DirectorySource = Skill.DirectorySource
-export type DirectorySource = Skill.DirectorySource
+export const DirectorySource = SkillSchema.DirectorySource
+export type DirectorySource = SkillSchema.DirectorySource
 
-export const UrlSource = Skill.UrlSource
-export type UrlSource = Skill.UrlSource
+export const UrlSource = SkillSchema.UrlSource
+export type UrlSource = SkillSchema.UrlSource
 
-export const EmbeddedSource = Skill.EmbeddedSource
-export type EmbeddedSource = Skill.EmbeddedSource
+export const EmbeddedSource = SkillSchema.EmbeddedSource
+export type EmbeddedSource = SkillSchema.EmbeddedSource
 
-export const Source = Skill.Source
+export const Source = SkillSchema.Source
 export type Source = typeof Source.Type
 
-export const Info = Skill.Info
-export type Info = Skill.Info
+export const Info = SkillSchema.Info
+export type Info = SkillSchema.Info
 
-export const available = (skills: ReadonlyArray<Info>, agent: AgentV2.Info) =>
+export const available = (skills: ReadonlyArray<Info>, agent: Agent.Info) =>
   skills.filter((skill) => evaluatePermission("skill", skill.name, agent.permissions).effect !== "deny")
 
 const Frontmatter = Schema.Struct({
@@ -57,7 +57,7 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Skill") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Skill") {}
 
 const layer = Layer.effect(
   Service,
@@ -79,7 +79,7 @@ const layer = Layer.effect(
       }),
     })
 
-    const load = Effect.fn("SkillV2.load")(function* (source: Source) {
+    const load = Effect.fn("Skill.load")(function* (source: Source) {
       const skills: Info[] = []
       if (source.type === "embedded") return [source.skill]
       if (source.type === "url" && source.url.trim().toLowerCase().startsWith("file:")) return []
@@ -107,7 +107,7 @@ const layer = Layer.effect(
             "context",
           )
           if (threats.length > 0) {
-            yield* Effect.logError("SkillV2 rejected by threat scan", { skill: name, path: filepath, threats })
+            yield* Effect.logError("Skill rejected by threat scan", { skill: name, path: filepath, threats })
             continue
           }
           skills.push({
@@ -149,7 +149,7 @@ const layer = Layer.effect(
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
     const cache = new Map<string, Info[]>()
-    const list = Effect.fn("SkillV2.list")(function* () {
+    const list = Effect.fn("Skill.list")(function* () {
       const skills = new Map<string, Info>()
       const locationDir = locationOpt._tag === "Some" ? String(locationOpt.value.directory) : undefined
       const projectTrusted =
@@ -191,7 +191,7 @@ const layer = Layer.effect(
     return Service.of({
       transform: state.transform,
       reload: state.reload,
-      sources: Effect.fn("SkillV2.sources")(function* () {
+      sources: Effect.fn("Skill.sources")(function* () {
         return state.get().sources
       }),
       list,

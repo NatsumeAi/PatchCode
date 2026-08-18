@@ -3,7 +3,7 @@ import { Dynamic } from "solid-js/web"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { getDirectory, getFilename, getFilenameTruncated } from "@opencode-ai/core/util/path"
 import type { ContextItem } from "@/context/prompt"
 
@@ -31,13 +31,13 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
 
             return (
               <Dynamic
-                component={props.newLayoutDesigns ? TooltipV2 : Tooltip}
+                component={props.newLayoutDesigns ? KitTooltip : Tooltip}
                 value={
                   <span class="flex max-w-[300px]">
                     <span
                       classList={{
                         "truncate-start [unicode-bidi:plaintext] min-w-0": true,
-                        "text-v2-text-text-muted": props.newLayoutDesigns,
+                        "text-kit-text-text-muted": props.newLayoutDesigns,
                         "text-text-invert-base": !props.newLayoutDesigns,
                       }}
                     >

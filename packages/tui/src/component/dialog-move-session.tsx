@@ -16,7 +16,7 @@ import { useCommandShortcut } from "../keymap"
 import { useProject } from "../context/project"
 import { Spinner } from "./spinner"
 import { DialogWorkspaceFileChanges } from "./dialog-workspace-file-changes"
-import type { ProjectDirectories } from "@opencode-ai/sdk/v2"
+import type { ProjectDirectories } from "@opencode-ai/sdk/api"
 import { useRoute } from "../context/route"
 
 export type MoveSessionSelection = { type: "directory"; directory: string; subdirectory: boolean } | { type: "new" }
@@ -74,7 +74,7 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
     () => (props.initialRemoving ? undefined : props.projectID),
     async (projectID, info): Promise<ProjectDirectory[] | undefined> => {
       try {
-        await sdk.client.v2.projectCopy.refresh(
+        await sdk.client.api.projectCopy.refresh(
           { projectID, location: { directory: sdk.directory } },
           { throwOnError: true },
         )
@@ -221,7 +221,7 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
     setToDelete(undefined)
     setRemoving(selected.directory)
     setWorking(true)
-    const result = await sdk.client.v2.projectCopy
+    const result = await sdk.client.api.projectCopy
       .remove({
         projectID: props.projectID,
         location: { directory: sdk.directory },
@@ -243,7 +243,7 @@ export function DialogMoveSession(props: DialogMoveSessionProps) {
           return
         }
         reopen(selected.directory)
-        const forced = await sdk.client.v2.projectCopy
+        const forced = await sdk.client.api.projectCopy
           .remove({
             projectID: props.projectID,
             location: { directory: sdk.directory },

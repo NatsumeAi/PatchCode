@@ -1,6 +1,6 @@
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
 import type { SessionMessageInfo } from "@opencode-ai/client/promise"
-import { AssistantMessage, Part, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2"
+import { AssistantMessage, Part, SessionStatus, UserMessage } from "@opencode-ai/sdk/api"
 import { groupParts, renderable, type PartGroup } from "@opencode-ai/session-ui/message-part"
 import { TimelineRow, type SummaryDiff } from "./timeline-row"
 import { uniqueSummaryDiffs } from "./summary-diffs"
@@ -105,7 +105,7 @@ export namespace Timeline {
     showReasoning: boolean,
     status: SessionStatus["type"],
     isActive: boolean,
-    // v2 renders comments inside the user message attachments row instead of a strip row
+    // kit renders comments inside the user message attachments row instead of a strip row
     inlineComments: boolean,
   ) {
     const rows: TimelineRow.TimelineRow[] = []

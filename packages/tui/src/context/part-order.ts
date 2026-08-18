@@ -1,4 +1,4 @@
-import type { Part } from "@opencode-ai/sdk/v2"
+import type { Part } from "@opencode-ai/sdk/api"
 import { toEpochMs } from "../util/epoch-ms"
 
 /**

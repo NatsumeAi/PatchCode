@@ -6,7 +6,7 @@ import { Integration } from "./integration"
 import { statics } from "./schema"
 
 export const ID = Schema.String.pipe(
-  Schema.brand("ProviderV2.ID"),
+  Schema.brand("Provider.ID"),
   statics((schema) => ({
     opencode: schema.make("opencode"),
     anthropic: schema.make("anthropic"),
@@ -58,7 +58,7 @@ export const Info = Schema.Struct({
   api: Api,
   request: Request,
 })
-  .annotate({ identifier: "ProviderV2.Info" })
+  .annotate({ identifier: "Provider.Info" })
   .pipe(
     statics((schema) => ({
       empty: (id: ID) =>

@@ -1,4 +1,4 @@
-export * as ConfigLSPV1 from "./lsp"
+export * as ConfigLspInput from "./lsp"
 
 import { Schema } from "effect"
 

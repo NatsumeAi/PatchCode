@@ -1,9 +1,9 @@
-import type { Event, Session, SessionV2Info, V2SessionListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Event, Session, SessionInfo, ApiSessionListResponse } from "@opencode-ai/sdk/api/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { trimSessions } from "./session-trim"
 import { pathKey } from "@/utils/path-key"
 
-export const HOME_V2_SESSION_PAGE_LIMIT = 5_000
+export const HOME_SESSION_PAGE_LIMIT = 5_000
 
 export type HomeSessionEvent = {
   type: "session.created" | "session.updated" | "session.deleted"
@@ -21,7 +21,7 @@ export type HomeSessionIndex = {
 export const homeSessionIndexKey = (server: string) => ["home", "session-index", server] as const
 export const homeSessionEventsKey = (server: string) => ["home", "session-events", server] as const
 
-type HomeSessionPage = { data?: V2SessionListResponse }
+type HomeSessionPage = { data?: ApiSessionListResponse }
 
 export async function loadHomeSessionIndex(
   list: (
@@ -31,13 +31,13 @@ export async function loadHomeSessionIndex(
   eventSequence = 0,
   signal?: AbortSignal,
 ) {
-  const data: SessionV2Info[] = []
+  const data: SessionInfo[] = []
   let cursor: string | undefined
 
   for (;;) {
     const response = await list(
       {
-        limit: HOME_V2_SESSION_PAGE_LIMIT,
+        limit: HOME_SESSION_PAGE_LIMIT,
         order: "desc",
         ...(cursor ? { cursor } : {}),
       },
@@ -45,7 +45,7 @@ export async function loadHomeSessionIndex(
     )
     const page = response.data!
     data.push(...page.data)
-    if (page.data.length < HOME_V2_SESSION_PAGE_LIMIT || !page.cursor.next)
+    if (page.data.length < HOME_SESSION_PAGE_LIMIT || !page.cursor.next)
       return { sessions: parseHomeSessionIndex(data), eventSequence }
     cursor = page.cursor.next
   }
@@ -125,12 +125,12 @@ export function createHomeSessionIndexCache(queryClient: QueryClient, server: st
   }
 }
 
-// TODO(v2): This deliberately dumb full-table scan is necessary because the
-// current V2 API orders by creation time and cannot filter roots, archives, or
+// TODO: This deliberately dumb full-table scan is necessary because the
+// current API orders by creation time and cannot filter roots, archives, or
 // multiple directories. A bounded page could omit an old session updated today.
-// Once released, use client.v2.project.list() and client.v2.session.list({
-// parentID: null, order: "desc" }), then remove this adapter and its V1 fields.
-export function parseHomeSessionIndex(sessions: SessionV2Info[]): Session[] {
+// Once released, use client.api.project.list() and client.api.session.list({
+// parentID: null, order: "desc" }), then remove this adapter and its legacy fields.
+export function parseHomeSessionIndex(sessions: SessionInfo[]): Session[] {
   return sessions.flatMap((item) => {
     if (item.parentID || typeof item.time.archived === "number") return []
     return [toLegacySummary(item)]
@@ -154,7 +154,7 @@ export function applyHomeSessionEvent(sessions: Session[], event: HomeSessionEve
   return sessions.with(index, info)
 }
 
-function toLegacySummary(session: SessionV2Info): Session {
+function toLegacySummary(session: SessionInfo): Session {
   return {
     id: session.id,
     slug: session.id,

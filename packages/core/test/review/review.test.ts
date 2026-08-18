@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ReviewGate } from "@opencode-ai/core/session/review-gate"
 import { ReviewTool } from "@opencode-ai/core/tool/review"
 import { TaskTool } from "@opencode-ai/core/tool/task"
@@ -12,7 +12,7 @@ import { WorktreeEngine } from "@opencode-ai/core/worktree-engine"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolDefinitions, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_review")
+const sessionID = Session.ID.make("ses_review")
 
 const host = (output: string) =>
   Layer.succeed(

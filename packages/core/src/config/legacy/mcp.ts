@@ -1,4 +1,4 @@
-export * as ConfigMCPV1 from "./mcp"
+export * as ConfigMcpInput from "./mcp"
 
 import { Schema } from "effect"
 import { PositiveInt } from "../../schema"

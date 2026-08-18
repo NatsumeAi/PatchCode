@@ -3,8 +3,8 @@ export * as ConfigProviderPlugin from "./provider"
 import { define } from "../../plugin/internal"
 import { Effect } from "effect"
 import { Config } from "../../config"
-import { ModelV2 } from "../../model"
-import { ProviderV2 } from "../../provider"
+import { Model } from "../../model"
+import { Provider } from "../../provider"
 
 export const Plugin = define({
   id: "config-provider",
@@ -44,7 +44,7 @@ export const Plugin = define({
         const files = entries.filter((entry): entry is Config.Document => entry.type === "document")
         const configuredDefault = Config.latest(entries, "model")
         if (configuredDefault !== undefined) {
-          const model = ModelV2.parse(configuredDefault)
+          const model = Model.parse(configuredDefault)
           catalog.model.default.set(model.providerID, model.modelID)
         }
         for (const file of files) {

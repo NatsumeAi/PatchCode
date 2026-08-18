@@ -1,16 +1,16 @@
 import { Effect } from "effect"
-import { ModelV2 } from "../../model"
-import { ProviderV2 } from "../../provider"
-import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
+import { Model } from "../../model"
+import { Provider } from "../../provider"
+import type { PluginContext } from "@opencode-ai/plugin/effect"
 
 export const GithubCopilotPlugin = {
   id: "github-copilot",
   effect: Effect.fn(function* (ctx: PluginContext) {
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
-        const item = evt.provider.get(ProviderV2.ID.githubCopilot)
-        if (!item || !item.models.has(ModelV2.ID.make("gpt-5-chat-latest"))) return
-        evt.model.update(item.provider.id, ModelV2.ID.make("gpt-5-chat-latest"), (model) => {
+        const item = evt.provider.get(Provider.ID.githubCopilot)
+        if (!item || !item.models.has(Model.ID.make("gpt-5-chat-latest"))) return
+        evt.model.update(item.provider.id, Model.ID.make("gpt-5-chat-latest"), (model) => {
           // This chat-only alias conflicts with the Copilot GPT-5 Responses route,
           // so hide it only for Copilot rather than for every provider catalog.
           model.enabled = false
@@ -26,7 +26,7 @@ export const GithubCopilotPlugin = {
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.githubCopilot) return
+        if (evt.model.providerID !== Provider.ID.githubCopilot) return
         if (evt.sdk.responses === undefined && evt.sdk.chat === undefined) {
           evt.language = evt.sdk.languageModel(evt.model.api.id)
           return

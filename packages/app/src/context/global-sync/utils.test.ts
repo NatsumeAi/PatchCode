@@ -32,7 +32,7 @@ describe("normalizeAgentList", () => {
         temperature: 0.2,
         topP: 0.9,
         color: "primary",
-        permission: [{ permission: "read", pattern: "*", action: "allow" }],
+        permission: [{ action: "read", resource: "*", effect: "allow" }],
         model: { providerID: "openai", modelID: "gpt-5" },
         variant: "high",
         prompt: "Build software",
@@ -58,11 +58,11 @@ describe("normalizePermissionRequest", () => {
     ).toEqual({
       id: "permission-1",
       sessionID: "session-1",
-      permission: "read",
-      patterns: ["README.md"],
-      always: ["*.md"],
+      action: "read",
+      resources: ["README.md"],
+      save: ["*.md"],
       metadata: { path: "README.md" },
-      tool: { messageID: "message-1", callID: "call-1" },
+      source: { type: "tool", messageID: "message-1", callID: "call-1" },
     })
   })
 })

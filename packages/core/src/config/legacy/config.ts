@@ -1,23 +1,23 @@
-export * as ConfigV1 from "./config"
+export * as ConfigInput from "./config"
 
 import { Schema } from "effect"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "../../schema"
 import { ConfigExperimental } from "../../config/experimental"
 import { ConfigReference } from "../../config/reference"
-import { ConfigAgentV1 } from "./agent"
-import { ConfigAttachmentV1 } from "./attachment"
-import { ConfigCommandV1 } from "./command"
-import { ConfigFormatterV1 } from "./formatter"
-import { ConfigLayoutV1 } from "./layout"
-import { ConfigLSPV1 } from "./lsp"
-import { ConfigMCPV1 } from "./mcp"
-import { ConfigPermissionV1 } from "./permission"
-import { ConfigPluginV1 } from "./plugin"
-import { ConfigProviderV1 } from "./provider"
-import { ConfigServerV1 } from "./server"
-import { ConfigSkillsV1 } from "./skills"
+import { ConfigAgentInput } from "./agent"
+import { ConfigAttachmentInput } from "./attachment"
+import { ConfigCommandInput } from "./command"
+import { ConfigFormatterInput } from "./formatter"
+import { ConfigLayoutInput } from "./layout"
+import { ConfigLspInput } from "./lsp"
+import { ConfigMcpInput } from "./mcp"
+import { ConfigPermission } from "./permission"
+import { ConfigPluginInput } from "./plugin"
+import { ConfigProviderInput } from "./provider"
+import { ConfigServerInput } from "./server"
+import { ConfigSkillsInput } from "./skills"
 
-export type Layout = ConfigLayoutV1.Layout
+export type Layout = ConfigLayoutInput.Layout
 
 export const WellKnown = Schema.Struct({
   config: Schema.optional(Schema.Json),
@@ -35,13 +35,13 @@ export const Info = Schema.Struct({
   }),
   shell: Schema.optional(Schema.String).annotate({ description: "Default shell to use for terminal and bash tool" }),
   logLevel: Schema.optional(LogLevelRef).annotate({ description: "Log level" }),
-  server: Schema.optional(ConfigServerV1.Server).annotate({
+  server: Schema.optional(ConfigServerInput.Server).annotate({
     description: "Server configuration for opencode serve and web commands",
   }),
-  command: Schema.optional(Schema.Record(Schema.String, ConfigCommandV1.Info)).annotate({
+  command: Schema.optional(Schema.Record(Schema.String, ConfigCommandInput.Info)).annotate({
     description: "Command configuration, see https://opencode.ai/docs/commands",
   }),
-  skills: Schema.optional(ConfigSkillsV1.Info).annotate({ description: "Additional skill folder paths" }),
+  skills: Schema.optional(ConfigSkillsInput.Info).annotate({ description: "Additional skill folder paths" }),
   references: Schema.optional(ConfigReference.Info).annotate({
     description: "Named git or local directory references",
   }),
@@ -53,7 +53,7 @@ export const Info = Schema.Struct({
     description:
       "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.",
   }),
-  plugin: Schema.optional(Schema.mutable(Schema.Array(ConfigPluginV1.Spec))),
+  plugin: Schema.optional(Schema.mutable(Schema.Array(ConfigPluginInput.Spec))),
   share: Schema.optional(Schema.Literals(["manual", "auto", "disabled"])).annotate({
     description:
       "Control sharing behavior:'manual' allows manual sharing via commands, 'auto' enables automatic sharing, 'disabled' disables all sharing",
@@ -89,45 +89,45 @@ export const Info = Schema.Struct({
   }),
   mode: Schema.optional(
     Schema.StructWithRest(
-      Schema.Struct({ build: Schema.optional(ConfigAgentV1.Info), plan: Schema.optional(ConfigAgentV1.Info) }),
-      [Schema.Record(Schema.String, ConfigAgentV1.Info)],
+      Schema.Struct({ build: Schema.optional(ConfigAgentInput.Info), plan: Schema.optional(ConfigAgentInput.Info) }),
+      [Schema.Record(Schema.String, ConfigAgentInput.Info)],
     ),
   ).annotate({ description: "@deprecated Use `agent` field instead." }),
   agent: Schema.optional(
     Schema.StructWithRest(
       Schema.Struct({
-        plan: Schema.optional(ConfigAgentV1.Info),
-        build: Schema.optional(ConfigAgentV1.Info),
-        general: Schema.optional(ConfigAgentV1.Info),
-        explore: Schema.optional(ConfigAgentV1.Info),
-        title: Schema.optional(ConfigAgentV1.Info),
-        summary: Schema.optional(ConfigAgentV1.Info),
-        compaction: Schema.optional(ConfigAgentV1.Info),
+        plan: Schema.optional(ConfigAgentInput.Info),
+        build: Schema.optional(ConfigAgentInput.Info),
+        general: Schema.optional(ConfigAgentInput.Info),
+        explore: Schema.optional(ConfigAgentInput.Info),
+        title: Schema.optional(ConfigAgentInput.Info),
+        summary: Schema.optional(ConfigAgentInput.Info),
+        compaction: Schema.optional(ConfigAgentInput.Info),
       }),
-      [Schema.Record(Schema.String, ConfigAgentV1.Info)],
+      [Schema.Record(Schema.String, ConfigAgentInput.Info)],
     ),
   ).annotate({ description: "Agent configuration, see https://opencode.ai/docs/agents" }),
-  provider: Schema.optional(Schema.Record(Schema.String, ConfigProviderV1.Info)).annotate({
+  provider: Schema.optional(Schema.Record(Schema.String, ConfigProviderInput.Info)).annotate({
     description: "Custom provider configurations and model overrides",
   }),
   mcp: Schema.optional(
-    Schema.Record(Schema.String, Schema.Union([ConfigMCPV1.Info, Schema.Struct({ enabled: Schema.Boolean })])),
+    Schema.Record(Schema.String, Schema.Union([ConfigMcpInput.Info, Schema.Struct({ enabled: Schema.Boolean })])),
   ).annotate({ description: "MCP (Model Context Protocol) server configurations" }),
-  formatter: Schema.optional(ConfigFormatterV1.Info).annotate({
+  formatter: Schema.optional(ConfigFormatterInput.Info).annotate({
     description:
       "Enable or configure formatters. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
   }),
-  lsp: Schema.optional(ConfigLSPV1.Info).annotate({
+  lsp: Schema.optional(ConfigLspInput.Info).annotate({
     description:
       "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
   }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
   }),
-  layout: Schema.optional(ConfigLayoutV1.Layout).annotate({ description: "@deprecated Always uses stretch layout." }),
-  permission: Schema.optional(ConfigPermissionV1.Info),
+  layout: Schema.optional(ConfigLayoutInput.Layout).annotate({ description: "@deprecated Always uses stretch layout." }),
+  permission: Schema.optional(ConfigPermission.Info),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
-  attachment: Schema.optional(ConfigAttachmentV1.Info).annotate({
+  attachment: Schema.optional(ConfigAttachmentInput.Info).annotate({
     description: "Attachment processing configuration, including image size limits and resizing behavior",
   }),
   enterprise: Schema.optional(

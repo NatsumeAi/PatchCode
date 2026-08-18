@@ -11,10 +11,10 @@ import { SessionMessage } from "@opencode-ai/core/session/message"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProjectV2 } from "@opencode-ai/core/project"
-import { SessionV2 } from "@opencode-ai/core/session"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
+import { Project } from "@opencode-ai/core/project"
+import { Session as CoreSession } from "@opencode-ai/core/session"
+import { Provider } from "@opencode-ai/core/provider"
 import { MemoryDrainWatcher, drainTick, makeDrainState } from "../../src/memory/drain-watcher"
 import { readTextSafe, resolveRoots } from "../../src/memory/storage"
 import { sessionLogPath } from "../../src/memory/session-logs"
@@ -38,11 +38,11 @@ const execution = Layer.succeed(
   }),
 )
 
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 const sessionFor = (dir: string) =>
-  SessionV2.Info.make({
+  CoreSession.Info.make({
     id: sessionID,
-    projectID: ProjectV2.ID.global,
+    projectID: Project.ID.global,
     title: "test",
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },

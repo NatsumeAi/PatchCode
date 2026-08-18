@@ -10,7 +10,7 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ApplyPatchTool } from "@opencode-ai/core/tool/apply-patch"
@@ -19,7 +19,7 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_apply_patch_tool_test")
+const sessionID = Session.ID.make("ses_apply_patch_tool_test")
 const assertions: Permission.AssertInput[] = []
 let denyAction: string | undefined
 let failRemoveTarget: string | undefined

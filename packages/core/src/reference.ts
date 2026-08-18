@@ -4,7 +4,7 @@ import { makeLocationNode } from "./effect/app-node"
 import { Context, Effect, Layer, Scope, Types } from "effect"
 import { Reference } from "@opencode-ai/schema/reference"
 import { Global } from "./global"
-import { EventV2 } from "./event"
+import { Event as CoreEvent } from "./event"
 import { Repository } from "./repository"
 import { RepositoryCache } from "./repository-cache"
 import { AbsolutePath } from "./schema"
@@ -38,13 +38,13 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Reference") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Reference") {}
 
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const global = yield* Global.Service
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const cache = yield* RepositoryCache.Service
     const scope = yield* Scope.Scope
     const materialized = new Map<string, Info>()
@@ -121,5 +121,5 @@ export const locationLayer = layer
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Global.node, EventV2.node, RepositoryCache.node],
+  deps: [Global.node, CoreEvent.node, RepositoryCache.node],
 })

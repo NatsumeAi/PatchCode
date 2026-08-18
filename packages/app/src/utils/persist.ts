@@ -491,7 +491,11 @@ export const Persist = {
   },
   serverGlobal(scope: ServerScopeValue, key: string, legacy?: string[]): PersistTarget {
     if (scope === ServerScope.local) return Persist.global(key, legacy)
-    return { storage: GLOBAL_STORAGE, key: ScopedKey.from(scope, key) }
+    return {
+      storage: GLOBAL_STORAGE,
+      key: ScopedKey.from(scope, key),
+      ...(legacy ? { legacy: legacy.map((item) => ScopedKey.from(scope, item)) } : {}),
+    }
   },
   workspace(dir: string, key: string, legacy?: string[]): PersistTarget {
     return serverWorkspaceTarget(ServerScope.local, dir, `workspace:${key}`, legacy)

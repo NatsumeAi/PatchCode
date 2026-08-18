@@ -30,7 +30,7 @@ import {
   Todo,
   QuestionAnswer,
   QuestionInfo,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { useData } from "../context"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -47,15 +47,15 @@ import { DiffChanges } from "@opencode-ai/ui/diff-changes"
 import { Markdown } from "./markdown"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { getDirectory as _getDirectory, getFilename } from "@opencode-ai/core/util/path"
-import { AttachmentCardV2 } from "../v2/components/attachment-card-v2"
-import { CommentCardV2 } from "../v2/components/comment-card-v2"
+import { AttachmentCard } from "../v2/components/attachment-card"
+import { CommentCard } from "../v2/components/comment-card"
 import { checksum } from "@opencode-ai/core/util/encode"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Button } from "@opencode-ai/ui/kit/button"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextShimmer } from "@opencode-ai/ui/text-shimmer"
 import { AnimatedCountList } from "./tool-count-summary"
@@ -65,7 +65,7 @@ import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind, typeLabel } from "./message-file"
 import { readPartText } from "./message-part-text"
-import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
+import { SessionProgressIndicator } from "../v2/components/session-progress-indicator"
 import { kernelDefaultOpen } from "../display/bind-tool-view"
 
 async function writeClipboard(text: string): Promise<boolean> {
@@ -170,7 +170,7 @@ export interface MessageProps {
   actions?: UserActions
   showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
-  useV2Actions?: boolean
+  useActions?: boolean
   comments?: UserMessageComment[]
 }
 
@@ -203,20 +203,20 @@ export interface MessagePartProps {
   onContentRendered?: () => void
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
-  useV2Actions?: boolean
+  useActions?: boolean
 }
 
 function MessageActionButton(
   props: Pick<ComponentProps<"button">, "disabled" | "onMouseDown" | "onClick" | "aria-label"> & {
     icon: "check" | "copy" | "reset"
     label: JSX.Element
-    useV2?: boolean
+    use?: boolean
   },
 ) {
   const icon = () => (props.icon === "copy" ? "outline-copy" : props.icon)
   return (
     <Show
-      when={props.useV2}
+      when={props.use}
       fallback={
         <Tooltip value={props.label} placement="top" gutter={4}>
           <IconButton
@@ -231,9 +231,9 @@ function MessageActionButton(
         </Tooltip>
       }
     >
-      <TooltipV2 value={props.label} placement="top" gutter={4}>
-        <IconButtonV2
-          icon={<IconV2 name={icon()} size="small" />}
+      <KitTooltip value={props.label} placement="top" gutter={4}>
+        <KitIconButton
+          icon={<KitIcon name={icon()} size="small" />}
           size="normal"
           variant="ghost-muted"
           disabled={props.disabled}
@@ -241,7 +241,7 @@ function MessageActionButton(
           onClick={props.onClick}
           aria-label={props["aria-label"]}
         />
-      </TooltipV2>
+      </KitTooltip>
     </Show>
   )
 }
@@ -387,11 +387,11 @@ const agentTones: Record<string, string> = {
 }
 
 const v2AgentTones: Record<string, string> = {
-  build: "var(--v2-agent-build-solid)",
-  explore: "var(--v2-agent-explore-solid)",
-  plan: "var(--v2-agent-plan-solid)",
-  review: "var(--v2-agent-review-solid)",
-  writer: "var(--v2-agent-writer-solid)",
+  build: "var(--kit-agent-build-solid)",
+  explore: "var(--kit-agent-explore-solid)",
+  plan: "var(--kit-agent-plan-solid)",
+  review: "var(--kit-agent-review-solid)",
+  writer: "var(--kit-agent-writer-solid)",
 }
 
 const agentThemeColors: Record<string, string> = {
@@ -405,13 +405,13 @@ const agentThemeColors: Record<string, string> = {
 }
 
 const v2AgentThemeColors: Record<string, string> = {
-  primary: "var(--v2-text-text-accent)",
-  secondary: "var(--v2-text-text-muted)",
-  accent: "var(--v2-icon-icon-accent)",
-  success: "var(--v2-state-fg-success)",
-  warning: "var(--v2-state-fg-warning)",
-  error: "var(--v2-state-fg-danger)",
-  info: "var(--v2-state-fg-info)",
+  primary: "var(--kit-text-text-accent)",
+  secondary: "var(--kit-text-text-muted)",
+  accent: "var(--kit-icon-icon-accent)",
+  success: "var(--kit-state-fg-success)",
+  warning: "var(--kit-state-fg-warning)",
+  error: "var(--kit-state-fg-danger)",
+  info: "var(--kit-state-fg-info)",
 }
 
 const agentPalette = [
@@ -740,7 +740,7 @@ export function AssistantParts(props: {
   messages: AssistantMessage[]
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
-  useV2Actions?: boolean
+  useActions?: boolean
   working?: boolean
   showReasoningSummaries?: boolean
   shellToolDefaultOpen?: boolean
@@ -825,7 +825,7 @@ export function AssistantParts(props: {
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
                         turnDurationMs={props.turnDurationMs}
-                        useV2Actions={props.useV2Actions}
+                        useActions={props.useActions}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
@@ -957,7 +957,7 @@ export function Message(props: MessageProps) {
             message={userMessage() as UserMessage}
             parts={props.parts}
             actions={props.actions}
-            useV2Actions={props.useV2Actions}
+            useActions={props.useActions}
             comments={props.comments}
           />
         )}
@@ -969,7 +969,7 @@ export function Message(props: MessageProps) {
             parts={props.parts}
             showAssistantCopyPartID={props.showAssistantCopyPartID}
             showReasoningSummaries={props.showReasoningSummaries}
-            useV2Actions={props.useV2Actions}
+            useActions={props.useActions}
           />
         )}
       </Match>
@@ -982,7 +982,7 @@ export function AssistantMessageDisplay(props: {
   parts: PartType[]
   showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
-  useV2Actions?: boolean
+  useActions?: boolean
 }) {
   const emptyTools: ToolPart[] = []
   const part = createMemo(() => index(props.parts))
@@ -1042,7 +1042,7 @@ export function AssistantMessageDisplay(props: {
                       part={item()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
-                      useV2Actions={props.useV2Actions}
+                      useActions={props.useActions}
                     />
                   </Show>
                 )
@@ -1180,7 +1180,7 @@ function UserMessageComments(props: { comments: UserMessageComment[]; bounded: b
     <div data-slot="user-message-comments" data-bounded={props.bounded ? "true" : undefined}>
       <For each={comments()}>
         {(comment) => (
-          <CommentCardV2
+          <CommentCard
             comment={comment.comment}
             path={comment.path}
             selection={comment.selection}
@@ -1191,9 +1191,9 @@ function UserMessageComments(props: { comments: UserMessageComment[]; bounded: b
         )}
       </For>
       <Show when={props.bounded && props.comments.length > 5 && !state.expanded}>
-        <ButtonV2 size="small" variant="ghost-muted" onClick={() => setState("expanded", true)}>
+        <Button size="small" variant="ghost-muted" onClick={() => setState("expanded", true)}>
           {i18n.t("ui.common.showMore")}
-        </ButtonV2>
+        </Button>
       </Show>
     </div>
   )
@@ -1203,7 +1203,7 @@ export function UserMessageDisplay(props: {
   message: UserMessage
   parts: PartType[]
   actions?: UserActions
-  useV2Actions?: boolean
+  useActions?: boolean
   comments?: UserMessageComment[]
 }) {
   const data = useData()
@@ -1317,14 +1317,14 @@ export function UserMessageDisplay(props: {
                   </div>
                 }
               >
-                <AttachmentCardV2
+                <AttachmentCard
                   title={getFilename(name)}
                   hover={name}
                   clickable={!!props.actions?.openAttachment}
                   onClick={() => props.actions?.openAttachment?.(file)}
                 >
                   {typeLabel(name, file.mime)}
-                </AttachmentCardV2>
+                </AttachmentCard>
               </Show>
             )
           }}
@@ -1335,7 +1335,7 @@ export function UserMessageDisplay(props: {
 
   return (
     <div data-component="user-message" data-timeline-part-id={textPart()?.id}>
-      <Show when={!props.useV2Actions}>{renderAttachments()}</Show>
+      <Show when={!props.useActions}>{renderAttachments()}</Show>
       <Show
         when={text()}
         fallback={
@@ -1353,8 +1353,8 @@ export function UserMessageDisplay(props: {
           </div>
         </div>
       </Show>
-      <Show when={props.useV2Actions}>{renderAttachments()}</Show>
-      <Show when={text() || (props.useV2Actions && messageComments().length > 0)}>
+      <Show when={props.useActions}>{renderAttachments()}</Show>
+      <Show when={text() || (props.useActions && messageComments().length > 0)}>
         <div data-slot="user-message-copy-wrapper">
           <Show when={metaHead() || metaTail()}>
             <span data-slot="user-message-meta-wrap">
@@ -1379,7 +1379,7 @@ export function UserMessageDisplay(props: {
             <MessageActionButton
               icon="reset"
               label={i18n.t("ui.message.revertMessage")}
-              useV2={props.useV2Actions}
+              use={props.useActions}
               disabled={!!busy()}
               onMouseDown={(event) => event.preventDefault()}
               onClick={(event) => {
@@ -1393,7 +1393,7 @@ export function UserMessageDisplay(props: {
             <MessageActionButton
               icon={copied() ? "check" : "copy"}
               label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage")}
-              useV2={props.useV2Actions}
+              use={props.useActions}
               onMouseDown={(event) => event.preventDefault()}
               onClick={(event) => {
                 event.stopPropagation()
@@ -1464,7 +1464,7 @@ export function Part(props: MessagePartProps) {
         onContentRendered={props.onContentRendered}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
         turnDurationMs={props.turnDurationMs}
-        useV2Actions={props.useV2Actions}
+        useActions={props.useActions}
       />
     </Show>
   )
@@ -1748,7 +1748,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
             <MessageActionButton
               icon={copied() ? "check" : "copy"}
               label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
-              useV2={props.useV2Actions}
+              use={props.useActions}
               onMouseDown={(event) => event.preventDefault()}
               onClick={handleCopy}
               aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
@@ -2061,8 +2061,8 @@ ToolRegistry.register({
               >
                 <span data-component="task-tool-spinner" style={{ color: tone() ?? "var(--icon-interactive-base)" }}>
                   <Show when={newLayout()} fallback={<Spinner />}>
-                    <SessionProgressIndicatorV2
-                      style={{ color: v2Tone() ?? "light-dark(var(--v2-text-text-base), #ffffff)" }}
+                    <SessionProgressIndicator
+                      style={{ color: v2Tone() ?? "light-dark(var(--kit-text-text-base), #ffffff)" }}
                     />
                   </Show>
                 </span>
@@ -2140,16 +2140,16 @@ ToolRegistry.register({
       >
         <div data-component="bash-output">
           <div data-slot="bash-copy">
-            <TooltipV2 value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")} placement="top">
-              <IconButtonV2
-                icon={<IconV2 name={copied() ? "check" : "outline-copy"} size="small" />}
+            <KitTooltip value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")} placement="top">
+              <KitIconButton
+                icon={<KitIcon name={copied() ? "check" : "outline-copy"} size="small" />}
                 size="normal"
                 variant="ghost-muted"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleCopy}
                 aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
               />
-            </TooltipV2>
+            </KitTooltip>
           </div>
           <div
             data-slot="bash-scroll"

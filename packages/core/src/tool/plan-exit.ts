@@ -9,7 +9,7 @@ import { Permission } from "../permission"
 import { Question } from "../question"
 import { SessionEvent } from "../session/event"
 import { SessionMessage } from "../session/message"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { DateTime } from "effect"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -44,7 +44,7 @@ const layer = Layer.effectDiscard(
     const question = yield* Question.Service
     const permission = yield* Permission.Service
     const location = yield* Location.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
 
     yield* tools
       .register({
@@ -114,5 +114,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/plan-exit",
   layer,
-  deps: [ToolRegistry.node, Permission.node, Question.node, Location.node, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, Question.node, Location.node, Event.node],
 })

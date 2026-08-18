@@ -1,6 +1,6 @@
 import type { NotFoundError as StorageNotFoundError } from "@/storage/storage"
 import type { Session } from "@/session/session"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { Effect } from "effect"
 import * as ApiError from "../errors"
 import { ApiNotFoundError } from "../errors"
@@ -22,10 +22,10 @@ export function mapBusy<A, R>(self: Effect.Effect<A, Session.BusyError, R>) {
   )
 }
 
-export function mapV2Write<A, E, R>(self: Effect.Effect<A, E, R>) {
+export function mapWrite<A, E, R>(self: Effect.Effect<A, E, R>) {
   return self.pipe(
     Effect.catchIf(
-      (error): error is SessionV2.SessionBusyError => error instanceof SessionV2.SessionBusyError,
+      (error): error is CoreSession.SessionBusyError => error instanceof CoreSession.SessionBusyError,
       (error) =>
         Effect.fail(
           new ApiError.SessionBusyError({
@@ -35,7 +35,7 @@ export function mapV2Write<A, E, R>(self: Effect.Effect<A, E, R>) {
         ),
     ),
     Effect.catchIf(
-      (error): error is SessionV2.NotFoundError => error instanceof SessionV2.NotFoundError,
+      (error): error is CoreSession.NotFoundError => error instanceof CoreSession.NotFoundError,
       (error) =>
         Effect.fail(
           new ApiNotFoundError({

@@ -1,8 +1,8 @@
 import { Component, For, Match, Show, Switch } from "solid-js"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Tag } from "@opencode-ai/ui/v2/badge-v2"
-import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
+import { Tag } from "@opencode-ai/ui/kit/badge"
+import { Keybind } from "@opencode-ai/ui/kit/keybind"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 
 export type AtOption =
@@ -61,7 +61,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
         class="absolute inset-x-0 -top-2 -translate-y-full origin-bottom-left max-h-80 min-h-10
                  overflow-auto no-scrollbar flex flex-col p-2"
         classList={{
-          "z-[70] rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]": props.newLayoutDesigns,
+          "z-[70] rounded-[10px] bg-kit-background-bg-base shadow-[var(--kit-elevation-raised)]": props.newLayoutDesigns,
           "rounded-[12px] bg-surface-raised-stronger-non-alpha shadow-[var(--shadow-lg-border-base)]":
             !props.newLayoutDesigns,
         }}
@@ -75,7 +75,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                 <div
                   class="px-2 py-1"
                   classList={{
-                    "text-v2-text-text-muted": props.newLayoutDesigns,
+                    "text-kit-text-text-muted": props.newLayoutDesigns,
                     "text-text-weak": !props.newLayoutDesigns,
                   }}
                 >
@@ -94,7 +94,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         classList={{
                           "rounded-[4px]": props.newLayoutDesigns,
                           "rounded-md": !props.newLayoutDesigns,
-                          "bg-v2-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
+                          "bg-kit-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
                           "bg-surface-raised-base-hover": !props.newLayoutDesigns && props.atActive === key,
                         }}
                         onClick={() => props.onAtSelect(item)}
@@ -106,7 +106,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                           classList={{
                             "text-[13px] leading-[calc(var(--font-size-base)*1.8)] tracking-[-0.04px] [font-weight:440]":
                               props.newLayoutDesigns,
-                            "text-v2-text-text-base": props.newLayoutDesigns,
+                            "text-kit-text-text-base": props.newLayoutDesigns,
                             "text-14-regular": !props.newLayoutDesigns,
                             "text-text-strong": !props.newLayoutDesigns,
                           }}
@@ -124,7 +124,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         classList={{
                           "rounded-[4px]": props.newLayoutDesigns,
                           "rounded-md": !props.newLayoutDesigns,
-                          "bg-v2-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
+                          "bg-kit-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
                           "bg-surface-raised-base-hover": !props.newLayoutDesigns && props.atActive === key,
                         }}
                         onClick={() => props.onAtSelect(item)}
@@ -141,7 +141,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         >
                           <span
                             class="text-text-strong whitespace-nowrap"
-                            classList={{ "text-v2-text-text-base": props.newLayoutDesigns }}
+                            classList={{ "text-kit-text-text-base": props.newLayoutDesigns }}
                           >
                             @{item.name}
                           </span>
@@ -150,7 +150,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                               <span
                                 class="whitespace-nowrap truncate min-w-0 ml-2"
                                 classList={{
-                                  "text-v2-text-text-muted": props.newLayoutDesigns,
+                                  "text-kit-text-text-muted": props.newLayoutDesigns,
                                   "text-text-weak": !props.newLayoutDesigns,
                                 }}
                               >
@@ -170,7 +170,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         classList={{
                           "rounded-[4px]": props.newLayoutDesigns,
                           "rounded-md": !props.newLayoutDesigns,
-                          "bg-v2-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
+                          "bg-kit-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
                           "bg-surface-raised-base-hover": !props.newLayoutDesigns && props.atActive === key,
                         }}
                         onClick={() => props.onAtSelect(item)}
@@ -187,14 +187,14 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         >
                           <span
                             class="text-text-strong whitespace-nowrap"
-                            classList={{ "text-v2-text-text-base": props.newLayoutDesigns }}
+                            classList={{ "text-kit-text-text-base": props.newLayoutDesigns }}
                           >
                             @{item.name}
                           </span>
                           <span
                             class="whitespace-nowrap truncate min-w-0 ml-2"
                             classList={{
-                              "text-v2-text-text-muted": props.newLayoutDesigns,
+                              "text-kit-text-text-muted": props.newLayoutDesigns,
                               "text-text-weak": !props.newLayoutDesigns,
                             }}
                           >
@@ -215,7 +215,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       classList={{
                         "rounded-[4px]": props.newLayoutDesigns,
                         "rounded-md": !props.newLayoutDesigns,
-                        "bg-v2-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
+                        "bg-kit-overlay-simple-overlay-hover": props.newLayoutDesigns && props.atActive === key,
                         "bg-surface-raised-base-hover": !props.newLayoutDesigns && props.atActive === key,
                       }}
                       onClick={() => props.onAtSelect(item)}
@@ -233,7 +233,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         <span
                           class="whitespace-nowrap truncate min-w-0"
                           classList={{
-                            "text-v2-text-text-muted": props.newLayoutDesigns,
+                            "text-kit-text-text-muted": props.newLayoutDesigns,
                             "text-text-weak": !props.newLayoutDesigns,
                           }}
                         >
@@ -243,7 +243,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                           <span
                             class="whitespace-nowrap"
                             classList={{
-                              "text-v2-text-text-base": props.newLayoutDesigns,
+                              "text-kit-text-text-base": props.newLayoutDesigns,
                               "text-text-strong": !props.newLayoutDesigns,
                             }}
                           >
@@ -268,7 +268,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                   onMouseDown={(event) => event.stopPropagation()}
                   aria-label={props.t("prompt.menu.commands")}
                   placeholder="/"
-                  class="w-full bg-transparent outline-none text-[13px] leading-5 text-v2-text-text-base placeholder:text-v2-text-text-faint"
+                  class="w-full bg-transparent outline-none text-[13px] leading-5 text-kit-text-text-base placeholder:text-kit-text-text-faint"
                 />
               </div>
             </Show>
@@ -278,7 +278,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                 <div
                   class="px-2 py-1"
                   classList={{
-                    "text-v2-text-text-muted": props.newLayoutDesigns,
+                    "text-kit-text-text-muted": props.newLayoutDesigns,
                     "text-text-weak": !props.newLayoutDesigns,
                   }}
                 >
@@ -297,7 +297,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         "w-full flex items-center justify-between gap-4 px-2 py-1": true,
                         "rounded-[4px] scroll-my-2": props.newLayoutDesigns,
                         "rounded-md": !props.newLayoutDesigns,
-                        "bg-v2-overlay-simple-overlay-hover": props.newLayoutDesigns && props.slashActive === cmd.id,
+                        "bg-kit-overlay-simple-overlay-hover": props.newLayoutDesigns && props.slashActive === cmd.id,
                         "bg-surface-raised-base-hover": !props.newLayoutDesigns && props.slashActive === cmd.id,
                       }}
                       onClick={() => props.onSlashSelect(cmd)}
@@ -309,7 +309,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                           classList={{
                             "text-[13px] leading-[calc(var(--font-size-base)*1.8)] tracking-[-0.04px] [font-weight:440]":
                               props.newLayoutDesigns,
-                            "text-v2-text-text-base": props.newLayoutDesigns,
+                            "text-kit-text-text-base": props.newLayoutDesigns,
                             "text-14-regular": !props.newLayoutDesigns,
                             "text-text-strong": !props.newLayoutDesigns,
                           }}
@@ -322,7 +322,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                             classList={{
                               "text-[13px] leading-[calc(var(--font-size-base)*1.8)] tracking-[-0.04px] [font-weight:440]":
                                 props.newLayoutDesigns,
-                              "text-v2-text-text-muted": props.newLayoutDesigns,
+                              "text-kit-text-text-muted": props.newLayoutDesigns,
                               "text-14-regular": !props.newLayoutDesigns,
                               "text-text-weak": !props.newLayoutDesigns,
                             }}
@@ -359,7 +359,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                             when={props.newLayoutDesigns}
                             fallback={<span class="text-12-regular text-text-subtle">{keybind()}</span>}
                           >
-                            <KeybindV2 keys={keybindParts()} variant="neutral" />
+                            <Keybind keys={keybindParts()} variant="neutral" />
                           </Show>
                         </Show>
                       </div>

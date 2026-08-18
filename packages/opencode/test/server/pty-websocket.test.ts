@@ -46,7 +46,7 @@ afterEach(async () => {
   await resetDatabase()
 })
 
-describe("v2 pty HttpApi websocket", () => {
+describe("pty HttpApi websocket", () => {
   ;(process.platform === "win32" ? effectIt.live.skip : effectIt.live)(
     "serves PTY websocket output and input through the canonical route",
     () =>

@@ -5,34 +5,33 @@ type Compaction = Extract<SessionMessageInfo, { type: "compaction" }>
 type Shell = Extract<SessionMessageInfo, { type: "shell" }>
 
 /**
- * Loose shape for live `session.next.*` events. The generated OpenCodeEvent
- * union predates the V2 session event surface, so the reducer narrows by its
- * own switch instead of relying on the client type.
+ * Loose shape for live session events. The generated event union is not the
+ * reducer contract, so this narrows by switch instead of the client type.
  */
-export type V2SessionEvent = {
+export type SessionReduceEvent = {
   readonly id: string
   readonly type: string
   readonly data: Record<string, any>
   readonly metadata?: Record<string, unknown>
 }
 
-export type V2SessionReduction = {
+export type SessionReduction = {
   sessionID: string
   messages: SessionMessageInfo[]
   touched: string[]
   missing?: string
 }
 
-const created = (event: V2SessionEvent): number =>
+const created = (event: SessionReduceEvent): number =>
   typeof event.data.timestamp === "number" ? event.data.timestamp : Date.now()
 
-export function createV2SessionReducer() {
+export function createSessionReducer() {
   const pending = new Map<string, SessionPendingMessage>()
 
-  const reduce = (source: readonly SessionMessageInfo[], event: V2SessionEvent): V2SessionReduction | undefined => {
+  const reduce = (source: readonly SessionMessageInfo[], event: SessionReduceEvent): SessionReduction | undefined => {
     if (!("sessionID" in event.data) || typeof event.data.sessionID !== "string") return
     const sessionID = event.data.sessionID
-    const result = (messages: SessionMessageInfo[], touched: string[] = []): V2SessionReduction => ({
+    const result = (messages: SessionMessageInfo[], touched: string[] = []): SessionReduction => ({
       sessionID,
       messages,
       touched,
@@ -389,7 +388,7 @@ function updateMessage<T extends SessionMessageInfo>(
   matches: (item: SessionMessageInfo) => item is T,
   apply: (item: T) => T,
   sessionID: string,
-): V2SessionReduction {
+): SessionReduction {
   const current = source.findLast(matches)
   if (!current) return { sessionID, messages: [...source], touched: [] }
   return {
@@ -404,7 +403,7 @@ function updateAssistant(
   id: string,
   sessionID: string,
   apply: (item: Assistant) => Assistant,
-): V2SessionReduction {
+): SessionReduction {
   return {
     sessionID,
     messages: update(source, id, (item) => (item.type === "assistant" ? apply(item) : item)),

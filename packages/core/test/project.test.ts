@@ -4,16 +4,16 @@ import fs from "fs/promises"
 import path from "path"
 import { Effect, Schema } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Hash } from "@opencode-ai/core/util/hash"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
-const it = testEffect(AppNodeBuilder.build(ProjectV2.node))
+const it = testEffect(AppNodeBuilder.build(Project.node))
 
 function remoteID(remote: string) {
-  return ProjectV2.ID.make(Hash.fast(`git-remote:${remote}`))
+  return Project.ID.make(Hash.fast(`git-remote:${remote}`))
 }
 
 function abs(value: string) {
@@ -38,18 +38,18 @@ async function rootCommit(dir: string) {
   return (await $`git rev-list --max-parents=0 HEAD`.cwd(dir).text()).trim()
 }
 
-describe("ProjectV2.resolve", () => {
+describe("Project.resolve", () => {
   it.live("returns global for non-git directory", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir()),
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.id).toBe(ProjectV2.ID.make("global"))
+      expect(result.id).toBe(Project.ID.make("global"))
       expect(path.resolve(result.directory)).toBe(path.parse(tmp.path).root)
       expect(result.previous).toBeUndefined()
       expect(result.vcs).toBeUndefined()
@@ -63,11 +63,11 @@ describe("ProjectV2.resolve", () => {
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       yield* Effect.promise(() => initRepo(tmp.path))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.id).toBe(ProjectV2.ID.make("global"))
+      expect(result.id).toBe(Project.ID.make("global"))
       expect(result.directory).toBe(yield* real(tmp.path))
       expect(result.previous).toBeUndefined()
       expect(result.vcs?.type).toBe("git")
@@ -81,11 +81,11 @@ describe("ProjectV2.resolve", () => {
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.id).toBe(ProjectV2.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
+      expect(result.id).toBe(Project.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
       expect(result.directory).toBe(yield* real(tmp.path))
       expect(result.previous).toBeUndefined()
       expect(result.vcs?.type).toBe("git")
@@ -99,12 +99,12 @@ describe("ProjectV2.resolve", () => {
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: "git@github.com:Acme/App.git" }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.id).toBe(remoteID("github.com/Acme/App"))
-      expect(result.id).not.toBe(ProjectV2.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
+      expect(result.id).not.toBe(Project.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
       expect(result.directory).toBe(yield* real(tmp.path))
       expect(result.vcs?.type).toBe("git")
     }),
@@ -122,7 +122,7 @@ describe("ProjectV2.resolve", () => {
       )
       yield* Effect.promise(() => initRepo(ssh.path, { commit: true, remote: "git@github.com:owner/repo.git" }))
       yield* Effect.promise(() => initRepo(https.path, { commit: true, remote: "https://github.com/owner/repo.git" }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const a = yield* project.resolve(abs(ssh.path))
       const b = yield* project.resolve(abs(https.path))
@@ -139,11 +139,11 @@ describe("ProjectV2.resolve", () => {
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: `file://${tmp.path}` }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.id).toBe(ProjectV2.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
+      expect(result.id).toBe(Project.ID.make(yield* Effect.promise(() => rootCommit(tmp.path))))
     }),
   )
 
@@ -155,11 +155,11 @@ describe("ProjectV2.resolve", () => {
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" }))
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".git", "opencode"), "old-id"))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(tmp.path))
 
-      expect(result.previous).toBe(ProjectV2.ID.make("old-id"))
+      expect(result.previous).toBe(Project.ID.make("old-id"))
       expect(result.id).toBe(remoteID("github.com/owner/repo"))
     }),
   )
@@ -171,7 +171,7 @@ describe("ProjectV2.resolve", () => {
         (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       yield* project.resolve(abs(tmp.path))
 
@@ -187,7 +187,7 @@ describe("ProjectV2.resolve", () => {
       )
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true }))
       yield* Effect.promise(() => fs.mkdir(path.join(tmp.path, "a", "b"), { recursive: true }))
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
 
@@ -208,12 +208,12 @@ describe("ProjectV2.resolve", () => {
       yield* Effect.promise(() => initRepo(tmp.path, { commit: true, remote: "git@github.com:owner/repo.git" }))
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".git", "opencode"), "old-id"))
       yield* Effect.promise(() => $`git worktree add ${worktree} -b test-${Date.now()}`.cwd(tmp.path).quiet())
-      const project = yield* ProjectV2.Service
+      const project = yield* Project.Service
 
       const result = yield* project.resolve(abs(worktree))
 
       expect(result.directory).toBe(yield* real(worktree))
-      expect(result.previous).toBe(ProjectV2.ID.make("old-id"))
+      expect(result.previous).toBe(Project.ID.make("old-id"))
       expect(result.id).toBe(remoteID("github.com/owner/repo"))
       expect(result.vcs?.type).toBe("git")
     }),

@@ -1,9 +1,9 @@
 import { Match, Show, Switch, createMemo, type ComponentProps, type JSX } from "solid-js"
 import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
-import { ProgressCircleV2 } from "@opencode-ai/ui/v2/progress-circle-v2"
+import { ProgressCircle as KitProgressCircle } from "@opencode-ai/ui/kit/progress-circle"
 import { Button } from "@opencode-ai/ui/button"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { createMediaQuery } from "@solid-primitives/media"
 
 import { useFile } from "@/context/file"
@@ -19,15 +19,15 @@ import { useSettings } from "@/context/settings"
 
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
-  buttonAppearance?: "default" | "v2"
-  placement?: ComponentProps<typeof TooltipV2>["placement"]
+  buttonAppearance?: "default" | "kit"
+  placement?: ComponentProps<typeof KitTooltip>["placement"]
 }
 
 function ContextTooltipRow(props: { name: JSX.Element; value: JSX.Element }) {
   return (
     <div class="flex min-w-0 items-center gap-4">
-      <span class="shrink-0 text-v2-text-text-muted">{props.name}</span>
-      <span class="ml-auto min-w-0 truncate text-right text-v2-text-text-base">{props.value}</span>
+      <span class="shrink-0 text-kit-text-text-muted">{props.name}</span>
+      <span class="ml-auto min-w-0 truncate text-right text-kit-text-text-base">{props.value}</span>
     </div>
   )
 }
@@ -110,18 +110,18 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         style={
           variant() === "indicator"
             ? {
-                "--progress-circle-background": "var(--v2-background-bg-layer-04, var(--border-weak-base))",
-                "--progress-circle-background-overlay": "var(--v2-overlay-simple-overlay-pressed, transparent)",
-                "--progress-circle-progress": "var(--v2-icon-icon-base, var(--icon-base))",
+                "--progress-circle-background": "var(--kit-background-bg-layer-04, var(--border-weak-base))",
+                "--progress-circle-background-overlay": "var(--kit-overlay-simple-overlay-pressed, transparent)",
+                "--progress-circle-progress": "var(--kit-icon-icon-base, var(--icon-base))",
               }
             : undefined
         }
       />
     </div>
   )
-  const circleV2 = () => (
+  const circleKit = () => (
     <div class="flex items-center justify-center">
-      <ProgressCircleV2 percentage={context()?.usage ?? 0} />
+      <KitProgressCircle percentage={context()?.usage ?? 0} />
     </div>
   )
 
@@ -138,15 +138,15 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   return (
     <Show when={params.id}>
-      <TooltipV2 value={tooltipValue()} placement={props.placement ?? "top"} shift={-8}>
+      <KitTooltip value={tooltipValue()} placement={props.placement ?? "top"} shift={-8}>
         <Switch>
           <Match when={variant() === "indicator"}>{circle()}</Match>
-          <Match when={buttonAppearance() === "v2"}>
-            <IconButtonV2
+          <Match when={buttonAppearance() === "kit"}>
+            <KitIconButton
               type="button"
               variant="ghost-muted"
               size="large"
-              icon={circleV2()}
+              icon={circleKit()}
               onClick={openContext}
               aria-label={language.t("context.usage.view")}
             />
@@ -163,7 +163,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
             </Button>
           </Match>
         </Switch>
-      </TooltipV2>
+      </KitTooltip>
     </Show>
   )
 }

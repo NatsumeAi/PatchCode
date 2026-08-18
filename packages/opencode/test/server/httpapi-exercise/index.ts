@@ -279,47 +279,6 @@ const scenarios: Scenario[] = [
       body: { method: "bad" },
     }))
     .status(400),
-  http.protected.get("/permission", "permission.list").json(200, array),
-  http.protected
-    .post("/permission/{requestID}/reply", "permission.reply.invalid")
-    .at((ctx) => ({
-      path: route("/permission/{requestID}/reply", { requestID: "per_httpapi" }),
-      headers: ctx.headers(),
-      body: { reply: "bad" },
-    }))
-    .status(400),
-  http.protected
-    .post("/permission/{requestID}/reply", "permission.reply")
-    .at((ctx) => ({
-      path: route("/permission/{requestID}/reply", { requestID: "per_httpapi" }),
-      headers: ctx.headers(),
-      body: { reply: "once" },
-    }))
-    .json(404, object, "status"),
-  http.protected.get("/question", "question.list").json(200, array),
-  http.protected
-    .post("/question/{requestID}/reply", "question.reply.invalid")
-    .at((ctx) => ({
-      path: route("/question/{requestID}/reply", { requestID: "que_httpapi_reply" }),
-      headers: ctx.headers(),
-      body: { answers: "Yes" },
-    }))
-    .status(400),
-  http.protected
-    .post("/question/{requestID}/reply", "question.reply")
-    .at((ctx) => ({
-      path: route("/question/{requestID}/reply", { requestID: "que_httpapi_reply" }),
-      headers: ctx.headers(),
-      body: { answers: [["Yes"]] },
-    }))
-    .json(404, object, "status"),
-  http.protected
-    .post("/question/{requestID}/reject", "question.reject")
-    .at((ctx) => ({
-      path: route("/question/{requestID}/reject", { requestID: "que_httpapi_reject" }),
-      headers: ctx.headers(),
-    }))
-    .json(404, object, "status"),
   http.protected
     .get("/file", "file.list")
     .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
@@ -658,24 +617,24 @@ const scenarios: Scenario[] = [
         check(auth.test === undefined, "auth remove should delete provider from isolated auth file")
       }),
     ),
-  http.protected.get("/api/health", "v2.health.get").json(200, (body) => {
+  http.protected.get("/api/health", "api.health.get").json(200, (body) => {
     object(body)
-    check(body.healthy === true, "v2 server should report healthy")
+    check(body.healthy === true, "current server should report healthy")
   }),
-  http.protected.get("/api/location", "v2.location.get").json(200, object),
-  http.protected.get("/api/agent", "v2.agent.list").json(200, locationData(array)),
-  http.protected.get("/api/model", "v2.model.list").json(200, locationData(array)),
-  http.protected.get("/api/provider", "v2.provider.list").json(200, locationData(array)),
-  http.protected.get("/api/integration", "v2.integration.list").json(200, locationData(array)),
+  http.protected.get("/api/location", "api.location.get").json(200, object),
+  http.protected.get("/api/agent", "api.agent.list").json(200, locationData(array)),
+  http.protected.get("/api/model", "api.model.list").json(200, locationData(array)),
+  http.protected.get("/api/provider", "api.provider.list").json(200, locationData(array)),
+  http.protected.get("/api/integration", "api.integration.list").json(200, locationData(array)),
   http.protected
-    .get("/api/integration/{integrationID}", "v2.integration.get")
+    .get("/api/integration/{integrationID}", "api.integration.get")
     .at((ctx) => ({
       path: route("/api/integration/{integrationID}", { integrationID: "missing" }),
       headers: ctx.headers(),
     }))
     .json(200, object),
   http.protected
-    .post("/api/integration/{integrationID}/connect/key", "v2.integration.connect.key")
+    .post("/api/integration/{integrationID}/connect/key", "api.integration.connect.key")
     .at((ctx) => ({
       path: route("/api/integration/{integrationID}/connect/key", { integrationID: "missing" }),
       headers: ctx.headers(),
@@ -683,7 +642,7 @@ const scenarios: Scenario[] = [
     }))
     .status(500, undefined, "status"),
   http.protected
-    .post("/api/integration/{integrationID}/connect/oauth", "v2.integration.connect.oauth")
+    .post("/api/integration/{integrationID}/connect/oauth", "api.integration.connect.oauth")
     .at((ctx) => ({
       path: route("/api/integration/{integrationID}/connect/oauth", { integrationID: "missing" }),
       headers: ctx.headers(),
@@ -691,14 +650,14 @@ const scenarios: Scenario[] = [
     }))
     .status(500, undefined, "status"),
   http.protected
-    .get("/api/integration/attempt/{attemptID}", "v2.integration.attempt.status")
+    .get("/api/integration/attempt/{attemptID}", "api.integration.attempt.status")
     .at((ctx) => ({
       path: route("/api/integration/attempt/{attemptID}", { attemptID: "con_missing" }),
       headers: ctx.headers(),
     }))
     .status(500, undefined, "status"),
   http.protected
-    .post("/api/integration/attempt/{attemptID}/complete", "v2.integration.attempt.complete")
+    .post("/api/integration/attempt/{attemptID}/complete", "api.integration.attempt.complete")
     .at((ctx) => ({
       path: route("/api/integration/attempt/{attemptID}/complete", { attemptID: "con_missing" }),
       headers: ctx.headers(),
@@ -706,73 +665,73 @@ const scenarios: Scenario[] = [
     }))
     .status(500, undefined, "status"),
   http.protected
-    .delete("/api/integration/attempt/{attemptID}", "v2.integration.attempt.cancel")
+    .delete("/api/integration/attempt/{attemptID}", "api.integration.attempt.cancel")
     .at((ctx) => ({
       path: route("/api/integration/attempt/{attemptID}", { attemptID: "con_missing" }),
       headers: ctx.headers(),
     }))
     .status(204, undefined, "status"),
   http.protected
-    .delete("/api/credential/{credentialID}", "v2.credential.remove")
+    .delete("/api/credential/{credentialID}", "api.credential.remove")
     .at((ctx) => ({
       path: route("/api/credential/{credentialID}", { credentialID: "cred_missing" }),
       headers: ctx.headers(),
     }))
     .status(204, undefined, "status"),
   http.protected
-    .patch("/api/credential/{credentialID}", "v2.credential.update")
+    .patch("/api/credential/{credentialID}", "api.credential.update")
     .at((ctx) => ({
       path: route("/api/credential/{credentialID}", { credentialID: "cred_missing" }),
       headers: ctx.headers(),
       body: { label: "Work" },
     }))
     .status(204, undefined, "status"),
-  http.protected.get("/api/command", "v2.command.list").json(200, locationData(array)),
-  http.protected.get("/api/skill", "v2.skill.list").json(200, locationData(array)),
+  http.protected.get("/api/command", "api.command.list").json(200, locationData(array)),
+  http.protected.get("/api/skill", "api.skill.list").json(200, locationData(array)),
   http.protected
-    .get("/api/event", "v2.event.subscribe")
+    .get("/api/event", "api.event.subscribe")
     .stream()
     .status(
       200,
       (_ctx, result) =>
         Effect.sync(() => {
-          check(result.contentType.includes("text/event-stream"), "v2 event should be an SSE stream")
-          check(result.text.includes("server.connected"), "v2 event should emit initial connection event")
-          check(!result.text.includes('"location"'), "v2 connection event should not be scoped to a location")
+          check(result.contentType.includes("text/event-stream"), "current event should be an SSE stream")
+          check(result.text.includes("server.connected"), "current event should emit initial connection event")
+          check(!result.text.includes('"location"'), "current connection event should not be scoped to a location")
         }),
       "status",
     ),
   http.protected
-    .get("/api/fs/read/*", "v2.fs.read")
+    .get("/api/fs/read/*", "api.fs.read")
     .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
     .at((ctx) => ({ path: "/api/fs/read/hello.txt", headers: ctx.headers() }))
     .status(
       200,
       (_ctx, result) =>
         Effect.sync(() => {
-          check(result.text === "hello\n", "v2 fs read should return the file body")
-          check(result.contentType.includes("text/plain"), "v2 fs read should return the file content type")
+          check(result.text === "hello\n", "current fs read should return the file body")
+          check(result.contentType.includes("text/plain"), "current fs read should return the file content type")
         }),
       "status",
     ),
-  http.protected.get("/api/fs/list", "v2.fs.list").json(200, locationData(array)),
+  http.protected.get("/api/fs/list", "api.fs.list").json(200, locationData(array)),
   http.protected
-    .get("/api/fs/find", "v2.fs.find")
+    .get("/api/fs/find", "api.fs.find")
     .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
     .at((ctx) => ({ path: "/api/fs/find?query=hello&type=file", headers: ctx.headers() }))
     .json(200, locationData(array)),
-  http.protected.get("/api/pty", "v2.pty.list").json(200, locationData(array)),
+  http.protected.get("/api/pty", "api.pty.list").json(200, locationData(array)),
   http.protected
-    .post("/api/pty", "v2.pty.create")
+    .post("/api/pty", "api.pty.create")
     .mutating()
-    .at((ctx) => ({ path: "/api/pty", headers: ctx.headers(), body: controlledPtyInput("HTTP API V2 PTY") }))
+    .at((ctx) => ({ path: "/api/pty", headers: ctx.headers(), body: controlledPtyInput("HTTP API PTY") }))
     .json(200, locationData(object)),
   http.protected
-    .get("/api/pty/{ptyID}", "v2.pty.get")
+    .get("/api/pty/{ptyID}", "api.pty.get")
     .at((ctx) => ({ path: route("/api/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }), headers: ctx.headers() }))
     .json(404, object, "status"),
   http.protected
-    .put("/api/pty/{ptyID}", "v2.pty.update")
+    .put("/api/pty/{ptyID}", "api.pty.update")
     .mutating()
     .at((ctx) => ({
       path: route("/api/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }),
@@ -781,41 +740,41 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .delete("/api/pty/{ptyID}", "v2.pty.remove")
+    .delete("/api/pty/{ptyID}", "api.pty.remove")
     .mutating()
     .at((ctx) => ({ path: route("/api/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }), headers: ctx.headers() }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/pty/{ptyID}/connect-token", "v2.pty.connectToken")
+    .post("/api/pty/{ptyID}/connect-token", "api.pty.connectToken")
     .at((ctx) => ({
       path: route("/api/pty/{ptyID}/connect-token", { ptyID: "pty_httpapi_missing" }),
       headers: { ...ctx.headers(), "x-opencode-ticket": "1" },
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/pty/{ptyID}/connect", "v2.pty.connect")
+    .get("/api/pty/{ptyID}/connect", "api.pty.connect")
     .at((ctx) => ({
       path: route("/api/pty/{ptyID}/connect", { ptyID: "pty_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .status(404, undefined, "none"),
-  http.protected.get("/api/reference", "v2.reference.list").json(200, object),
+  http.protected.get("/api/reference", "api.reference.list").json(200, object),
   http.protected
-    .get("/api/provider/{providerID}", "v2.provider.get")
+    .get("/api/provider/{providerID}", "api.provider.get")
     .at((ctx) => ({ path: route("/api/provider/{providerID}", { providerID: "missing" }), headers: ctx.headers() }))
     .json(404, object, "status"),
-  http.protected.get("/api/permission/request", "v2.permission.request.list").json(200, (body) => {
+  http.protected.get("/api/permission/request", "api.permission.request.list").json(200, (body) => {
     object(body)
     object(body.location)
     array(body.data)
   }),
-  http.protected.get("/api/question/request", "v2.question.request.list").json(200, (body) => {
+  http.protected.get("/api/question/request", "api.question.request.list").json(200, (body) => {
     object(body)
     object(body.location)
     array(body.data)
   }),
   http.protected
-    .post("/api/session/{sessionID}/permission", "v2.session.permission.create")
+    .post("/api/session/{sessionID}/permission", "api.session.permission.create")
     .seeded((ctx) => ctx.session({ title: "Permission create owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/permission", { sessionID: ctx.state.id }),
@@ -829,7 +788,7 @@ const scenarios: Scenario[] = [
       check(body.data.effect === "ask", "permission create should create a pending request")
     }),
   http.protected
-    .get("/api/session/{sessionID}/permission", "v2.session.permission.list")
+    .get("/api/session/{sessionID}/permission", "api.session.permission.list")
     .seeded((ctx) => ctx.session({ title: "Permission list owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/permission", { sessionID: ctx.state.id }),
@@ -837,7 +796,7 @@ const scenarios: Scenario[] = [
     }))
     .json(200, data(array)),
   http.protected
-    .get("/api/session/{sessionID}/permission/{requestID}", "v2.session.permission.get")
+    .get("/api/session/{sessionID}/permission/{requestID}", "api.session.permission.get")
     .seeded((ctx) => ctx.session({ title: "Permission get owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/permission/{requestID}", {
@@ -848,7 +807,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/question", "v2.session.question.list")
+    .get("/api/session/{sessionID}/question", "api.session.question.list")
     .seeded((ctx) => ctx.session({ title: "Question list owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/question", { sessionID: ctx.state.id }),
@@ -856,7 +815,7 @@ const scenarios: Scenario[] = [
     }))
     .json(200, data(array)),
   http.protected
-    .post("/api/session/{sessionID}/permission/{requestID}/reply", "v2.session.permission.reply")
+    .post("/api/session/{sessionID}/permission/{requestID}/reply", "api.session.permission.reply")
     .seeded((ctx) => ctx.session({ title: "Permission owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/permission/{requestID}/reply", {
@@ -868,7 +827,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/question/{requestID}/reply", "v2.session.question.reply")
+    .post("/api/session/{sessionID}/question/{requestID}/reply", "api.session.question.reply")
     .seeded((ctx) => ctx.session({ title: "Question reply owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/question/{requestID}/reply", {
@@ -880,7 +839,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/question/{requestID}/reject", "v2.session.question.reject")
+    .post("/api/session/{sessionID}/question/{requestID}/reject", "api.session.question.reject")
     .seeded((ctx) => ctx.session({ title: "Question reject owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/question/{requestID}/reject", {
@@ -890,16 +849,16 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
-  http.protected.get("/api/permission/saved", "v2.permission.saved.list").json(200, (body) => {
+  http.protected.get("/api/permission/saved", "api.permission.saved.list").json(200, (body) => {
     object(body)
     array(body.data)
   }),
   http.protected
-    .delete("/api/permission/saved/{id}", "v2.permission.saved.remove")
+    .delete("/api/permission/saved/{id}", "api.permission.saved.remove")
     .at((ctx) => ({ path: route("/api/permission/saved/{id}", { id: "psv_httpapi_missing" }), headers: ctx.headers() }))
     .status(204, undefined, "status"),
   http.protected
-    .get("/api/session", "v2.session.list")
+    .get("/api/session", "api.session.list")
     .at((ctx) => ({ path: "/api/session?roots=true", headers: ctx.headers() }))
     .json(
       200,
@@ -911,7 +870,7 @@ const scenarios: Scenario[] = [
       "none",
     ),
   http.protected
-    .get("/api/session", "v2.session.list.filters")
+    .get("/api/session", "api.session.list.filters")
     .at((ctx) => ({
       path: `/api/session?${new URLSearchParams({
         limit: "2",
@@ -934,7 +893,7 @@ const scenarios: Scenario[] = [
       "none",
     ),
   http.protected
-    .get("/api/session", "v2.session.list.cursor")
+    .get("/api/session", "api.session.list.cursor")
     .at((ctx) => ({
       path: `/api/session?${new URLSearchParams({
         limit: "2",
@@ -956,7 +915,7 @@ const scenarios: Scenario[] = [
       "none",
     ),
   http.protected
-    .get("/api/session", "v2.session.list.cursor.invalid")
+    .get("/api/session", "api.session.list.cursor.invalid")
     .at((ctx) => ({
       path: `/api/session?${new URLSearchParams({
         cursor: "invalid",
@@ -964,9 +923,9 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .status(400, undefined, "none"),
-  http.protected.get("/api/session/active", "v2.session.active").json(200, data(object), "none"),
+  http.protected.get("/api/session/active", "api.session.active").json(200, data(object), "none"),
   http.protected
-    .post("/api/session", "v2.session.create")
+    .post("/api/session", "api.session.create")
     .at((ctx) => ({
       path: "/api/session",
       headers: { ...ctx.headers(), "content-type": "application/json" },
@@ -974,7 +933,7 @@ const scenarios: Scenario[] = [
     }))
     .json(200, data(object)),
   http.protected
-    .get("/api/session/{sessionID}", "v2.session.get")
+    .get("/api/session/{sessionID}", "api.session.get")
     .seeded((ctx) => ctx.session({ title: "Session get" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}", { sessionID: ctx.state.id }),
@@ -982,7 +941,7 @@ const scenarios: Scenario[] = [
     }))
     .json(200, data(object)),
   http.protected
-    .post("/api/session/{sessionID}/agent", "v2.session.switchAgent")
+    .post("/api/session/{sessionID}/agent", "api.session.switchAgent")
     .seeded((ctx) => ctx.session({ title: "Switch agent" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/agent", { sessionID: ctx.state.id }),
@@ -991,7 +950,7 @@ const scenarios: Scenario[] = [
     }))
     .status(204, undefined, "none"),
   http.protected
-    .post("/api/session/{sessionID}/model", "v2.session.switchModel")
+    .post("/api/session/{sessionID}/model", "api.session.switchModel")
     .seeded((ctx) => ctx.session({ title: "Switch model" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/model", { sessionID: ctx.state.id }),
@@ -1000,14 +959,14 @@ const scenarios: Scenario[] = [
     }))
     .status(204, undefined, "none"),
   http.protected
-    .get("/api/session/{sessionID}/context", "v2.session.context")
+    .get("/api/session/{sessionID}/context", "api.session.context")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/context", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/revert/stage", "v2.session.revert.stage")
+    .post("/api/session/{sessionID}/revert/stage", "api.session.revert.stage")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/revert/stage", { sessionID: "ses_httpapi_missing" }),
       headers: { ...ctx.headers(), "content-type": "application/json" },
@@ -1015,28 +974,28 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/revert/clear", "v2.session.revert.clear")
+    .post("/api/session/{sessionID}/revert/clear", "api.session.revert.clear")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/revert/clear", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/revert/commit", "v2.session.revert.commit")
+    .post("/api/session/{sessionID}/revert/commit", "api.session.revert.commit")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/revert/commit", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/message", "v2.session.messages")
+    .get("/api/session/{sessionID}/message", "api.session.messages")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/message", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/message", "v2.session.messages.params")
+    .get("/api/session/{sessionID}/message", "api.session.messages.params")
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/message", { sessionID: "ses_httpapi_missing" })}?${new URLSearchParams({
         limit: "2",
@@ -1046,7 +1005,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/message", "v2.session.messages.cursor")
+    .get("/api/session/{sessionID}/message", "api.session.messages.cursor")
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/message", { sessionID: "ses_httpapi_missing" })}?${new URLSearchParams({
         limit: "2",
@@ -1057,7 +1016,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/message", "v2.session.messages.cursor.invalid")
+    .get("/api/session/{sessionID}/message", "api.session.messages.cursor.invalid")
     .seeded((ctx) => ctx.session({ title: "Invalid message cursor owner" }))
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/message", { sessionID: ctx.state.id })}?${new URLSearchParams({
@@ -1068,7 +1027,7 @@ const scenarios: Scenario[] = [
     }))
     .status(400, undefined, "none"),
   http.protected
-    .get("/api/session/{sessionID}/history", "v2.session.history")
+    .get("/api/session/{sessionID}/history", "api.session.history")
     .seeded((ctx) => ctx.session({ title: "Session history" }))
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/history", { sessionID: ctx.state.id })}?${new URLSearchParams({
@@ -1087,14 +1046,14 @@ const scenarios: Scenario[] = [
       "none",
     ),
   http.protected
-    .get("/api/session/{sessionID}/history", "v2.session.history.missing")
+    .get("/api/session/{sessionID}/history", "api.session.history.missing")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/history", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/history", "v2.session.history.invalid")
+    .get("/api/session/{sessionID}/history", "api.session.history.invalid")
     .seeded((ctx) => ctx.session({ title: "Invalid history sequence" }))
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/history", { sessionID: ctx.state.id })}?after=-1`,
@@ -1102,14 +1061,14 @@ const scenarios: Scenario[] = [
     }))
     .json(400, object, "status"),
   http.protected
-    .get("/api/session/{sessionID}/event", "v2.session.events.missing")
+    .get("/api/session/{sessionID}/event", "api.session.events.missing")
     .at((ctx) => ({
       path: `${route("/api/session/{sessionID}/event", { sessionID: "ses_httpapi_missing" })}?after=0`,
       headers: ctx.headers(),
     }))
     .status(404, undefined, "status"),
   http.protected
-    .post("/api/session/{sessionID}/interrupt", "v2.session.interrupt")
+    .post("/api/session/{sessionID}/interrupt", "api.session.interrupt")
     .seeded((ctx) => ctx.session({ title: "Interrupt session" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/interrupt", { sessionID: ctx.state.id }),
@@ -1117,7 +1076,7 @@ const scenarios: Scenario[] = [
     }))
     .status(204, undefined, "none"),
   http.protected
-    .get("/api/session/{sessionID}/message/{messageID}", "v2.session.message.missing")
+    .get("/api/session/{sessionID}/message/{messageID}", "api.session.message.missing")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/message/{messageID}", {
         sessionID: "ses_httpapi_missing",
@@ -1127,7 +1086,7 @@ const scenarios: Scenario[] = [
     }))
     .json(404, object, "status"),
   http.protected
-    .post("/api/session/{sessionID}/prompt", "v2.session.prompt.invalid")
+    .post("/api/session/{sessionID}/prompt", "api.session.prompt.invalid")
     .seeded((ctx) => ctx.session({ title: "Invalid prompt owner" }))
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/prompt", { sessionID: ctx.state.id }),
@@ -1136,14 +1095,14 @@ const scenarios: Scenario[] = [
     }))
     .status(400, undefined, "none"),
   http.protected
-    .post("/api/session/{sessionID}/compact", "v2.session.compact")
+    .post("/api/session/{sessionID}/compact", "api.session.compact")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/compact", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),
     }))
     .status(404, undefined, "status"),
   http.protected
-    .post("/api/session/{sessionID}/wait", "v2.session.wait")
+    .post("/api/session/{sessionID}/wait", "api.session.wait")
     .at((ctx) => ({
       path: route("/api/session/{sessionID}/wait", { sessionID: "ses_httpapi_missing" }),
       headers: ctx.headers(),

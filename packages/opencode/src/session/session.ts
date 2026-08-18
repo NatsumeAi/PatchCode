@@ -1,7 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
+import { Permission } from "@opencode-ai/schema/permission"
 import { Slug } from "@opencode-ai/core/util/slug"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
@@ -9,8 +9,7 @@ import { Decimal } from "decimal.js"
 import type { ProviderMetadata, Usage } from "@opencode-ai/llm"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2Bridge } from "@/event-bridge"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { EventBridge } from "@/event-bridge"
 import { Config } from "@opencode-ai/core/config"
 import { ensureBackend, pinSession, resolveNewProfileName } from "@opencode-ai/core/sandbox/resolve"
 import { Unavailable, Unsupported } from "@opencode-ai/core/sandbox/windows"
@@ -24,22 +23,19 @@ import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
 import { like, or, sql } from "drizzle-orm"
 import { desc } from "drizzle-orm"
-import { like } from "drizzle-orm"
-import { sql } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
-import { or } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { copyPrefix, getForkedTitle } from "@opencode-ai/core/session/clone-prefix"
 import { Location } from "@opencode-ai/core/location"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { MessageV2 } from "./session-message-wire"
+import { MessageWire } from "./session-message-wire"
 import type { InstanceContext } from "../project/instance-context"
 import { InstanceState } from "@/effect/instance-state"
 import { Snapshot } from "@/snapshot"
-import { ProjectV2 } from "@opencode-ai/core/project"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Project } from "@opencode-ai/core/project"
+import { Workspace } from "@opencode-ai/core/workspace"
 import { SessionID, MessageID, PartID } from "./schema"
 
 import type { Provider } from "@/provider/provider"
@@ -47,8 +43,8 @@ import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { AbsolutePath, NonNegativeInt, optional } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
 import { SessionMessage } from "@opencode-ai/schema/session-message"
 
 const parentTitlePrefix = "New session - "
@@ -102,8 +98,8 @@ export function fromRow(row: SessionRow): Info {
     agent: row.agent ?? undefined,
     model: row.model
       ? {
-          id: ModelV2.ID.make(row.model.id),
-          providerID: ProviderV2.ID.make(row.model.providerID),
+          id: CoreModel.ID.make(row.model.id),
+          providerID: CoreProvider.ID.make(row.model.providerID),
           variant: row.model.variant,
         }
       : undefined,
@@ -219,8 +215,8 @@ const Revert = Schema.Struct({
 })
 
 const Model = Schema.Struct({
-  id: ModelV2.ID,
-  providerID: ProviderV2.ID,
+  id: CoreModel.ID,
+  providerID: CoreProvider.ID,
   variant: optional(Schema.String),
 })
 
@@ -229,8 +225,8 @@ export const Metadata = Schema.Record(Schema.String, Schema.Any)
 export const Info = Schema.Struct({
   id: SessionID,
   slug: Schema.String,
-  projectID: ProjectV2.ID,
-  workspaceID: optional(WorkspaceV2.ID),
+  projectID: Project.ID,
+  workspaceID: optional(Workspace.ID),
   directory: Schema.String,
   path: optional(Schema.String),
   parentID: optional(SessionID),
@@ -244,13 +240,13 @@ export const Info = Schema.Struct({
   version: Schema.String,
   metadata: optional(Metadata),
   time: Time,
-  permission: optional(PermissionV1.Ruleset),
+  permission: optional(Permission.Ruleset),
   revert: optional(Revert),
 }).annotate({ identifier: "Session" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
 
 export const ProjectInfo = Schema.Struct({
-  id: ProjectV2.ID,
+  id: Project.ID,
   name: optional(Schema.String),
   worktree: Schema.String,
 }).annotate({ identifier: "ProjectSummary" })
@@ -269,8 +265,8 @@ export const CreateInput = Schema.optional(
     agent: Schema.optional(Schema.String),
     model: Schema.optional(Model),
     metadata: Schema.optional(Metadata),
-    permission: Schema.optional(PermissionV1.Ruleset),
-    workspaceID: Schema.optional(WorkspaceV2.ID),
+    permission: Schema.optional(Permission.Ruleset),
+    workspaceID: Schema.optional(Workspace.ID),
   }),
 )
 export type CreateInput = Types.DeepMutable<Schema.Schema.Type<typeof CreateInput>>
@@ -293,7 +289,7 @@ export const SetMetadataInput = Schema.Struct({
 })
 export const SetPermissionInput = Schema.Struct({
   sessionID: SessionID,
-  permission: PermissionV1.Ruleset,
+  permission: Permission.Ruleset,
 })
 export const SetRevertInput = Schema.Struct({
   sessionID: SessionID,
@@ -308,7 +304,7 @@ export type ListInput = {
   directory?: string
   scope?: "project"
   path?: string
-  workspaceID?: WorkspaceV2.ID
+  workspaceID?: Workspace.ID
   roots?: boolean
   start?: number
   search?: string
@@ -326,11 +322,11 @@ export type GlobalListInput = {
 }
 
 export const Event = {
-  Created: SessionV1.Event.Created,
-  Updated: SessionV1.Event.Updated,
-  Deleted: SessionV1.Event.Deleted,
-  Diff: SessionV1.Event.Diff,
-  Error: SessionV1.Event.Error,
+  Created: SessionWire.Event.Created,
+  Updated: SessionWire.Event.Updated,
+  Deleted: SessionWire.Event.Deleted,
+  Diff: SessionWire.Event.Diff,
+  Error: SessionWire.Event.Error,
 }
 
 export function plan(input: { slug: string; time: { created: number } }, instance: InstanceContext) {
@@ -426,8 +422,8 @@ export interface Interface {
     agent?: string
     model?: Schema.Schema.Type<typeof Model>
     metadata?: typeof Metadata.Type
-    permission?: PermissionV1.Ruleset
-    workspaceID?: WorkspaceV2.ID
+    permission?: Permission.Ruleset
+    workspaceID?: Workspace.ID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -441,7 +437,7 @@ export interface Interface {
     model: NonNullable<Info["model"]>
     time: number
   }) => Effect.Effect<void>
-  readonly setPermission: (input: { sessionID: SessionID; permission: PermissionV1.Ruleset }) => Effect.Effect<void>
+  readonly setPermission: (input: { sessionID: SessionID; permission: Permission.Ruleset }) => Effect.Effect<void>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -452,18 +448,18 @@ export interface Interface {
   readonly setShare: (input: { sessionID: SessionID; share: Info["share"] }) => Effect.Effect<void>
   readonly setWorkspace: (input: { sessionID: SessionID; workspaceID: Info["workspaceID"] }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
-  readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionV1.WithParts[], NotFound>
+  readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionWire.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
-  readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
+  readonly updateMessage: <T extends SessionWire.Info>(msg: T) => Effect.Effect<T>
   readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
   readonly removePart: (input: { sessionID: SessionID; messageID: MessageID; partID: PartID }) => Effect.Effect<PartID>
   readonly getPart: (input: {
     sessionID: SessionID
     messageID: MessageID
     partID: PartID
-  }) => Effect.Effect<SessionV1.Part | undefined>
-  readonly updatePart: <T extends SessionV1.Part>(part: T) => Effect.Effect<T>
+  }) => Effect.Effect<SessionWire.Part | undefined>
+  readonly updatePart: <T extends SessionWire.Part>(part: T) => Effect.Effect<T>
   readonly updatePartDelta: (input: {
     sessionID: SessionID
     messageID: MessageID
@@ -474,8 +470,8 @@ export interface Interface {
   /** Finds the first message matching the predicate, searching newest-first. */
   readonly findMessage: (
     sessionID: SessionID,
-    predicate: (msg: SessionV1.WithParts) => boolean,
-  ) => Effect.Effect<Option.Option<SessionV1.WithParts>, NotFound>
+    predicate: (msg: SessionWire.WithParts) => boolean,
+  ) => Effect.Effect<Option.Option<SessionWire.WithParts>, NotFound>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -493,14 +489,14 @@ export type Patch = Omit<Partial<Info>, "time" | "share" | "summary" | "revert" 
 const layer: Layer.Layer<
   Service,
   never,
-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
+  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventBridge.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     const database = yield* Database.Service
     const background = yield* BackgroundJob.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const flags = yield* RuntimeFlags.Service
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
@@ -509,11 +505,11 @@ const layer: Layer.Layer<
       agent?: string
       model?: Schema.Schema.Type<typeof Model>
       parentID?: SessionID
-      workspaceID?: WorkspaceV2.ID
+      workspaceID?: Workspace.ID
       directory: string
       path?: string
       metadata?: typeof Metadata.Type
-      permission?: PermissionV1.Ruleset
+      permission?: Permission.Ruleset
     }) {
       const ctx = yield* InstanceState.context
       const sessionID = SessionID.descending(input.id)
@@ -587,7 +583,7 @@ const layer: Layer.Layer<
       }
       yield* Effect.logInfo("created", result)
 
-      yield* events.publish(SessionV1.Event.Created, {
+      yield* events.publish(SessionWire.Event.Created, {
         sessionID: result.id,
         info: { ...result, metadata: { ...input.metadata, sandboxProfile } },
       })
@@ -702,22 +698,22 @@ const layer: Layer.Layer<
           yield* remove(child.id)
         }
 
-        yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
+        yield* events.publish(SessionWire.Event.Deleted, { sessionID, info: session })
         yield* events.remove(sessionID)
       } catch (error) {
         yield* Effect.logError("failed to remove session", { sessionID, error })
       }
     })
 
-    const updateMessage = <T extends SessionV1.Info>(msg: T): Effect.Effect<T> =>
+    const updateMessage = <T extends SessionWire.Info>(msg: T): Effect.Effect<T> =>
       Effect.gen(function* () {
-        yield* events.publish(SessionV1.Event.MessageUpdated, { sessionID: msg.sessionID, info: msg })
+        yield* events.publish(SessionWire.Event.MessageUpdated, { sessionID: msg.sessionID, info: msg })
         return msg
       }).pipe(Effect.withSpan("Session.updateMessage"))
 
-    const updatePart = <T extends SessionV1.Part>(part: T): Effect.Effect<T> =>
+    const updatePart = <T extends SessionWire.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
-        yield* events.publish(SessionV1.Event.PartUpdated, {
+        yield* events.publish(SessionWire.Event.PartUpdated, {
           sessionID: part.sessionID,
           part: structuredClone(part),
           time: Date.now(),
@@ -744,7 +740,7 @@ const layer: Layer.Layer<
         id: row.id,
         sessionID: row.session_id,
         messageID: row.message_id,
-      } as SessionV1.Part
+      } as SessionWire.Part
     })
 
     const create = Effect.fn("Session.create")(function* (input?: {
@@ -753,8 +749,8 @@ const layer: Layer.Layer<
       agent?: string
       model?: Schema.Schema.Type<typeof Model>
       metadata?: typeof Metadata.Type
-      permission?: PermissionV1.Ruleset
-      workspaceID?: WorkspaceV2.ID
+      permission?: Permission.Ruleset
+      workspaceID?: Workspace.ID
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
@@ -811,7 +807,7 @@ const layer: Layer.Layer<
           revert: info.revert === null ? undefined : (info.revert ?? current.revert),
           permission: info.permission === null ? undefined : (info.permission ?? current.permission),
         } as Info
-        yield* events.publish(SessionV1.Event.Updated, { sessionID, info: next })
+        yield* events.publish(SessionWire.Event.Updated, { sessionID, info: next })
       })
 
     const touch = Effect.fn("Session.touch")(function* (sessionID: SessionID) {
@@ -845,7 +841,7 @@ const layer: Layer.Layer<
 
     const setPermission = Effect.fn("Session.setPermission")(function* (input: {
       sessionID: SessionID
-      permission: PermissionV1.Ruleset
+      permission: Permission.Ruleset
     }) {
       yield* patch(input.sessionID, { permission: [...input.permission], time: { updated: Date.now() } }).pipe(
         Effect.orDie,
@@ -895,16 +891,16 @@ const layer: Layer.Layer<
 
     const messages: Interface["messages"] = Effect.fn("Session.messages")(function* (input) {
       if (input.limit) {
-        return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
+        return (yield* MessageWire.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
           Effect.provideService(Database.Service, database),
         )).items
       }
 
       const size = 50
-      const result = [] as SessionV1.WithParts[]
+      const result = [] as SessionWire.WithParts[]
       let before: string | undefined
       while (true) {
-        const page = yield* MessageV2.page({ sessionID: input.sessionID, limit: size, before }).pipe(
+        const page = yield* MessageWire.page({ sessionID: input.sessionID, limit: size, before }).pipe(
           Effect.provideService(Database.Service, database),
         )
         if (page.items.length === 0) break
@@ -922,7 +918,7 @@ const layer: Layer.Layer<
       sessionID: SessionID
       messageID: MessageID
     }) {
-      yield* events.publish(SessionV1.Event.MessageRemoved, {
+      yield* events.publish(SessionWire.Event.MessageRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
       })
@@ -934,7 +930,7 @@ const layer: Layer.Layer<
       messageID: MessageID
       partID: PartID
     }) {
-      yield* events.publish(SessionV1.Event.PartRemoved, {
+      yield* events.publish(SessionWire.Event.PartRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
         partID: input.partID,
@@ -949,7 +945,7 @@ const layer: Layer.Layer<
       field: string
       delta: string
     }) {
-      yield* events.publish(MessageV2.Event.PartDelta, input)
+      yield* events.publish(MessageWire.Event.PartDelta, input)
     })
 
     /** Finds the first message matching the predicate, searching newest-first. */
@@ -957,7 +953,7 @@ const layer: Layer.Layer<
       const size = 50
       let before: string | undefined
       while (true) {
-        const page = yield* MessageV2.page({ sessionID, limit: size, before }).pipe(
+        const page = yield* MessageWire.page({ sessionID, limit: size, before }).pipe(
           Effect.provideService(Database.Service, database),
         )
         if (page.items.length === 0) break
@@ -968,7 +964,7 @@ const layer: Layer.Layer<
         if (!page.more || !page.cursor) break
         before = page.cursor
       }
-      return Option.none<SessionV1.WithParts>()
+      return Option.none<SessionWire.WithParts>()
     })
 
     return Service.of({
@@ -1023,7 +1019,7 @@ const cancelBackgroundJobs = Effect.fn("Session.cancelBackgroundJobs")(function*
 function listByProject(
   db: Database.Interface["db"],
   input: ListInput & {
-    projectID: ProjectV2.ID
+    projectID: Project.ID
     experimentalWorkspaces: boolean
   },
 ) {
@@ -1102,7 +1098,7 @@ function listByProject(
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
+  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventBridge.node],
 })
 
 export * as Session from "./session"

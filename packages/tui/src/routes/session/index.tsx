@@ -36,7 +36,7 @@ import type {
   TextPart,
   ReasoningPart,
   SessionStatus,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
 

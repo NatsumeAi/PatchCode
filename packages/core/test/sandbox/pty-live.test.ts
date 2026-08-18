@@ -6,15 +6,15 @@ import { Effect, Layer } from "effect"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { Pty } from "@opencode-ai/core/pty"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { location } from "../fixture/location"
 
-const sessionID = SessionV2.ID.make("ses_pty_live_sandbox")
+const sessionID = Session.ID.make("ses_pty_live_sandbox")
 const config = Layer.mock(Config.Service)({ entries: () => Effect.succeed([]) })
 
 describe.skipIf(process.platform !== "linux")("pty live sandbox", () => {
@@ -45,7 +45,7 @@ describe.skipIf(process.platform !== "linux")("pty live sandbox", () => {
       }).pipe(
         Effect.scoped,
         Effect.provide(
-          AppNodeBuilder.build(LayerNode.group([Pty.node, EventV2.node]), [
+          AppNodeBuilder.build(LayerNode.group([Pty.node, Event.node]), [
             [Config.node, config],
             [Location.node, activeLocation],
           ]),

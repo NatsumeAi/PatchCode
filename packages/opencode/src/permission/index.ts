@@ -1,18 +1,14 @@
-import { ConfigPermissionV1 } from "@opencode-ai/core/config/legacy/permission"
-import { Wildcard } from "@opencode-ai/core/util/wildcard"
+import { ConfigPermission } from "@opencode-ai/core/config/legacy/permission"
+import { evaluate as liveEvaluate, merge as liveMerge, disabled as liveDisabled } from "@opencode-ai/core/permission"
+import { Permission } from "@opencode-ai/schema/permission"
 import os from "os"
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 
-export function evaluate(permission: string, pattern: string, ...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule {
-  return (
-    rulesets
-      .flat()
-      .findLast((rule) => Wildcard.match(permission, rule.permission) && Wildcard.match(pattern, rule.pattern)) ?? {
-      action: "ask",
-      permission,
-      pattern: "*",
-    }
-  )
+export type Rule = Permission.Rule
+export type Ruleset = Permission.Ruleset
+export type Effect = Permission.Effect
+
+export function evaluate(action: string, resource: string, ...rulesets: Ruleset[]): Rule {
+  return liveEvaluate(action, resource, ...rulesets)
 }
 
 function expand(pattern: string): string {
@@ -23,37 +19,33 @@ function expand(pattern: string): string {
   return pattern
 }
 
-export function fromConfig(permission: ConfigPermissionV1.Info) {
-  const ruleset: PermissionV1.Rule[] = []
+export function fromConfig(permission: ConfigPermission.Info): Ruleset {
+  const ruleset: Rule[] = []
   for (const [key, value] of Object.entries(permission)) {
     if (typeof value === "string") {
-      ruleset.push({ permission: key, action: value, pattern: "*" })
+      ruleset.push({ action: key, resource: "*", effect: value })
       continue
     }
     ruleset.push(
-      ...Object.entries(value).map(([pattern, action]) => ({ permission: key, pattern: expand(pattern), action })),
+      ...Object.entries(value).map(([resource, effect]) => ({
+        action: key,
+        resource: expand(resource),
+        effect,
+      })),
     )
   }
   return ruleset
 }
 
-export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] {
-  return rulesets.flat()
+export function merge(...rulesets: Ruleset[]): Rule[] {
+  return [...liveMerge(...rulesets)]
 }
 
-export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<string> {
-  const edits = ["edit", "write", "apply_patch"]
-  const reads = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
-  return new Set(
-    tools.filter((tool) => {
-      const permission = edits.includes(tool) ? "edit" : reads.includes(tool) ? "read" : tool
-      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
-      return rule?.pattern === "*" && rule.action === "deny"
-    }),
-  )
+export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
+  return liveDisabled(tools, ruleset)
 }
 
-export function visibleTools<T>(tools: Record<string, T>, ruleset: PermissionV1.Ruleset): Record<string, T> {
+export function visibleTools<T>(tools: Record<string, T>, ruleset: Ruleset): Record<string, T> {
   const hidden = disabled(Object.keys(tools), ruleset)
   return Object.fromEntries(Object.entries(tools).filter(([name]) => !hidden.has(name)))
 }

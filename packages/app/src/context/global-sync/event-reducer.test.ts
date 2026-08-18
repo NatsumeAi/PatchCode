@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session } from "@opencode-ai/sdk/api/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
@@ -38,10 +38,10 @@ const permissionRequest = (id: string, sessionID: string, title = id) =>
   ({
     id,
     sessionID,
-    permission: title,
-    patterns: ["*"],
+    action: title,
+    resources: ["*"],
     metadata: {},
-    always: [],
+    save: [],
   }) as PermissionRequest
 
 const questionRequest = (id: string, sessionID: string, title = id) =>
@@ -512,7 +512,7 @@ describe("applyDirectoryEvent", () => {
       directory: "/tmp",
       loadLsp() {},
     })
-    expect(store.permission[sessionID]?.find((x) => x.id === "perm_2")?.permission).toBe("updated")
+    expect(store.permission[sessionID]?.find((x) => x.id === "perm_2")?.action).toBe("updated")
 
     applyDirectoryEvent({
       event: { type: "permission.replied", properties: { sessionID, requestID: "perm_2" } },

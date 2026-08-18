@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 import { createSignal } from "solid-js"
 import { Renderable, RGBA } from "@opentui/core"
-import type { FilePart } from "@opencode-ai/sdk/v2"
+import type { FilePart } from "@opencode-ai/sdk/api"
 import { testRender } from "@opentui/solid"
 // Side effect: Flock.setGlobal() so KVProvider's async lock can settle.
 import "@opencode-ai/core/global"

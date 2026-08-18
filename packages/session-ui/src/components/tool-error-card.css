@@ -3,16 +3,16 @@
   --card-line-pad: 12px;
 
   [data-slot="basic-tool-tool-title"] {
-    color: var(--v2-text-text-base);
+    color: var(--kit-text-text-base);
   }
 
   [data-slot="basic-tool-tool-subtitle"] {
-    color: var(--v2-text-text-muted);
+    color: var(--kit-text-text-muted);
   }
 
   [data-slot="collapsible-arrow"],
   [data-slot="collapsible-arrow-icon"] {
-    color: var(--v2-text-text-faint);
+    color: var(--kit-text-text-faint);
   }
 
   > [data-component="collapsible"].tool-collapsible {
@@ -56,13 +56,13 @@
   }
 
   [data-slot="tool-error-card-content"] :where(*)::selection {
-    background: var(--v2-state-bg-danger);
-    color: var(--v2-text-text-base);
+    background: var(--kit-state-bg-danger);
+    color: var(--kit-text-text-base);
   }
 
   [data-slot="tool-error-card-content"] :where(*)::-moz-selection {
-    background: var(--v2-state-bg-danger);
-    color: var(--v2-text-text-base);
+    background: var(--kit-state-bg-danger);
+    color: var(--kit-text-text-base);
   }
 }
 

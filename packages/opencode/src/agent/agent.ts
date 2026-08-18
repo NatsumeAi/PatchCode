@@ -1,9 +1,9 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { Config } from "@/config/config"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
-import { Provider } from "@/provider/provider"
 
+import { Provider } from "@/provider/provider"
+import { Plugin } from "@/plugin"
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { Auth } from "../auth"
@@ -14,23 +14,23 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
-import { Permission } from "@/permission"
+import { Permission } from "@opencode-ai/schema/permission"
+import { Permission as PermissionRules } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
-import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
 import { Effect, Context, Layer, Schema } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { AbsolutePath, type DeepMutable } from "@opencode-ai/core/schema"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
 import { Reference } from "@opencode-ai/core/reference"
 import { Location } from "@opencode-ai/core/location"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Plugin as CorePlugin } from "@opencode-ai/core/plugin"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -41,11 +41,11 @@ export const Info = Schema.Struct({
   topP: Schema.optional(Schema.Finite),
   temperature: Schema.optional(Schema.Finite),
   color: Schema.optional(Schema.String),
-  permission: PermissionV1.Ruleset,
+  permission: Permission.Ruleset,
   model: Schema.optional(
     Schema.Struct({
-      modelID: ModelV2.ID,
-      providerID: ProviderV2.ID,
+      modelID: Model.ID,
+      providerID: CoreProvider.ID,
     }),
   ),
   variant: Schema.optional(Schema.String),
@@ -69,7 +69,7 @@ export interface Interface {
   readonly defaultAgent: () => Effect.Effect<string>
   readonly generate: (input: {
     description: string
-    model?: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
+    model?: { providerID: CoreProvider.ID; modelID: Model.ID }
   }) => Effect.Effect<
     {
       identifier: string
@@ -103,7 +103,7 @@ const layer = Layer.effect(
         const projectSkillDir = path.join(ctx.directory, ".opencode", "skill")
         const referenceDirs = Object.keys(cfg.references ?? cfg.reference ?? {}).length
           ? yield* Effect.gen(function* () {
-              yield* (yield* PluginV2.Service).wait(PluginV2.ID.make("core/config-reference"))
+              yield* (yield* CorePlugin.Service).wait(CorePlugin.ID.make("core/config-reference"))
               return (yield* (yield* Reference.Service).list()).map((reference) => reference.path)
             }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }))))
           : []
@@ -119,7 +119,7 @@ const layer = Layer.effect(
           ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
         } satisfies Record<string, "allow" | "ask" | "deny">
 
-        const defaults = Permission.fromConfig({
+        const defaults = PermissionRules.fromConfig({
           "*": "allow",
           doom_loop: "ask",
           external_directory: {
@@ -138,16 +138,16 @@ const layer = Layer.effect(
           },
         })
 
-        const user = Permission.fromConfig(cfg.permission ?? {})
+        const user = PermissionRules.fromConfig(cfg.permission ?? {})
 
         const agents: Record<string, Info> = {
           build: {
             name: "build",
             description: "The default agent. Executes tools based on configured permissions.",
             options: {},
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 question: "allow",
                 plan_enter: "allow",
               }),
@@ -160,9 +160,9 @@ const layer = Layer.effect(
             name: "plan",
             description: "Plan mode. Disallows all edit tools.",
             options: {},
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
                 task: {
@@ -185,9 +185,9 @@ const layer = Layer.effect(
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 todowrite: "deny",
               }),
               user,
@@ -198,9 +198,9 @@ const layer = Layer.effect(
           },
           explore: {
             name: "explore",
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 "*": "deny",
                 grep: "allow",
                 glob: "allow",
@@ -225,9 +225,9 @@ const layer = Layer.effect(
             native: true,
             hidden: true,
             prompt: PROMPT_COMPACTION,
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 "*": "deny",
               }),
               user,
@@ -241,9 +241,9 @@ const layer = Layer.effect(
             native: true,
             hidden: true,
             temperature: 0.5,
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 "*": "deny",
               }),
               user,
@@ -256,9 +256,9 @@ const layer = Layer.effect(
             options: {},
             native: true,
             hidden: true,
-            permission: Permission.merge(
+            permission: PermissionRules.merge(
               defaults,
-              Permission.fromConfig({
+              PermissionRules.fromConfig({
                 "*": "deny",
               }),
               user,
@@ -277,7 +277,7 @@ const layer = Layer.effect(
             item = agents[key] = {
               name: key,
               mode: "all",
-              permission: Permission.merge(defaults, user),
+              permission: PermissionRules.merge(defaults, user),
               options: {},
               native: false,
             }
@@ -294,22 +294,20 @@ const layer = Layer.effect(
           item.steps = value.steps ?? item.steps
           item.writable = value.writable ?? item.writable
           item.options = mergeDeep(item.options, value.options ?? {})
-          item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
+          item.permission = PermissionRules.merge(item.permission, PermissionRules.fromConfig(value.permission ?? {}))
         }
 
         // Ensure tool-output glob is allowed unless explicitly configured
         for (const name in agents) {
           const agent = agents[name]
-          const explicit = agent.permission.some((r) => {
-            if (r.permission !== "external_directory") return false
-            if (r.action !== "deny") return false
-            return r.pattern === ToolOutputStore.GLOB
-          })
+          const explicit = agent.permission.some(
+            (r) => r.action === "external_directory" && r.effect === "deny" && r.resource === ToolOutputStore.GLOB,
+          )
           if (explicit) continue
 
-          agents[name].permission = Permission.merge(
+          agents[name].permission = PermissionRules.merge(
             agents[name].permission,
-            Permission.fromConfig({ external_directory: { [ToolOutputStore.GLOB]: "allow" } }),
+            PermissionRules.fromConfig({ external_directory: { [ToolOutputStore.GLOB]: "allow" } }),
           )
         }
 
@@ -371,7 +369,7 @@ const layer = Layer.effect(
       }),
       generate: Effect.fn("Agent.generate")(function* (input: {
         description: string
-        model?: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
+        model?: { providerID: CoreProvider.ID; modelID: Model.ID }
       }) {
         const cfg = yield* config.get()
         const model = input.model ?? (yield* provider.defaultModel())

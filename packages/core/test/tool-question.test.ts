@@ -4,14 +4,14 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Permission } from "@opencode-ai/core/permission"
 import { Question } from "@opencode-ai/core/question"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { QuestionTool } from "@opencode-ai/core/tool/question"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_question_tool_test")
+const sessionID = Session.ID.make("ses_question_tool_test")
 const assertions: Permission.AssertInput[] = []
 let captured: Question.AskInput | undefined
 let reject = false

@@ -6,11 +6,11 @@ import { AutoScroller, Feedback, PointerActivationConstraints } from "@dnd-kit/d
 import { RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers"
 import { RestrictToElement } from "@dnd-kit/dom/modifiers"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { ProjectAvatar } from "@opencode-ai/ui/kit/project-avatar"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Menu } from "@opencode-ai/ui/kit/menu"
+import { Tooltip } from "@opencode-ai/ui/kit/tooltip"
 import { getProjectAvatarVariant, type HomeProjectSelection, type LocalProject } from "@/context/layout"
 import { ServerConnection } from "@/context/server"
 import { useLanguage } from "@/context/language"
@@ -79,22 +79,22 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
       }}
     >
       <div class="flex h-7 min-w-0 shrink-0 items-center justify-between pl-1.5 pr-3">
-        <div class="text-v2-text-text-muted [font-weight:530]">{props.language.t("home.projects")}</div>
+        <div class="text-kit-text-text-muted [font-weight:530]">{props.language.t("home.projects")}</div>
         <Show
           when={props.servers().length === 1 && !(props.projects().length === 0 && props.recentlyClosed().length > 0)}
         >
-          <TooltipV2 placement="bottom" value={props.language.t("home.project.add")}>
-            <IconButtonV2
+          <Tooltip placement="bottom" value={props.language.t("home.project.add")}>
+            <IconButton
               data-action="home-add-project"
               variant="ghost-muted"
               size="large"
-              class="titlebar-icon [&_[data-slot=icon-svg]]:text-v2-icon-icon-muted"
-              icon={<IconV2 name="folder-add-left" />}
+              class="titlebar-icon [&_[data-slot=icon-svg]]:text-kit-icon-icon-muted"
+              icon={<KitIcon name="folder-add-left" />}
               disabled={props.serverHealth(props.servers()[0])?.healthy === false}
               onClick={() => props.onChooseProject(props.servers()[0])}
               aria-label={props.language.t("home.project.add")}
             />
-          </TooltipV2>
+          </Tooltip>
         </Show>
       </div>
       <ScrollView data-slot="home-projects-scroll" class="min-h-0 min-w-0 shrink">
@@ -134,7 +134,7 @@ export function HomeProjectsView(props: HomeProjectsViewProps) {
                       health={props.serverHealth(item)}
                     />
                     <Show when={healthy() && hasProjects() && !collapsed()}>
-                      <div class="mx-3 h-px bg-v2-border-border-base" />
+                      <div class="mx-3 h-px bg-kit-border-border-base" />
                       <HomeProjectList {...props} {...contextMenuProps} server={item} items={projects()} />
                     </Show>
                   </div>
@@ -164,18 +164,18 @@ export function HomeUtilityNav(props: {
     <div class={`${props.class ?? ""} min-w-0 flex-col gap-1 pr-3`}>
       <HomeProjectNavButton
         type="button"
-        class="text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+        class="text-kit-text-text-faint [&>[data-slot=icon-svg]]:text-kit-icon-icon-muted"
         onClick={props.onOpenSettings}
       >
-        <IconV2 name="settings-gear" size="small" />
+        <KitIcon name="settings-gear" size="small" />
         <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("sidebar.settings")}</span>
       </HomeProjectNavButton>
       <HomeProjectNavButton
         type="button"
-        class="text-v2-text-text-faint [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+        class="text-kit-text-text-faint [&>[data-slot=icon-svg]]:text-kit-icon-icon-muted"
         onClick={props.onOpenHelp}
       >
-        <IconV2 name="help" size="small" />
+        <KitIcon name="help" size="small" />
         <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("sidebar.help")}</span>
       </HomeProjectNavButton>
     </div>
@@ -220,10 +220,10 @@ function HomeServerRow(props: {
           data-action="home-server-collapse"
           class={`
             -ml-0.5 -mr-1.5 inline-flex size-5 shrink-0 items-center justify-center
-            rounded-[4px] text-v2-icon-icon-muted
+            rounded-[4px] text-kit-icon-icon-muted
           `}
           classList={{
-            "hover:bg-v2-overlay-simple-overlay-hover": canToggle(),
+            "hover:bg-kit-overlay-simple-overlay-hover": canToggle(),
             "cursor-default opacity-40": !canToggle(),
           }}
           aria-label={
@@ -239,7 +239,7 @@ function HomeServerRow(props: {
           }}
           onPointerDown={(event) => event.preventDefault()}
         >
-          <IconV2
+          <KitIcon
             name="chevron-down"
             size="small"
             class="transition-transform duration-150 ease-in-out"
@@ -255,8 +255,8 @@ function HomeServerRow(props: {
             {(label) => (
               <span
                 class={`
-                  shrink-0 rounded-[3px] border border-v2-border-border-base px-1 py-0.5
-                  text-[9px] leading-none text-v2-text-text-muted
+                  shrink-0 rounded-[3px] border border-kit-border-border-base px-1 py-0.5
+                  text-[9px] leading-none text-kit-text-text-muted
                 `}
               >
                 {label()}
@@ -284,17 +284,17 @@ function HomeServerRow(props: {
           open={props.contextMenuOpen(contextMenuID())}
           onOpenChange={(open) => props.onSetContextMenuOpen(contextMenuID(), open)}
         />
-        <TooltipV2 class="flex shrink-0 items-center" placement="bottom" value={props.language.t("home.project.add")}>
-          <IconButtonV2
+        <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.language.t("home.project.add")}>
+          <IconButton
             data-action="home-add-project"
             variant="ghost-muted"
             size="small"
-            icon={<IconV2 name="folder-add-left" />}
+            icon={<KitIcon name="folder-add-left" />}
             aria-label={props.language.t("home.project.add")}
             disabled={props.health?.healthy === false}
             onClick={() => props.onChooseProject(props.server)}
           />
-        </TooltipV2>
+        </Tooltip>
       </div>
     </div>
   )
@@ -395,16 +395,16 @@ function HomeProjectEmpty(
       <HomeProjectNavButton
         type="button"
         data-action="home-add-project-row"
-        class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-v2-icon-icon-muted"
+        class="disabled:opacity-60 [&>[data-slot=icon-svg]]:text-kit-icon-icon-muted"
         disabled={unreachable()}
         onClick={() => props.onChooseProject(props.server)}
       >
-        <IconV2 name="folder-add-left" size="small" />
+        <KitIcon name="folder-add-left" size="small" />
         <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("home.project.add")}</span>
       </HomeProjectNavButton>
       <Show when={props.items.length > 0}>
         <div class="mt-3 flex h-7 min-w-0 shrink-0 items-center pl-1.5 pr-3">
-          <div class="text-v2-text-text-faint [font-weight:530]">{props.language.t("home.recentlyClosed")}</div>
+          <div class="text-kit-text-text-faint [font-weight:530]">{props.language.t("home.recentlyClosed")}</div>
         </div>
         <For each={props.items}>
           {(project) => <HomeRecentlyClosedRow {...props} project={project} server={props.server} />}
@@ -428,7 +428,7 @@ function HomeRecentlyClosedRow(
     return worktree
   }
   return (
-    <TooltipV2 placement="right" value={path()}>
+    <Tooltip placement="right" value={path()}>
       <HomeProjectNavButton
         type="button"
         data-component="home-recently-closed-row"
@@ -439,7 +439,7 @@ function HomeRecentlyClosedRow(
         <HomeProjectAvatar project={props.project} outline />
         <span class={HOME_PROJECT_NAV_LABEL}>{displayName(props.project)}</span>
       </HomeProjectNavButton>
-    </TooltipV2>
+    </Tooltip>
   )
 }
 
@@ -481,7 +481,7 @@ function HomeProjectRow(
         data-component="home-project-row"
         class="pr-16 disabled:opacity-60"
         classList={{
-          "bg-v2-background-bg-layer-01 text-v2-text-text-base": sortable.isDragSource(),
+          "bg-kit-background-bg-layer-01 text-kit-text-text-base": sortable.isDragSource(),
         }}
         data-selected={props.selected ? "" : undefined}
         aria-current={props.selected ? "page" : undefined}
@@ -524,55 +524,55 @@ function HomeProjectRow(
         `}
         data-menu={props.contextMenuOpen(contextMenuID())}
       >
-        <MenuV2
+        <Menu
           gutter={6}
           modal={false}
           placement="bottom-end"
           open={props.contextMenuOpen(contextMenuID())}
           onOpenChange={(open) => props.onSetContextMenuOpen(contextMenuID(), open)}
         >
-          <MenuV2.Trigger
-            as={IconButtonV2}
+          <Menu.Trigger
+            as={IconButton}
             data-action="home-project-menu"
             variant="ghost-muted"
             size="small"
-            icon={<IconV2 name="outline-dots" />}
+            icon={<KitIcon name="outline-dots" />}
             aria-label={props.language.t("common.moreOptions")}
           />
-          <MenuV2.Portal>
-            <MenuV2.Content>
-              <MenuV2.Item onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}>
+          <Menu.Portal>
+            <Menu.Content>
+              <Menu.Item onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}>
                 {props.language.t("command.session.new")}
-              </MenuV2.Item>
-              <MenuV2.Item onSelect={() => props.onEditProject(props.server, props.project)}>
+              </Menu.Item>
+              <Menu.Item onSelect={() => props.onEditProject(props.server, props.project)}>
                 {props.language.t("dialog.project.edit.title")}
-              </MenuV2.Item>
+              </Menu.Item>
               <Show when={props.canRevealProject(props.server)}>
-                <MenuV2.Item onSelect={() => props.onRevealProject(props.server, props.project)}>
+                <Menu.Item onSelect={() => props.onRevealProject(props.server, props.project)}>
                   {props.language.t(
                     fileManagerApp(platform.platform === "desktop" ? (platform.os ?? "unknown") : "unknown")
                       .actionLabel,
                   )}
-                </MenuV2.Item>
+                </Menu.Item>
               </Show>
-              <MenuV2.Item
+              <Menu.Item
                 disabled={props.unseen === 0}
                 onSelect={() => props.onClearNotifications(props.server, props.project)}
               >
                 {props.language.t("sidebar.project.clearNotifications")}
-              </MenuV2.Item>
-              <MenuV2.Separator />
-              <MenuV2.Item onSelect={() => props.onCloseProject(props.server, props.project.worktree)}>
+              </Menu.Item>
+              <Menu.Separator />
+              <Menu.Item onSelect={() => props.onCloseProject(props.server, props.project.worktree)}>
                 {props.language.t("common.close")}
-              </MenuV2.Item>
-            </MenuV2.Content>
-          </MenuV2.Portal>
-        </MenuV2>
-        <IconButtonV2
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Portal>
+        </Menu>
+        <IconButton
           data-action="home-project-new-session"
           variant="ghost-muted"
           size="small"
-          icon={<IconV2 name="edit" />}
+          icon={<KitIcon name="edit" />}
           aria-label={props.language.t("command.session.new")}
           onClick={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}
         />
@@ -588,12 +588,12 @@ function HomeProjectNavButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
       {...rest}
       class={`
         flex h-7 min-w-0 w-full shrink-0 cursor-default items-center gap-2 rounded-[6px] bg-transparent px-1.5 text-left
-        text-v2-text-text-muted [font-weight:440] transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
-        hover:bg-v2-background-bg-layer-01 hover:text-v2-text-text-base
-        data-[selected]:bg-v2-background-bg-layer-03 data-[selected]:text-v2-text-text-base
-        data-[selected]:hover:bg-v2-background-bg-layer-03
-        focus-visible:bg-v2-background-bg-layer-01 focus-visible:text-v2-text-text-base focus-visible:outline-none
-        focus-visible:[box-shadow:inset_0_0_0_0.5px_var(--v2-border-border-muted)]
+        text-kit-text-text-muted [font-weight:440] transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
+        hover:bg-kit-background-bg-layer-01 hover:text-kit-text-text-base
+        data-[selected]:bg-kit-background-bg-layer-03 data-[selected]:text-kit-text-text-base
+        data-[selected]:hover:bg-kit-background-bg-layer-03
+        focus-visible:bg-kit-background-bg-layer-01 focus-visible:text-kit-text-text-base focus-visible:outline-none
+        focus-visible:[box-shadow:inset_0_0_0_0.5px_var(--kit-border-border-muted)]
         ${local.class ?? ""}
       `}
       classList={local.classList}

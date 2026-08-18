@@ -10,7 +10,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Project } from "../../src/project/project"
 import { Vcs } from "../../src/project/vcs"
 import { Session } from "../../src/session/session"
-import { EventV2Bridge } from "../../src/event-bridge"
+import { EventBridge } from "../../src/event-bridge"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 
 export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.Info>) =>
@@ -22,7 +22,7 @@ export const workspaceLayerWithRuntimeFlags = (overrides: Partial<RuntimeFlags.I
       Project.node,
       Vcs.node,
       Database.node,
-      EventV2Bridge.node,
+      EventBridge.node,
       FSUtil.node,
       InstanceStore.node,
     ]),

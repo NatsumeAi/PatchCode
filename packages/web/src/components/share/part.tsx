@@ -27,7 +27,7 @@ import { ContentBash } from "./content-bash"
 import { ContentError } from "./content-error"
 import { formatCount, formatDuration, formatNumber, normalizeLocale, useShareMessages } from "../share/common"
 import { ContentMarkdown } from "./content-markdown"
-import type { MessageV2 } from "opencode/session/session-message-wire"
+import type { MessageWire } from "opencode/session/session-message-wire"
 import type { Diagnostic } from "vscode-languageserver-types"
 
 import styles from "./part.module.css"
@@ -36,8 +36,8 @@ const MIN_DURATION = 2000
 
 export interface PartProps {
   index: number
-  message: MessageV2.Info
-  part: MessageV2.Part
+  message: MessageWire.Info
+  part: MessageWire.Part
   last: boolean
 }
 
@@ -295,10 +295,10 @@ export function Part(props: PartProps) {
 }
 
 type ToolProps = {
-  id: MessageV2.ToolPart["id"]
-  tool: MessageV2.ToolPart["tool"]
-  state: MessageV2.ToolStateCompleted
-  message: MessageV2.Assistant
+  id: MessageWire.ToolPart["id"]
+  tool: MessageWire.ToolPart["tool"]
+  state: MessageWire.ToolStateCompleted
+  message: MessageWire.Assistant
   isLastPart?: boolean
 }
 

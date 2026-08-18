@@ -50,7 +50,7 @@ export interface Interface {
   readonly cleanup: () => Effect.Effect<void>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/ToolOutputStore") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/ToolOutputStore") {}
 
 const takePrefix = (input: string, maximumBytes: number) => {
   let bytes = 0

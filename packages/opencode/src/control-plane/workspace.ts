@@ -10,20 +10,20 @@ import { inArray } from "drizzle-orm"
 import { Project } from "@/project/project"
 import { GlobalBus } from "@/bus/global"
 import { Auth } from "@/auth"
-import { EventV2 } from "@opencode-ai/core/event"
-import { EventV2Bridge } from "@/event-bridge"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { EventBridge } from "@/event-bridge"
 import { EventSequenceTable, EventTable } from "@opencode-ai/core/event/sql"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { WorkspaceTable } from "@opencode-ai/core/control-plane/workspace.sql"
 import { getAdapter, registeredAdapters } from "./adapters"
 import { type Target, type WorkspaceInfo, WorkspaceInfo as WorkspaceInfoSchema } from "./types"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace } from "@opencode-ai/core/workspace"
 import { Session } from "@/session/session"
 import { SessionTable } from "@opencode-ai/core/session/sql"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/storage"
 import { errorData } from "@/util/error"
@@ -60,16 +60,16 @@ function fromRow(row: typeof WorkspaceTable.$inferSelect): Info {
 }
 
 export const CreateInput = Schema.Struct({
-  id: Schema.optional(WorkspaceV2.ID),
+  id: Schema.optional(Workspace.ID),
   type: Info.fields.type,
   branch: Info.fields.branch,
-  projectID: ProjectV2.ID,
+  projectID: CoreProject.ID,
   extra: Schema.optional(Info.fields.extra),
 })
 export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
 export const SessionWarpInput = Schema.Struct({
-  workspaceID: Schema.NullOr(WorkspaceV2.ID),
+  workspaceID: Schema.NullOr(Workspace.ID),
   sessionID: SessionID,
   copyChanges: Schema.optional(Schema.Boolean),
 })
@@ -85,7 +85,7 @@ export class WorkspaceNotFoundError extends Schema.TaggedErrorClass<WorkspaceNot
   "WorkspaceNotFoundError",
   {
     message: Schema.String,
-    workspaceID: WorkspaceV2.ID,
+    workspaceID: Workspace.ID,
   },
 ) {}
 
@@ -101,7 +101,7 @@ export class SessionWarpHttpError extends Schema.TaggedErrorClass<SessionWarpHtt
   "WorkspaceSessionWarpHttpError",
   {
     message: Schema.String,
-    workspaceID: WorkspaceV2.ID,
+    workspaceID: Workspace.ID,
     sessionID: SessionID,
     status: Schema.Number,
     body: Schema.String,
@@ -133,17 +133,17 @@ export interface Interface {
   readonly sessionWarp: (input: SessionWarpInput) => Effect.Effect<void, SessionWarpError>
   readonly list: (project: Project.Info) => Effect.Effect<Info[]>
   readonly syncList: (project: Project.Info) => Effect.Effect<void>
-  readonly get: (id: WorkspaceV2.ID) => Effect.Effect<Info | undefined>
-  readonly remove: (id: WorkspaceV2.ID) => Effect.Effect<Info | undefined>
+  readonly get: (id: Workspace.ID) => Effect.Effect<Info | undefined>
+  readonly remove: (id: Workspace.ID) => Effect.Effect<Info | undefined>
   readonly status: () => Effect.Effect<ConnectionStatus[]>
-  readonly isSyncing: (workspaceID: WorkspaceV2.ID) => Effect.Effect<boolean>
+  readonly isSyncing: (workspaceID: Workspace.ID) => Effect.Effect<boolean>
   readonly waitForSync: (
-    workspaceID: WorkspaceV2.ID,
+    workspaceID: Workspace.ID,
     state: Record<string, number>,
     signal?: AbortSignal,
     timeout?: number,
   ) => Effect.Effect<void, WaitForSyncError>
-  readonly startWorkspaceSyncing: (projectID: ProjectV2.ID) => Effect.Effect<void>
+  readonly startWorkspaceSyncing: (projectID: CoreProject.ID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Workspace") {}
@@ -155,17 +155,17 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const auth = yield* Auth.Service
     const session = yield* Session.Service
-    const v2Svc = yield* SessionV2.Service
+    const sessionSvc = yield* CoreSession.Service
     const http = yield* HttpClient.HttpClient
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const vcs = yield* Vcs.Service
     const flags = yield* RuntimeFlags.Service
     const fs = yield* FSUtil.Service
     const { db } = yield* Database.Service
-    const connections = new Map<WorkspaceV2.ID, ConnectionStatus>()
-    const syncFibers = yield* FiberMap.make<WorkspaceV2.ID, void, SyncLoopError>()
+    const connections = new Map<Workspace.ID, ConnectionStatus>()
+    const syncFibers = yield* FiberMap.make<Workspace.ID, void, SyncLoopError>()
 
-    const setStatus = (id: WorkspaceV2.ID, status: ConnectionStatus["status"]) => {
+    const setStatus = (id: Workspace.ID, status: ConnectionStatus["status"]) => {
       const prev = connections.get(id)
       if (prev?.status === status) return
       const next = { workspaceID: id, status }
@@ -251,7 +251,7 @@ const layer = Layer.effect(
     })
 
     const runInWorkspace = <A, E, R>(input: {
-      workspaceID?: WorkspaceV2.ID
+      workspaceID?: Workspace.ID
       local: () => Effect.Effect<A, E, R>
       remote: (input: {
         workspace: Info
@@ -350,7 +350,7 @@ const layer = Layer.effect(
           events
             .replay(
               {
-                id: EventV2.ID.make(event.id),
+                id: CoreEvent.ID.make(event.id),
                 aggregateID: event.aggregate_id,
                 seq: event.seq,
                 type: event.type,
@@ -395,7 +395,7 @@ const layer = Layer.effect(
           yield* parseSSE(stream, (evt) =>
             Effect.gen(function* () {
               if (!evt || typeof evt !== "object" || !("payload" in evt)) return
-              const payload = evt.payload as { type?: string; syncEvent?: EventV2.SerializedEvent }
+              const payload = evt.payload as { type?: string; syncEvent?: CoreEvent.SerializedEvent }
               if (payload.type === "server.heartbeat") return
 
               if (payload.type === "sync" && payload.syncEvent) {
@@ -484,13 +484,13 @@ const layer = Layer.effect(
       )
     })
 
-    const stopSync = Effect.fn("Workspace.stopSync")(function* (id: WorkspaceV2.ID) {
+    const stopSync = Effect.fn("Workspace.stopSync")(function* (id: Workspace.ID) {
       yield* FiberMap.remove(syncFibers, id)
       connections.delete(id)
     })
 
     const create = Effect.fn("Workspace.create")(function* (input: CreateInput) {
-      const id = WorkspaceV2.ID.ascending(input.id)
+      const id = Workspace.ID.ascending(input.id)
       const adapter = getAdapter(input.projectID, input.type)
       const config = yield* WorkspaceAdapterRuntime.configure(adapter, {
         ...input,
@@ -581,7 +581,7 @@ const layer = Layer.effect(
                 ),
               )
             } else {
-              yield* v2Svc.interrupt(input.sessionID)
+              yield* sessionSvc.interrupt(input.sessionID)
             }
 
             // "claim" this session so any future events coming from
@@ -745,7 +745,7 @@ const layer = Layer.effect(
             names.add(item.name)
 
             const info: Info = {
-              id: WorkspaceV2.ID.ascending(),
+              id: Workspace.ID.ascending(),
               type: item.type,
               branch: item.branch,
               name: item.name,
@@ -776,13 +776,13 @@ const layer = Layer.effect(
       )
     })
 
-    const get = Effect.fn("Workspace.get")(function* (id: WorkspaceV2.ID) {
+    const get = Effect.fn("Workspace.get")(function* (id: Workspace.ID) {
       const row = yield* db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return
       return fromRow(row)
     })
 
-    const remove = Effect.fn("Workspace.remove")(function* (id: WorkspaceV2.ID) {
+    const remove = Effect.fn("Workspace.remove")(function* (id: Workspace.ID) {
       const sessions = yield* db
         .select({ id: SessionTable.id, parentID: SessionTable.parent_id })
         .from(SessionTable)
@@ -818,13 +818,13 @@ const layer = Layer.effect(
       return [...connections.values()]
     })
 
-    const isSyncing = Effect.fn("Workspace.isSyncing")(function* (workspaceID: WorkspaceV2.ID) {
+    const isSyncing = Effect.fn("Workspace.isSyncing")(function* (workspaceID: Workspace.ID) {
       const exists = yield* FiberMap.has(syncFibers, workspaceID)
       return exists && connections.get(workspaceID)?.status !== "error"
     })
 
     const waitForSync = Effect.fn("Workspace.waitForSync")(function* (
-      workspaceID: WorkspaceV2.ID,
+      workspaceID: Workspace.ID,
       state: Record<string, number>,
       signal?: AbortSignal,
       timeout = TIMEOUT,
@@ -850,7 +850,7 @@ const layer = Layer.effect(
       )
     })
 
-    const startWorkspaceSyncing = Effect.fn("Workspace.startWorkspaceSyncing")(function* (projectID: ProjectV2.ID) {
+    const startWorkspaceSyncing = Effect.fn("Workspace.startWorkspaceSyncing")(function* (projectID: CoreProject.ID) {
       const rows = yield* db
         .selectDistinct({ workspace: WorkspaceTable })
         .from(WorkspaceTable)
@@ -897,7 +897,7 @@ type HistoryEvent = {
 
 function waitUntilSynced(input: {
   db: Database.Interface["db"]
-  workspaceID: WorkspaceV2.ID
+  workspaceID: Workspace.ID
   state: Record<string, number>
   signal?: AbortSignal
   timeout: number
@@ -951,9 +951,9 @@ export const node = LayerNode.make({
   deps: [
     Auth.node,
     Session.node,
-    SessionV2.node,
+    CoreSession.node,
     httpClient,
-    EventV2Bridge.node,
+    EventBridge.node,
     Vcs.node,
     RuntimeFlags.node,
     FSUtil.node,

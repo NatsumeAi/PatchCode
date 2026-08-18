@@ -1,10 +1,10 @@
 import { Component, For, Show } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
-import { AttachmentCardV2 } from "@opencode-ai/session-ui/v2/attachment-card-v2"
-import { CommentCardV2 } from "@opencode-ai/session-ui/v2/comment-card-v2"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
+import { AttachmentCard as KitAttachmentCard } from "@opencode-ai/session-ui/kit/attachment-card"
+import { CommentCard as KitCommentCard } from "@opencode-ai/session-ui/kit/comment-card"
 import { typeLabel } from "@opencode-ai/session-ui/message-file"
 import type { ContextItem, ImageAttachmentPart } from "@/context/prompt"
 import "./image-attachments.css"
@@ -26,14 +26,14 @@ type PromptImageAttachmentsProps = {
 const fallbackClass = "size-16 rounded-md bg-surface-base flex items-center justify-center border border-border-base"
 const imageClass =
   "size-16 rounded-md object-cover border border-border-base hover:border-border-strong-base transition-colors"
-const imageClassV2 = "w-[58px] h-[46px] rounded-[6px] object-cover"
+const imageClassKit = "w-[58px] h-[46px] rounded-[6px] object-cover"
 // inset box-shadows do not paint over <img> content, so the hairline is a separate overlay
-const imageHairlineClassV2 =
-  "absolute inset-0 rounded-[6px] shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)] pointer-events-none"
+const imageHairlineClassKit =
+  "absolute inset-0 rounded-[6px] shadow-[inset_0_0_0_0.5px_var(--kit-border-border-base)] pointer-events-none"
 const removeClass =
   "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-raised-stronger-non-alpha border border-border-base flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-raised-base-hover"
-const removeClassV2 =
-  "absolute -top-1 -right-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+const removeClassKit =
+  "absolute -top-1 -right-1 size-4 rounded-full bg-kit-icon-icon-muted outline-solid outline-1 outline-kit-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
 const nameClass = "absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/50 rounded-b-md"
 
 export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (props) => {
@@ -52,27 +52,27 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
             <For each={props.comments ?? []}>
               {(item) => (
                 <div class="relative group shrink-0">
-                  <TooltipV2
+                  <KitTooltip
                     value={item.comment}
                     placement="top"
                     openDelay={800}
                     contentClass="max-w-[300px] break-words"
                   >
-                    <CommentCardV2
+                    <KitCommentCard
                       comment={item.comment ?? ""}
                       path={item.path}
                       selection={item.selection}
                       active={props.commentActive?.(item)}
                       onClick={() => props.onOpenComment?.(item)}
                     />
-                  </TooltipV2>
+                  </KitTooltip>
                   <button
                     type="button"
                     onClick={() => props.onRemoveComment?.(item)}
-                    class={removeClassV2}
+                    class={removeClassKit}
                     aria-label={props.removeLabel}
                   >
-                    <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
+                    <KitIcon name="outline-xmark" class="text-kit-icon-icon-contrast" />
                   </button>
                 </div>
               )}
@@ -93,16 +93,16 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                         </div>
                       }
                     >
-                      <AttachmentCardV2 title={attachment.filename}>
+                      <KitAttachmentCard title={attachment.filename}>
                         {typeLabel(attachment.filename, attachment.mime)}
-                      </AttachmentCardV2>
+                      </KitAttachmentCard>
                     </Show>
                   }
                 >
                   <img
                     src={attachment.dataUrl}
                     alt={attachment.filename}
-                    class={props.newLayoutDesigns ? imageClassV2 : imageClass}
+                    class={props.newLayoutDesigns ? imageClassKit : imageClass}
                     onClick={() => props.onOpen(attachment)}
                   />
                 </Show>
@@ -116,15 +116,15 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                 <button
                   type="button"
                   onClick={() => props.onRemove(attachment.id)}
-                  class={props.newLayoutDesigns ? removeClassV2 : removeClass}
+                  class={props.newLayoutDesigns ? removeClassKit : removeClass}
                   aria-label={props.removeLabel}
                 >
                   <Show when={props.newLayoutDesigns} fallback={<Icon name="close" class="size-3 text-text-weak" />}>
-                    <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
+                    <KitIcon name="outline-xmark" class="text-kit-icon-icon-contrast" />
                   </Show>
                 </button>
               )
-              // v2 keeps the remove button outside the tooltip trigger so hovering it dismisses the tooltip
+              // kit keeps the remove button outside the tooltip trigger so hovering it dismisses the tooltip
               return (
                 <Show
                   when={props.newLayoutDesigns}
@@ -139,12 +139,12 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                   }
                 >
                   <div class="relative group shrink-0">
-                    <TooltipV2 value={attachment.filename} placement="top" contentClass="break-all">
+                    <KitTooltip value={attachment.filename} placement="top" contentClass="break-all">
                       {media()}
                       <Show when={image}>
-                        <div class={imageHairlineClassV2} />
+                        <div class={imageHairlineClassKit} />
                       </Show>
-                    </TooltipV2>
+                    </KitTooltip>
                     {remove()}
                   </div>
                 </Show>
@@ -155,11 +155,11 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
         <Show when={props.newLayoutDesigns}>
           <div
             data-slot="prompt-attachments-fade-left"
-            class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--v2-background-bg-base),transparent)]"
+            class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--kit-background-bg-base),transparent)]"
           />
           <div
             data-slot="prompt-attachments-fade-right"
-            class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--v2-background-bg-base),transparent)]"
+            class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--kit-background-bg-base),transparent)]"
           />
         </Show>
       </div>

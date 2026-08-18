@@ -1,4 +1,4 @@
-export * as ConfigProviderOptionsV1 from "./provider-options"
+export * as ConfigProviderOptionsInput from "./provider-options"
 
 type Options = Readonly<Record<string, unknown>>
 

@@ -36,7 +36,7 @@ type SQLiteEffectExecuteMethod = SQLiteExecuteMethod | "values"
 export class SQLiteEffectPreparedQuery<
   T extends PreparedQueryConfig,
   TEffectHKT extends QueryEffectHKTBase = QueryEffectHKTBase,
-  TIsRqbV2 extends boolean = false,
+  TIsRqb extends boolean = false,
 > implements PreparedQuery
 {
   static readonly [entityKind]: string = "SQLiteEffectPreparedQuery"
@@ -66,10 +66,10 @@ export class SQLiteEffectPreparedQuery<
     executeMethod: SQLiteExecuteMethod,
     private useJitMappers: boolean | undefined,
     private customResultMapper?: (
-      rows: TIsRqbV2 extends true ? Record<string, unknown>[] : unknown[][],
+      rows: TIsRqb extends true ? Record<string, unknown>[] : unknown[][],
       mapColumnValue?: (value: unknown) => unknown,
     ) => unknown,
-    private isRqbV2Query?: TIsRqbV2,
+    private isRqbQuery?: TIsRqb,
     private rqbConfig?: RelationalQueryMapperConfig,
     private isInTransaction: Effect.Effect<boolean> = Effect.succeed(false),
   ) {
@@ -88,7 +88,7 @@ export class SQLiteEffectPreparedQuery<
 
   all(placeholderValues?: Record<string, unknown>): QueryEffectKind<TEffectHKT, T["all"]>
   all(placeholderValues?: Record<string, unknown>): any {
-    if (this.isRqbV2Query) return this.allRqbV2(placeholderValues)
+    if (this.isRqbQuery) return this.allRqb(placeholderValues)
 
     if (!this.fields && !this.customResultMapper) {
       return this.executeWithCache<T["all"]>(placeholderValues, "all")
@@ -103,7 +103,7 @@ export class SQLiteEffectPreparedQuery<
 
   get(placeholderValues?: Record<string, unknown>): QueryEffectKind<TEffectHKT, T["get"]>
   get(placeholderValues?: Record<string, unknown>): any {
-    if (this.isRqbV2Query) return this.getRqbV2(placeholderValues)
+    if (this.isRqbQuery) return this.getRqb(placeholderValues)
 
     if (!this.fields && !this.customResultMapper) {
       return this.executeWithCache<T["get"]>(placeholderValues, "get")
@@ -139,7 +139,7 @@ export class SQLiteEffectPreparedQuery<
       return rows
     }
 
-    if (this.isRqbV2Query) {
+    if (this.isRqbQuery) {
       return this.useJitMappers
         ? (this.jitMapper =
             (this.jitMapper as RelationalRowsMapper<T["all"]>) ?? makeJitRqbMapper<T["all"]>(this.rqbConfig!))(
@@ -171,7 +171,7 @@ export class SQLiteEffectPreparedQuery<
     const row = Array.isArray(rows) ? rows[0] : rows
     if (!row) return undefined
 
-    if (this.isRqbV2Query) {
+    if (this.isRqbQuery) {
       return this.useJitMappers
         ? (this.jitMapper =
             (this.jitMapper as RelationalRowsMapper<T["get"][]>) ?? makeJitRqbMapper<T["get"][]>(this.rqbConfig!))([
@@ -191,7 +191,7 @@ export class SQLiteEffectPreparedQuery<
       : mapResultRow(this.fields!, row as unknown[], this.joinsNotNullableMap)
   }
 
-  private allRqbV2(placeholderValues?: Record<string, unknown>) {
+  private allRqb(placeholderValues?: Record<string, unknown>) {
     return this.executeWithCache<unknown[], T["all"]>(
       placeholderValues,
       "all",
@@ -199,7 +199,7 @@ export class SQLiteEffectPreparedQuery<
     )
   }
 
-  private getRqbV2(placeholderValues?: Record<string, unknown>) {
+  private getRqb(placeholderValues?: Record<string, unknown>) {
     return this.executeWithCache<unknown, T["get"] | undefined>(placeholderValues, "get", (row) =>
       row === undefined ? undefined : (this.mapGetResult(row) as T["get"]),
     )

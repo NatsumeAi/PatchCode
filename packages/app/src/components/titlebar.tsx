@@ -5,10 +5,10 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { Keybind } from "@opencode-ai/ui/kit/keybind"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 
 import { LayoutRoute, useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
@@ -57,9 +57,9 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
   const navigate = useNavigate()
   const location = useLocation()
   const params = useParams()
-  const useV2Titlebar = createMemo(() => settings.general.newLayoutDesigns())
+  const useTitlebar = createMemo(() => settings.general.newLayoutDesigns())
   const mobile = createMediaQuery("(max-width: 767px)")
-  const bottom = createMemo(() => useV2Titlebar() && mobile() && settings.general.mobileTitlebarPosition() === "bottom")
+  const bottom = createMemo(() => useTitlebar() && mobile() && settings.general.mobileTitlebarPosition() === "bottom")
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -70,7 +70,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
   const titlebarZoom = () => (windows() ? Math.max(zoom(), minTitlebarZoom) : zoom())
   const counterZoom = () => (windows() && titlebarZoom() < 1 ? 1 / titlebarZoom() : 1)
   const minHeight = () => {
-    const height = useV2Titlebar() ? v2TitlebarHeight : legacyTitlebarHeight
+    const height = useTitlebar() ? v2TitlebarHeight : legacyTitlebarHeight
     if (mac()) return `${height / zoom()}px`
     if (windows()) return `${height / Math.min(titlebarZoom(), 1)}px`
     return undefined
@@ -106,7 +106,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
   const canBack = createMemo(() => history.index > 0)
   const canForward = createMemo(() => history.index < history.stack.length - 1)
   const hasProjects = createMemo(() => layout.projects.list().length > 0)
-  const nav = createMemo(() => (useV2Titlebar() ? settings.general.showNavigation() : true))
+  const nav = createMemo(() => (useTitlebar() ? settings.general.showNavigation() : true))
   const updateState = createMemo<TitlebarUpdatePillState>(() => {
     const installing = props.update?.installing() ?? false
     const version = props.update?.version()
@@ -119,7 +119,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
       onInstall: () => props.update?.install(),
     }
   })
-  const v2RightState = createMemo<TitlebarV2RightState>(() => ({
+  const v2RightState = createMemo<TitlebarRightState>(() => ({
     update: updateState(),
   }))
 
@@ -156,11 +156,11 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
 
   return (
     <header
-      data-slot={useV2Titlebar() ? "titlebar-v2" : undefined}
+      data-slot={useTitlebar() ? "titlebar-kit" : undefined}
       classList={{
         "shrink-0 relative flex flex-row": true,
-        "h-9 bg-v2-background-bg-deep overflow-visible": useV2Titlebar(),
-        "h-10 bg-background-base overflow-hidden": !useV2Titlebar(),
+        "h-9 bg-kit-background-bg-deep overflow-visible": useTitlebar(),
+        "h-10 bg-background-base overflow-hidden": !useTitlebar(),
         "order-last": bottom(),
       }}
       style={{
@@ -174,7 +174,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
       data-tauri-drag-region
     >
       <Switch>
-        <Match when={useV2Titlebar()}>
+        <Match when={useTitlebar()}>
           {(_) => {
             const layout = useLayout()
             const global = useGlobal()
@@ -355,30 +355,30 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               >
                 <ChannelIndicator debugTools={props.debugTools} />
                 <Show when={windows() || linux()}>
-                  <WindowsAppMenu command={command} platform={platform} variant="v2" />
+                  <WindowsAppMenu command={command} platform={platform} variant="kit" />
                 </Show>
-                <TooltipV2
+                <KitTooltip
                   placement="bottom"
                   value={
                     <>
                       {language.t("home.title")}
-                      <KeybindV2 keys={command.keybindParts("home.toggle")} variant="neutral" />
+                      <Keybind keys={command.keybindParts("home.toggle")} variant="neutral" />
                     </>
                   }
                   class="shrink-0"
                 >
-                  <IconButtonV2
+                  <KitIconButton
                     type="button"
                     variant="ghost-muted"
                     size="large"
                     class="!w-9 shrink-0"
-                    icon={<IconV2 name="grid-plus" />}
+                    icon={<KitIcon name="grid-plus" />}
                     state={layout.route().type === "home" ? "pressed" : undefined}
                     onClick={toggleHome}
                     aria-label={language.t("home.title")}
                     aria-pressed={layout.route().type === "home"}
                   />
-                </TooltipV2>
+                </KitTooltip>
 
                 <TitlebarTabStrip
                   tabs={tabsStore}
@@ -396,28 +396,28 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   onReorder={(keys) => tabsStoreActions.reorder(keys)}
                 />
                 <Show when={!creating()}>
-                  <TooltipV2
+                  <KitTooltip
                     placement="bottom"
                     value={
                       <>
                         {language.t("command.session.new")}
-                        <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
+                        <Keybind keys={newTabTooltipKeybind(command)} variant="neutral" />
                       </>
                     }
                   >
-                    <IconButtonV2
+                    <KitIconButton
                       type="button"
                       variant="ghost-muted"
                       size="large"
                       class="shrink-0"
-                      icon={<IconV2 name="plus" />}
+                      icon={<KitIcon name="plus" />}
                       onClick={openNewTab}
                       aria-label={language.t("command.session.new")}
                     />
-                  </TooltipV2>
+                  </KitTooltip>
                 </Show>
                 <div class="flex-1" />
-                <TitlebarV2Right state={v2RightState()} />
+                <TitlebarRight state={v2RightState()} />
               </div>
             )
           }}
@@ -508,7 +508,7 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                             aria-label={language.t("command.session.new")}
                             aria-current={creating() ? "page" : undefined}
                           >
-                            <IconV2 name="edit" size="small" />
+                            <KitIcon name="edit" size="small" />
                           </Button>
                         </TooltipKeybind>
                       </div>
@@ -588,11 +588,11 @@ type TitlebarUpdatePillState = {
   onInstall: () => void
 }
 
-type TitlebarV2RightState = {
+type TitlebarRightState = {
   update: TitlebarUpdatePillState
 }
 
-function TitlebarV2Right(props: { state: TitlebarV2RightState }) {
+function TitlebarRight(props: { state: TitlebarRightState }) {
   return (
     <div class="relative z-20 flex shrink-0 items-center justify-end gap-0 overflow-visible">
       <Show when={props.state.update.visible}>
@@ -605,16 +605,16 @@ function TitlebarV2Right(props: { state: TitlebarV2RightState }) {
 
 function TitlebarUpdateIconButton(props: { state: TitlebarUpdatePillState }) {
   return (
-    <div class="group relative mr-3 h-5 w-5 shrink-0 rounded-full bg-v2-background-bg-deep transition-[width] duration-150 ease-out hover:z-30 hover:w-[68px] focus-within:z-30 focus-within:w-[68px] motion-reduce:transition-none">
+    <div class="group relative mr-3 h-5 w-5 shrink-0 rounded-full bg-kit-background-bg-deep transition-[width] duration-150 ease-out hover:z-30 hover:w-[68px] focus-within:z-30 focus-within:w-[68px] motion-reduce:transition-none">
       <button
         type="button"
-        class="absolute right-0 top-0 z-10 flex h-5 w-5 items-center justify-end overflow-hidden rounded-full bg-v2-icon-icon-accent/20 text-v2-icon-icon-accent transition-[width,background-color] duration-150 ease-out group-hover:w-[68px] group-hover:bg-[color-mix(in_srgb,var(--v2-icon-icon-accent)_20%,var(--v2-background-bg-deep))] group-focus-within:w-[68px] group-focus-within:bg-[color-mix(in_srgb,var(--v2-icon-icon-accent)_20%,var(--v2-background-bg-deep))] focus-visible:outline-none disabled:opacity-60 motion-reduce:transition-none"
+        class="absolute right-0 top-0 z-10 flex h-5 w-5 items-center justify-end overflow-hidden rounded-full bg-kit-icon-icon-accent/20 text-kit-icon-icon-accent transition-[width,background-color] duration-150 ease-out group-hover:w-[68px] group-hover:bg-[color-mix(in_srgb,var(--kit-icon-icon-accent)_20%,var(--kit-background-bg-deep))] group-focus-within:w-[68px] group-focus-within:bg-[color-mix(in_srgb,var(--kit-icon-icon-accent)_20%,var(--kit-background-bg-deep))] focus-visible:outline-none disabled:opacity-60 motion-reduce:transition-none"
         onClick={props.state.onInstall}
         disabled={props.state.installing}
         aria-busy={props.state.installing}
         aria-label={props.state.ariaLabel}
       >
-        <span class="shrink-0 ml-[8px] mr-px text-[11px] text-v2-text-text-accent [font-weight:530] opacity-0 translate-x-2 motion-safe:transition-all duration-150 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0 motion-reduce:translate-x-0">
+        <span class="shrink-0 ml-[8px] mr-px text-[11px] text-kit-text-text-accent [font-weight:530] opacity-0 translate-x-2 motion-safe:transition-all duration-150 ease-out group-hover:opacity-100 group-hover:translate-x-0 group-focus-within:opacity-100 group-focus-within:translate-x-0 motion-reduce:translate-x-0">
           Update
         </span>
         <span class="flex size-5 shrink-0 items-center justify-center">

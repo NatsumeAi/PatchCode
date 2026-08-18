@@ -1,8 +1,8 @@
 import { Effect, Layer, LayerMap } from "effect"
-import { AgentV2 } from "./agent"
+import { Agent } from "./agent"
 import { AISDK } from "./aisdk"
 import { Catalog } from "./catalog"
-import { CommandV2 } from "./command"
+import { Command } from "./command"
 import { Config } from "./config"
 import { LayerNode } from "./effect/layer-node"
 import { Node } from "./effect/app-node"
@@ -25,7 +25,7 @@ import { LocationServiceMap } from "./location-service-map"
 import { Permission } from "./permission"
 import { Hooks } from "./hooks"
 import { PlanGate } from "./session/plan-gate"
-import { PluginV2 } from "./plugin"
+import { Plugin } from "./plugin"
 import { PluginInternal } from "./plugin/internal"
 import { Policy } from "./policy"
 import { ProjectCopy } from "./project/copy"
@@ -36,7 +36,7 @@ import { ReferenceGuidance } from "./reference/guidance"
 import * as SessionRunnerLLM from "./session/runner/llm"
 import { SessionRunnerModel } from "./session/runner/model"
 import { SessionTodo } from "./session/todo"
-import { SkillV2 } from "./skill"
+import { Skill } from "./skill"
 import { SkillGuidance } from "./skill/guidance"
 import { Snapshot } from "./snapshot"
 import { SystemContextBuiltIns } from "./system-context/builtins"
@@ -55,13 +55,13 @@ export const locationServices = LayerNode.group([
   Location.node,
   Policy.node,
   Config.node,
-  AgentV2.node,
-  CommandV2.node,
+  Agent.node,
+  Command.node,
   Reference.node,
   Integration.node,
   Catalog.node,
   AISDK.node,
-  PluginV2.node,
+  Plugin.node,
   PluginInternal.node,
   ProjectCopy.node,
   ProjectCopy.refreshNode,
@@ -69,7 +69,7 @@ export const locationServices = LayerNode.group([
   FileSystem.node,
   Watcher.node,
   Pty.node,
-  SkillV2.node,
+  Skill.node,
   SystemContextRegistry.node,
   SystemContextBuiltIns.node,
   MemoryContext.node,

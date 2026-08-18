@@ -22,9 +22,9 @@ const schema = <const Definitions extends ReadonlyArray<Definition>>(definitions
             ...fields,
             type: Schema.Literal("server.connected"),
             data: Schema.Struct({}),
-          }).annotate({ identifier: "V2Event.server.connected" }),
+          }).annotate({ identifier: "ServerEvent.server.connected" }),
         ]),
-  ]).annotate({ identifier: "V2Event" })
+  ]).annotate({ identifier: "ServerEvent" })
 
 const make = <const Definitions extends ReadonlyArray<Definition>>(definitions: Definitions) => {
   const EventSchema = schema(definitions)
@@ -36,7 +36,7 @@ const make = <const Definitions extends ReadonlyArray<Definition>>(definitions: 
           success: HttpApiSchema.StreamSse({ data: EventSchema }),
         }).annotateMerge(
           OpenApi.annotations({
-            identifier: "v2.event.subscribe",
+            identifier: "api.event.subscribe",
             summary: "Subscribe to events",
             description: "Subscribe to native event payloads for the server.",
           }),

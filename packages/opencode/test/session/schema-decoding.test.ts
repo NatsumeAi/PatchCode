@@ -6,8 +6,8 @@ import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { Todo } from "../../src/session/todo"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
-import { ProjectV2 } from "@opencode-ai/core/project"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Project } from "@opencode-ai/core/project"
+import { Workspace } from "@opencode-ai/core/workspace"
 
 // Covers the session-domain Effect Schema migration. For each migrated
 // schema we assert:
@@ -16,12 +16,12 @@ import { WorkspaceV2 } from "@opencode-ai/core/workspace"
 
 // Representative valid IDs — the branded schemas require the right prefix
 // (see src/id/id.ts).
-const sessionID = Schema.decodeUnknownSync(SessionID)("ses_01J5Y5H0AH4Q4NXJ6P4C3P5V2K")
-const sessionIDChild = Schema.decodeUnknownSync(SessionID)("ses_01J5Y5H0AH4Q4NXJ6P4C3P5V2L")
-const messageID = Schema.decodeUnknownSync(MessageID)("msg_01J5Y5H0AH4Q4NXJ6P4C3P5V2M")
-const partID = Schema.decodeUnknownSync(PartID)("prt_01J5Y5H0AH4Q4NXJ6P4C3P5V2N")
-const projectID = ProjectV2.ID.make("proj-alpha")
-const workspaceID = Schema.decodeUnknownSync(WorkspaceV2.ID)("wrk-primary")
+const sessionID = Schema.decodeUnknownSync(SessionID)("ses_01J5Y5H0AH4Q4NXJ6P4C3P5K")
+const sessionIDChild = Schema.decodeUnknownSync(SessionID)("ses_01J5Y5H0AH4Q4NXJ6P4C3P5L")
+const messageID = Schema.decodeUnknownSync(MessageID)("msg_01J5Y5H0AH4Q4NXJ6P4C3P5M")
+const partID = Schema.decodeUnknownSync(PartID)("prt_01J5Y5H0AH4Q4NXJ6P4C3P5N")
+const projectID = Project.ID.make("proj-alpha")
+const workspaceID = Schema.decodeUnknownSync(Workspace.ID)("wrk-primary")
 
 function decodeUnknown<S extends Schema.Top>(schema: S) {
   const decode = Schema.decodeUnknownSync(schema as any)
@@ -64,7 +64,7 @@ describe("Session.Info", () => {
       version: "1.0.0",
       metadata: { source: "test" },
       time: { created: 100, updated: 200, compacting: 150, archived: 300 },
-      permission: [{ action: "allow" as const, pattern: "*", permission: "read" }],
+      permission: [{ action: "read", resource: "*", effect: "allow" as const }],
       revert: {
         messageID,
         partID,
@@ -157,7 +157,7 @@ describe("Session input schemas", () => {
       parentID: sessionID,
       title: "child",
       metadata: { source: "test" },
-      permission: [{ action: "ask" as const, pattern: "*", permission: "bash" }],
+      permission: [{ action: "bash", resource: "*", effect: "ask" as const }],
       workspaceID,
     }
     expect(decode(populated)).toEqual(populated)
@@ -184,7 +184,7 @@ describe("Session input schemas", () => {
 
   test("SetPermissionInput requires a ruleset", () => {
     const decode = decodeUnknown(Session.SetPermissionInput)
-    const input = { sessionID, permission: [{ action: "deny" as const, pattern: "*", permission: "write" }] }
+    const input = { sessionID, permission: [{ action: "write", resource: "*", effect: "deny" as const }] }
     expect(decode(input)).toEqual(input)
     expect(() => decode({ sessionID })).toThrow()
   })

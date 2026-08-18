@@ -3,7 +3,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { useRenderer } from "@opentui/solid"
 import type { TextareaRenderable } from "@opentui/core"
 import { selectedForeground, tint, useTheme } from "../../context/theme"
-import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/api"
 import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
 import { useTuiConfig } from "../../config"
@@ -18,7 +18,7 @@ function replyQuestion(
   answers: QuestionAnswer[],
   _directory?: string,
 ) {
-  return sdk.client.v2.session.question.reply({
+  return sdk.client.api.session.question.reply({
     sessionID: request.sessionID,
     requestID: request.id,
     questionReply: { answers },
@@ -26,7 +26,7 @@ function replyQuestion(
 }
 
 function rejectQuestion(sdk: ReturnType<typeof useSDK>, request: QuestionRequest, _directory?: string) {
-  return sdk.client.v2.session.question.reject({
+  return sdk.client.api.session.question.reject({
     sessionID: request.sessionID,
     requestID: request.id,
   })

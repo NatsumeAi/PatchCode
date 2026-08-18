@@ -11,13 +11,13 @@ import { produce } from "immer"
 import { Catalog } from "../../catalog"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
-import { ModelV2 } from "../../model"
-import { PluginV2 } from "../../plugin"
-import { ProviderV2 } from "../../provider"
+import { Model as CoreModel } from "../../model"
+import { Plugin } from "../../plugin"
+import { Provider as CoreProvider } from "../../provider"
 import { SessionSchema } from "../schema"
 
 /** Signaled after PluginInternal.boot finishes Catalog reloads (not when the last plugin is merely added). */
-const catalogReadyPlugin = PluginV2.ID.make("internal-boot")
+const catalogReadyPlugin = Plugin.ID.make("internal-boot")
 
 export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelectedError>()(
   "SessionRunnerModel.ModelNotSelectedError",
@@ -33,8 +33,8 @@ export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelec
 export class ModelUnavailableError extends Schema.TaggedErrorClass<ModelUnavailableError>()(
   "SessionRunnerModel.ModelUnavailableError",
   {
-    providerID: ProviderV2.ID,
-    modelID: ModelV2.ID,
+    providerID: CoreProvider.ID,
+    modelID: CoreModel.ID,
   },
 ) {
   override get message() {
@@ -45,9 +45,9 @@ export class ModelUnavailableError extends Schema.TaggedErrorClass<ModelUnavaila
 export class VariantUnavailableError extends Schema.TaggedErrorClass<VariantUnavailableError>()(
   "SessionRunnerModel.VariantUnavailableError",
   {
-    providerID: ProviderV2.ID,
-    modelID: ModelV2.ID,
-    variant: ModelV2.VariantID,
+    providerID: CoreProvider.ID,
+    modelID: CoreModel.ID,
+    variant: CoreModel.VariantID,
   },
 ) {
   override get message() {
@@ -58,8 +58,8 @@ export class VariantUnavailableError extends Schema.TaggedErrorClass<VariantUnav
 export class UnsupportedApiError extends Schema.TaggedErrorClass<UnsupportedApiError>()(
   "SessionRunnerModel.UnsupportedApiError",
   {
-    providerID: ProviderV2.ID,
-    modelID: ModelV2.ID,
+    providerID: CoreProvider.ID,
+    modelID: CoreModel.ID,
     api: Schema.String,
   },
 ) {
@@ -77,23 +77,23 @@ export type Error =
 
 export interface Interface {
   readonly resolve: (session: SessionSchema.Info) => Effect.Effect<Model, Error>
-  readonly resolveInfo: (session: SessionSchema.Info) => Effect.Effect<ModelV2.Info, Error>
+  readonly resolveInfo: (session: SessionSchema.Info) => Effect.Effect<CoreModel.Info, Error>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionRunnerModel") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SessionRunnerModel") {}
 
 /** Test or embedding seam for supplying a model resolver directly. */
 export const layerWith = (resolve: Interface["resolve"]) =>
   Layer.succeed(Service, Service.of({ resolve, resolveInfo: resolve as unknown as Interface["resolveInfo"] }))
 
-const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
+const apiKey = (model: CoreModel.Info, credential?: Credential.Value) => {
   if (credential?.type === "key") return Auth.value(credential.key)
   if (credential?.type === "oauth") return Auth.value(credential.access)
   const value = model.request.body.apiKey ?? model.api.settings?.apiKey
   if (typeof value === "string") return Auth.value(value)
 }
 
-const withDefaults = (model: ModelV2.Info, route: AnyRoute) => {
+const withDefaults = (model: CoreModel.Info, route: AnyRoute) => {
   const body = model.request.body
   const httpBody = Object.hasOwn(body, "apiKey")
     ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== "apiKey"))
@@ -108,9 +108,9 @@ const withDefaults = (model: ModelV2.Info, route: AnyRoute) => {
 }
 
 const withVariant = (
-  model: ModelV2.Info,
-  variantID: ModelV2.VariantID | undefined,
-): Effect.Effect<ModelV2.Info, VariantUnavailableError> => {
+  model: CoreModel.Info,
+  variantID: CoreModel.VariantID | undefined,
+): Effect.Effect<CoreModel.Info, VariantUnavailableError> => {
   const id = variantID === "default" || variantID === undefined ? model.request.variant : variantID
   const variant = model.variants.find((item) => item.id === id)
   if (!variant && variantID !== undefined && variantID !== "default")
@@ -131,11 +131,11 @@ const withVariant = (
   )
 }
 
-const apiName = (model: ModelV2.Info) =>
+const apiName = (model: CoreModel.Info) =>
   model.api.type === "aisdk" ? `${model.api.type}:${model.api.package}` : model.api.type
 
 export const fromCatalogModel = (
-  model: ModelV2.Info,
+  model: CoreModel.Info,
   credential?: Credential.Value,
 ): Effect.Effect<Model, UnsupportedApiError> => {
   const resolved =
@@ -175,10 +175,10 @@ export const fromCatalogModel = (
   )
 }
 
-export const resolve = (session: SessionSchema.Info, model: ModelV2.Info, credential?: Credential.Value) =>
+export const resolve = (session: SessionSchema.Info, model: CoreModel.Info, credential?: Credential.Value) =>
   withVariant(model, session.model?.variant).pipe(Effect.flatMap((model) => fromCatalogModel(model, credential)))
 
-export const supported = (model: ModelV2.Info) =>
+export const supported = (model: CoreModel.Info) =>
   model.api.type === "aisdk" &&
   (model.api.package === "@ai-sdk/openai" ||
     model.api.package === "@ai-sdk/anthropic" ||
@@ -190,11 +190,11 @@ export const locationLayer = Layer.effect(
   Effect.gen(function* () {
     const catalog = yield* Catalog.Service
     const integrations = yield* Integration.Service
-    const plugins = yield* PluginV2.Service
+    const plugins = yield* Plugin.Service
 
     const selectModel = Effect.fnUntraced(function* (session: SessionSchema.Info) {
-      // PluginInternal.boot is forked. V1 Provider.getModel waited because
-      // InstanceState.make finished before runLoop resolved the model.
+      // PluginInternal.boot is forked. The legacy provider waited because
+      // InstanceState.make finished before the runner resolved the model.
       yield* plugins.wait(catalogReadyPlugin)
       const defaultModel = session.model ? undefined : yield* catalog.model.default()
       const selected = session.model
@@ -236,5 +236,5 @@ export const locationLayer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer: locationLayer,
-  deps: [Catalog.node, Integration.node, PluginV2.node],
+  deps: [Catalog.node, Integration.node, Plugin.node],
 })

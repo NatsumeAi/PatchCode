@@ -3,18 +3,18 @@ import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { GoogleVertexAnthropicPlugin, GoogleVertexPlugin } from "@opencode-ai/core/plugin/provider/google-vertex"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* (definition: typeof GoogleVertexAnthropicPlugin | typeof GoogleVertexPlugin) {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* Plugin.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
   yield* definition.effect(host)
@@ -63,16 +63,16 @@ describe("GoogleVertexAnthropicPlugin", () => {
         Effect.gen(function* () {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
-            catalog.provider.update(ProviderV2.ID.make("google-vertex-anthropic"), (provider) => {
+            catalog.provider.update(Provider.ID.make("google-vertex-anthropic"), (provider) => {
               provider.api = { type: "aisdk", package: "@ai-sdk/google-vertex/anthropic" }
             }),
           )
           yield* addPlugin(GoogleVertexAnthropicPlugin)
           expect(
-            (yield* catalog.provider.get(ProviderV2.ID.make("google-vertex-anthropic")))?.request.body.project,
+            (yield* catalog.provider.get(Provider.ID.make("google-vertex-anthropic")))?.request.body.project,
           ).toBe("cloud-project")
           expect(
-            (yield* catalog.provider.get(ProviderV2.ID.make("google-vertex-anthropic")))?.request.body.location,
+            (yield* catalog.provider.get(Provider.ID.make("google-vertex-anthropic")))?.request.body.location,
           ).toBe("cloud-location")
         }),
     ),
@@ -83,18 +83,18 @@ describe("GoogleVertexAnthropicPlugin", () => {
       Effect.gen(function* () {
         const catalog = yield* Catalog.Service
         yield* catalog.transform((catalog) =>
-          catalog.provider.update(ProviderV2.ID.make("google-vertex-anthropic"), (provider) => {
+          catalog.provider.update(Provider.ID.make("google-vertex-anthropic"), (provider) => {
             provider.api = { type: "aisdk", package: "@ai-sdk/google-vertex/anthropic" }
             provider.request.body.project = "configured-project"
             provider.request.body.location = "configured-location"
           }),
         )
         yield* addPlugin(GoogleVertexAnthropicPlugin)
-        expect((yield* catalog.provider.get(ProviderV2.ID.make("google-vertex-anthropic")))?.request.body.project).toBe(
+        expect((yield* catalog.provider.get(Provider.ID.make("google-vertex-anthropic")))?.request.body.project).toBe(
           "configured-project",
         )
         expect(
-          (yield* catalog.provider.get(ProviderV2.ID.make("google-vertex-anthropic")))?.request.body.location,
+          (yield* catalog.provider.get(Provider.ID.make("google-vertex-anthropic")))?.request.body.location,
         ).toBe("configured-location")
       }),
     ),
@@ -112,16 +112,16 @@ describe("GoogleVertexAnthropicPlugin", () => {
       },
       () =>
         Effect.gen(function* () {
-          const plugin = yield* PluginV2.Service
+          const plugin = yield* Plugin.Service
           const aisdk = yield* AISDK.Service
           yield* addPlugin(GoogleVertexAnthropicPlugin)
           const result = yield* aisdk.runSDK({
-            model: ModelV2.Info.make({
-              ...ModelV2.Info.empty(
-                ProviderV2.ID.make("google-vertex-anthropic"),
-                ModelV2.ID.make("claude-sonnet-4-5"),
+            model: Model.Info.make({
+              ...Model.Info.empty(
+                Provider.ID.make("google-vertex-anthropic"),
+                Model.ID.make("claude-sonnet-4-5"),
               ),
-              api: { id: ModelV2.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
+              api: { id: Model.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
             }),
             package: "@ai-sdk/google-vertex/anthropic",
             options: { name: "google-vertex-anthropic" },
@@ -138,16 +138,16 @@ describe("GoogleVertexAnthropicPlugin", () => {
       { GOOGLE_CLOUD_PROJECT: "project", GOOGLE_CLOUD_LOCATION: "cloud-location", VERTEX_LOCATION: "vertex-location" },
       () =>
         Effect.gen(function* () {
-          const plugin = yield* PluginV2.Service
+          const plugin = yield* Plugin.Service
           const aisdk = yield* AISDK.Service
           yield* addPlugin(GoogleVertexAnthropicPlugin)
           const result = yield* aisdk.runSDK({
-            model: ModelV2.Info.make({
-              ...ModelV2.Info.empty(
-                ProviderV2.ID.make("google-vertex-anthropic"),
-                ModelV2.ID.make("claude-sonnet-4-5"),
+            model: Model.Info.make({
+              ...Model.Info.empty(
+                Provider.ID.make("google-vertex-anthropic"),
+                Model.ID.make("claude-sonnet-4-5"),
               ),
-              api: { id: ModelV2.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
+              api: { id: Model.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
             }),
             package: "@ai-sdk/google-vertex/anthropic",
             options: { name: "google-vertex-anthropic" },
@@ -161,13 +161,13 @@ describe("GoogleVertexAnthropicPlugin", () => {
 
   it.effect("creates SDKs for google-vertex Anthropic models with multi-region endpoints", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin(GoogleVertexAnthropicPlugin)
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
-          api: { id: ModelV2.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex"), Model.ID.make("claude-sonnet-4-5")),
+          api: { id: Model.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "eu" },
@@ -180,13 +180,13 @@ describe("GoogleVertexAnthropicPlugin", () => {
 
   it.effect("keeps configured baseURL for google-vertex Anthropic models", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin(GoogleVertexAnthropicPlugin)
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
-          api: { id: ModelV2.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex"), Model.ID.make("claude-sonnet-4-5")),
+          api: { id: Model.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "eu", baseURL: "https://proxy.example/v1" },
@@ -195,24 +195,24 @@ describe("GoogleVertexAnthropicPlugin", () => {
     }),
   )
 
-  it.effect("selects google-vertex Anthropic language models through V2 plugins", () =>
+  it.effect("selects google-vertex Anthropic language models through plugins", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin(GoogleVertexPlugin)
       yield* addPlugin(GoogleVertexAnthropicPlugin)
       const sdkResult = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
-          api: { id: ModelV2.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex"), Model.ID.make(" claude-sonnet-4-5 ")),
+          api: { id: Model.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "us" },
       })
       const languageResult = yield* aisdk.runLanguage({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
-          api: { id: ModelV2.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex"), Model.ID.make(" claude-sonnet-4-5 ")),
+          api: { id: Model.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
         }),
         sdk: sdkResult.sdk,
         options: {},
@@ -227,14 +227,14 @@ describe("GoogleVertexAnthropicPlugin", () => {
 
   it.effect("trims model IDs before selecting language models", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const calls: string[] = []
       yield* addPlugin(GoogleVertexAnthropicPlugin)
       yield* aisdk.runLanguage({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex-anthropic"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
-          api: { id: ModelV2.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex-anthropic"), Model.ID.make(" claude-sonnet-4-5 ")),
+          api: { id: Model.ID.make(" claude-sonnet-4-5 "), type: "aisdk", package: "test-provider" },
         }),
         sdk: { languageModel: selector(calls) },
         options: {},
@@ -245,14 +245,14 @@ describe("GoogleVertexAnthropicPlugin", () => {
 
   it.effect("ignores non Vertex Anthropic providers for language selection", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const calls: string[] = []
       yield* addPlugin(GoogleVertexAnthropicPlugin)
       const result = yield* aisdk.runLanguage({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
-          api: { id: ModelV2.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("google-vertex"), Model.ID.make("claude-sonnet-4-5")),
+          api: { id: Model.ID.make("claude-sonnet-4-5"), type: "aisdk", package: "test-provider" },
         }),
         sdk: { languageModel: selector(calls) },
         options: {},

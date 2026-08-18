@@ -1,6 +1,6 @@
 import type { ServerApi } from "./server"
 import type { ServerProtocol } from "./server-protocol"
-import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { AgentPartInput, FilePartInput, OpencodeClient, Session, TextPartInput } from "@opencode-ai/sdk/api/client"
 import type {
   Project,
   ProjectCurrent,
@@ -84,9 +84,9 @@ function sessionInfo(session: Session): SessionInfo {
 }
 
 export function createCompatibleApi(input: CompatibleInput): CompatibleApi {
-  const v1 = createV1Api(input)
+  const legacyHttp = createLegacyHttpApi(input)
   return lazyApi(
-    input.protocol.then((protocol) => (protocol === "v1" ? v1 : input.current)),
+    input.protocol.then((protocol) => (protocol === "legacy" ? legacyHttp : input.current)),
     input.current,
   )
 }
@@ -122,7 +122,7 @@ function lazyApi<T extends object>(implementation: Promise<T>, shape: T): T {
   })
 }
 
-function createV1Api(input: CompatibleInput): CompatibleApi {
+function createLegacyHttpApi(input: CompatibleInput): CompatibleApi {
   const directory = (location?: { directory?: string }) => location?.directory ?? input.directory
   const legacy = (location?: { directory?: string }) => input.legacy(directory(location))
   const located = <T>(data: T, value?: { directory?: string }) => ({
@@ -273,7 +273,7 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
         })
       },
       compact: async (value: SessionCompactInput & { model?: LegacyPrompt["model"] }) => {
-        if (!value.model) throw new Error("A model is required to compact a V1 session")
+        if (!value.model) throw new Error("A model is required to compact a legacy session")
         await legacy().session.summarize({
           sessionID: value.sessionID,
           providerID: value.model.providerID,
@@ -494,41 +494,16 @@ function createV1Api(input: CompatibleInput): CompatibleApi {
     permission: {
       ...input.current.permission,
       async reply(value: Parameters<ServerApi["permission"]["reply"]>[0] & { location?: { directory?: string } }) {
-        // Prefer the session-scoped reply; fall back to the older session respond route.
-        try {
-          await input.current.permission.reply(value)
-          return
-        } catch {
-          await legacy(value.location).permission.respond({
-            sessionID: value.sessionID,
-            permissionID: value.requestID,
-            response: value.reply,
-            directory: directory(value.location),
-          })
-        }
+        await input.current.permission.reply(value)
       },
     },
     question: {
       ...input.current.question,
       async reply(value: Parameters<ServerApi["question"]["reply"]>[0]) {
-        // Prefer the session-scoped reply; fall back to the older question route.
-        try {
-          await input.current.question.reply(value)
-          return
-        } catch {
-          await legacy().question.reply({
-            requestID: value.requestID,
-            answers: value.answers.map((answer) => [...answer]),
-          })
-        }
+        await input.current.question.reply(value)
       },
       async reject(value: Parameters<ServerApi["question"]["reject"]>[0]) {
-        try {
-          await input.current.question.reject(value)
-          return
-        } catch {
-          await legacy().question.reject({ requestID: value.requestID })
-        }
+        await input.current.question.reject(value)
       },
     },
   }

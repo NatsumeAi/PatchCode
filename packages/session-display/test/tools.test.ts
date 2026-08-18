@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/api"
 import { buildToolViewModel } from "../src/build"
 import { DEFAULT_CONFIG } from "../src/config"
 import type { DisplayContext } from "../src/registry"

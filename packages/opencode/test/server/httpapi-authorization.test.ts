@@ -63,7 +63,7 @@ const kitSecretLayer = ServerAuth.Config.configLayer({ password: Option.some("se
 const it = testEffect(apiLayer.pipe(Layer.provide(noAuthLayer)))
 const itSecret = testEffect(apiLayer.pipe(Layer.provide(secretLayer)))
 const itKitSecret = testEffect(apiLayer.pipe(Layer.provide(kitSecretLayer)))
-const itV2Secret = testEffect(v2ApiLayer.pipe(Layer.provide(secretLayer)))
+const itSecret = testEffect(v2ApiLayer.pipe(Layer.provide(secretLayer)))
 
 const basic = (username: string, password: string) => ServerAuth.header({ username, password }) ?? ""
 
@@ -161,7 +161,7 @@ describe("HttpApi authorization middleware", () => {
     }),
   )
 
-  itV2Secret.live("returns bodyful v2 unauthorized errors", () =>
+  itSecret.live("returns bodyful v2 unauthorized errors", () =>
     Effect.gen(function* () {
       const response = yield* HttpClient.get("/api/probe")
       const body = yield* response.json

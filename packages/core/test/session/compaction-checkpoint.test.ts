@@ -7,12 +7,12 @@ import { DateTime, Effect, Layer, Schema } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { CompactionCheckpoint } from "@opencode-ai/core/session/compaction-checkpoint"
@@ -25,16 +25,16 @@ import { testEffect } from "../lib/effect"
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 
 const it = testEffect(Layer.empty)
 
-const withDb = (repo: string, sessionID: SessionV2.ID, body: Effect.Effect<void, unknown, Database.Service>) => {
+const withDb = (repo: string, sessionID: Session.ID, body: Effect.Effect<void, unknown, Database.Service>) => {
   const current = Layer.succeed(
     Location.Service,
     Location.Service.of(location({ directory: AbsolutePath.make(repo) })),
   )
-  const graph = AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node]), [[Location.node, current]])
+  const graph = AppNodeBuilder.build(LayerNode.group([Database.node, Event.node]), [[Location.node, current]])
   return Effect.gen(function* () {
     const { db } = yield* Database.Service
     yield* db
@@ -65,7 +65,7 @@ describe("W7 compaction checkpoint", () => {
   it.live("tape hash before compact equals after uncompact", () =>
     Effect.gen(function* () {
       const repo = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "oc-chk-")))
-      const sessionID = SessionV2.ID.make(`ses_chk_${Date.now()}`)
+      const sessionID = Session.ID.make(`ses_chk_${Date.now()}`)
       yield* withDb(
         repo,
         sessionID,
@@ -94,7 +94,7 @@ describe("W7 compaction checkpoint", () => {
   it.live("uncompact restores messages hidden by a later compaction row", () =>
     Effect.gen(function* () {
       const repo = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "oc-chk-msg-")))
-      const sessionID = SessionV2.ID.make(`ses_chk_msg_${Date.now()}`)
+      const sessionID = Session.ID.make(`ses_chk_msg_${Date.now()}`)
       yield* withDb(
         repo,
         sessionID,
@@ -167,7 +167,7 @@ describe("W7 compaction checkpoint", () => {
   it.live("/loop abort then uncompact keeps user_abort", () =>
     Effect.gen(function* () {
       const repo = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "oc-chk-abort-")))
-      const sessionID = SessionV2.ID.make(`ses_chk_abort_${Date.now()}`)
+      const sessionID = Session.ID.make(`ses_chk_abort_${Date.now()}`)
       yield* withDb(
         repo,
         sessionID,

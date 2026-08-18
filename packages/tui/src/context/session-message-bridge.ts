@@ -18,7 +18,7 @@ import type {
   TextPart,
   ToolPart,
   UserMessage,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { toEpochMsOr } from "../util/epoch-ms"
 
 export type LegacySessionMeta = {

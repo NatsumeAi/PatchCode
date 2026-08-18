@@ -1,6 +1,6 @@
-export * as WorkspaceV2 from "./workspace"
+export * as Workspace from "./workspace"
 
-import { Workspace } from "@opencode-ai/schema/workspace"
+import { Workspace as WorkspaceSchema } from "@opencode-ai/schema/workspace"
 
-export const ID = Workspace.ID
+export const ID = WorkspaceSchema.ID
 export type ID = typeof ID.Type

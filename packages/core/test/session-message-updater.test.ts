@@ -1,18 +1,18 @@
 import { expect, test } from "bun:test"
 import { DateTime, Effect } from "effect"
-import { EventV2 } from "@opencode-ai/core/event"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Session } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionMessageUpdater } from "@opencode-ai/core/session/message-updater"
 
-const sessionID = SessionV2.ID.make("ses_first_token")
+const sessionID = Session.ID.make("ses_first_token")
 const assistantMessageID = SessionMessage.ID.make("msg_assistant")
 const model = {
-  id: ModelV2.ID.make("model"),
-  providerID: ProviderV2.ID.make("provider"),
+  id: Model.ID.make("model"),
+  providerID: Provider.ID.make("provider"),
 }
 
 const apply = (state: SessionMessageUpdater.MemoryState, event: SessionEvent.Event) =>
@@ -21,7 +21,7 @@ const apply = (state: SessionMessageUpdater.MemoryState, event: SessionEvent.Eve
 test("text.started stamps assistant.time.first once", () => {
   const state: SessionMessageUpdater.MemoryState = { messages: [] }
   apply(state, {
-    id: EventV2.ID.create(),
+    id: CoreEvent.ID.create(),
     type: "session.next.step.started",
     data: {
       sessionID,
@@ -32,7 +32,7 @@ test("text.started stamps assistant.time.first once", () => {
     },
   })
   apply(state, {
-    id: EventV2.ID.create(),
+    id: CoreEvent.ID.create(),
     type: "session.next.text.started",
     data: {
       sessionID,
@@ -42,7 +42,7 @@ test("text.started stamps assistant.time.first once", () => {
     },
   })
   apply(state, {
-    id: EventV2.ID.create(),
+    id: CoreEvent.ID.create(),
     type: "session.next.reasoning.started",
     data: {
       sessionID,

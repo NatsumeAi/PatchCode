@@ -38,7 +38,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { internalTuiPlugins, type InternalTuiPlugin } from "./internal"
 import type { HostPluginApi, HostSlots } from "@opencode-ai/tui/plugin/slots"
 import { ConfigPlugin } from "@/config/plugin"
-import { ConfigPluginV1 } from "@opencode-ai/core/config/legacy/plugin"
+import { ConfigPluginInput } from "@opencode-ai/core/config/legacy/plugin"
 import { createCommandShim } from "@opencode-ai/tui/plugin/command-shim"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Effect } from "effect"
@@ -47,7 +47,7 @@ import { createPluginRuntime, type PluginRuntime, type TuiPluginHost } from "@op
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
 
 type PluginLoad = {
-  options: ConfigPluginV1.Options | undefined
+  options: ConfigPluginInput.Options | undefined
   spec: string
   target: string
   retry: boolean
@@ -966,7 +966,7 @@ async function installPluginBySpec(
   const tui = manifest.targets.find((item) => item.kind === "tui")
   if (tui) {
     const file = patch.items.find((item) => item.kind === "tui")?.file
-    const next = tui.opts ? ([spec, tui.opts] as ConfigPluginV1.Spec) : spec
+    const next = tui.opts ? ([spec, tui.opts] as ConfigPluginInput.Spec) : spec
     state.pending.set(spec, {
       spec: next,
       scope: global ? "global" : "local",

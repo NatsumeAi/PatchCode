@@ -1,31 +1,31 @@
-import type { FilePartSource } from "@opencode-ai/sdk/v2/client"
+import type { FilePartSource } from "@opencode-ai/sdk/api/client"
 
-type PromptInputV2PartBase = {
+type PromptInputPartBase = {
   content: string
   start: number
   end: number
 }
 
-export type PromptInputV2TextPart = PromptInputV2PartBase & {
+export type PromptInputTextPart = PromptInputPartBase & {
   type: "text"
 }
 
-export type PromptInputV2FilePart = PromptInputV2PartBase & {
+export type PromptInputFilePart = PromptInputPartBase & {
   type: "file"
   path: string
-  selection?: PromptInputV2Selection
+  selection?: PromptInputSelection
   mime?: string
   filename?: string
   url?: string
   source?: FilePartSource
 }
 
-export type PromptInputV2AgentPart = PromptInputV2PartBase & {
+export type PromptInputAgentPart = PromptInputPartBase & {
   type: "agent"
   name: string
 }
 
-export type PromptInputV2Attachment = {
+export type PromptInputAttachment = {
   type: "image"
   id: string
   filename: string
@@ -34,65 +34,65 @@ export type PromptInputV2Attachment = {
   dataUrl: string
 }
 
-export type PromptInputV2Prompt = (
-  | PromptInputV2TextPart
-  | PromptInputV2FilePart
-  | PromptInputV2AgentPart
-  | PromptInputV2Attachment
+export type PromptInputPrompt = (
+  | PromptInputTextPart
+  | PromptInputFilePart
+  | PromptInputAgentPart
+  | PromptInputAttachment
 )[]
 
-export type PromptInputV2Model = {
+export type PromptInputModel = {
   providerID: string
   modelID: string
   variant?: string | null
 }
 
-export type PromptInputV2Selection = {
+export type PromptInputSelection = {
   startLine: number
   startChar: number
   endLine: number
   endChar: number
 }
 
-export type PromptInputV2Comment = {
+export type PromptInputComment = {
   type: "file"
   key: string
   path: string
-  selection?: PromptInputV2Selection
+  selection?: PromptInputSelection
   comment?: string
   commentID?: string
   commentOrigin?: "review" | "file"
   preview?: string
 }
 
-export type PromptInputV2PersistedState = {
-  prompt: PromptInputV2Prompt
+export type PromptInputPersistedState = {
+  prompt: PromptInputPrompt
   cursor?: number
-  model?: PromptInputV2Model
+  model?: PromptInputModel
   context: {
-    items: PromptInputV2Comment[]
+    items: PromptInputComment[]
   }
 }
 
-export type PromptInputV2HistoryEntry = {
-  prompt: PromptInputV2Prompt
+export type PromptInputHistoryEntry = {
+  prompt: PromptInputPrompt
   metadata?: unknown
 }
 
-export type PromptInputV2History = {
-  entries: (mode: "normal" | "shell") => PromptInputV2HistoryEntry[]
-  add: (prompt: PromptInputV2Prompt, mode: "normal" | "shell") => void
+export type PromptInputHistory = {
+  entries: (mode: "normal" | "shell") => PromptInputHistoryEntry[]
+  add: (prompt: PromptInputPrompt, mode: "normal" | "shell") => void
   capture?: () => unknown
   restore?: (metadata: unknown) => void
 }
 
-export type PromptInputV2Option = {
+export type PromptInputOption = {
   id: string
   label: string
   providerID?: string
 }
 
-export type PromptInputV2Suggestion = {
+export type PromptInputSuggestion = {
   id: string
   kind: "agent" | "command" | "file" | "reference" | "resource"
   label: string
@@ -102,5 +102,5 @@ export type PromptInputV2Suggestion = {
   path?: string
   keybind?: string[]
   recent?: boolean
-  mention?: PromptInputV2FilePart | PromptInputV2AgentPart
+  mention?: PromptInputFilePart | PromptInputAgentPart
 }

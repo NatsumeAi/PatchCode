@@ -2,11 +2,11 @@ export * as MoveSession from "./move-session"
 
 import { Context, DateTime, Effect, Layer, Schema } from "effect"
 import { makeGlobalNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { Git } from "../git"
 import { Location } from "../location"
-import { ProjectV2 } from "../project"
-import { SessionV2 } from "../session"
+import { Project } from "../project"
+import { Session } from "../session"
 import { SessionEvent } from "../session/event"
 import { SessionSchema } from "../session/schema"
 import { SessionStore } from "../session/store"
@@ -28,8 +28,8 @@ export type Input = typeof Input.Type
 export class DestinationProjectMismatchError extends Schema.TaggedErrorClass<DestinationProjectMismatchError>()(
   "MoveSession.DestinationProjectMismatchError",
   {
-    expected: ProjectV2.ID,
-    actual: ProjectV2.ID,
+    expected: Project.ID,
+    actual: Project.ID,
   },
 ) {}
 
@@ -54,7 +54,7 @@ export class ResetSourceChangesError extends Schema.TaggedErrorClass<ResetSource
 ) {}
 
 export type Error =
-  | SessionV2.NotFoundError
+  | Session.NotFoundError
   | DestinationProjectMismatchError
   | CaptureChangesError
   | ApplyChangesError
@@ -70,13 +70,13 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const git = yield* Git.Service
-    const events = yield* EventV2.Service
-    const project = yield* ProjectV2.Service
+    const events = yield* Event.Service
+    const project = yield* Project.Service
     const sessions = yield* SessionStore.Service
 
     const moveSession = Effect.fn("MoveSession.moveSession")(function* (input: Input) {
       const current = yield* sessions.get(input.sessionID)
-      if (!current) return yield* new SessionV2.NotFoundError({ sessionID: input.sessionID })
+      if (!current) return yield* new Session.NotFoundError({ sessionID: input.sessionID })
       const directory = AbsolutePath.make(input.destination.directory)
       if (current.location.directory === directory) return
 
@@ -144,5 +144,5 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Git.node, EventV2.node, ProjectV2.node, SessionStore.node],
+  deps: [Git.node, Event.node, Project.node, SessionStore.node],
 })

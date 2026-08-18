@@ -8,8 +8,8 @@ export type {
   ResolvedTheme,
   ColorValue,
   CssVarRef,
-  V2ColorValue,
-  ResolvedV2Theme,
+  KitColorValue,
+  ResolvedKitTheme,
 } from "./types"
 
 export {
@@ -32,7 +32,7 @@ export {
 } from "./color"
 
 export { resolveThemeVariant, resolveTheme, themeToCss } from "./resolve"
-export { resolveThemeVariantV2, resolveThemeV2, themeV2ToCss, generateV2Primitives } from "./v2/resolve"
+export { resolveKitThemeVariant, resolveKitTheme, themeKitToCss, generateKitPrimitives } from "./v2/resolve"
 export { applyTheme, loadThemeFromUrl, getActiveTheme, removeTheme, setColorScheme } from "./loader"
 export { ThemeProvider, useTheme, type ColorScheme } from "./context"
 

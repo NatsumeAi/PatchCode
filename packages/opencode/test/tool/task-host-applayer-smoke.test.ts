@@ -23,7 +23,7 @@ describe("AppLayer / real taskHostNode smoke", () => {
       Effect.gen(function* () {
         const host = yield* CoreTaskTool.HostService
         // Real host without a full V2 session context fails at runtime — but the
-        // failure must be "missing SessionExecution/AgentV2/parent", never the
+        // failure must be "missing SessionExecution/Agent/parent", never the
         // placeholder stub message from core TaskTool.hostNode.
         const exit = yield* host
           .run({
@@ -44,7 +44,7 @@ describe("AppLayer / real taskHostNode smoke", () => {
           // Real bridge is installed: it progresses past "host missing" into
           // session/execution/agent resolution.
           expect(pretty).toMatch(
-            /SessionExecution|AgentV2|Parent session not found|session not found|Unknown subagent/i,
+            /SessionExecution|Agent|Parent session not found|session not found|Unknown subagent/i,
           )
         }
       }).pipe(Effect.provide(AppLayer)),

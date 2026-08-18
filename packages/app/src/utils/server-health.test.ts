@@ -29,7 +29,7 @@ describe("checkServerHealth", () => {
     expect(request?.pathname).toBe("/api/health")
   })
 
-  test("falls back to the V1 health endpoint", async () => {
+  test("falls back to the legacy health endpoint", async () => {
     const paths: string[] = []
     const fetch = (async (input: RequestInfo | URL) => {
       const url = input instanceof URL ? input : new URL(input instanceof Request ? input.url : input)

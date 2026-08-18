@@ -4,7 +4,7 @@ const emptyList = new Set(["/skill", "/command", "/lsp", "/formatter", "/vcs/sta
 const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mcp", "/experimental/resource"])
 
 export interface MockServerConfig {
-  protocol?: "v1" | "v2"
+  protocol?: "legacy" | "current"
   provider: unknown | (() => unknown)
   integrationMethods?: Record<string, unknown[]>
   onConnectKey?: (input: { integrationID: string; body: unknown }) => void
@@ -73,8 +73,8 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
       )
     }
     if (path === "/global/health")
-      return config.protocol === "v2" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
-    if (path === "/api/health" && config.protocol === "v2")
+      return config.protocol === "current" ? json(route, {}, undefined, 404) : json(route, { healthy: true })
+    if (path === "/api/health" && config.protocol === "current")
       return json(route, { healthy: true, version: "2.0.0", pid: 1 })
     if (path === "/experimental/capabilities") return json(route, { backgroundSubagents: true })
     if (path === "/provider")

@@ -1,7 +1,7 @@
 import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
-import type { ProviderV2 } from "@opencode-ai/core/provider"
+import type { Provider as CoreProvider } from "@opencode-ai/core/provider"
 import { isContextOverflow } from "@opencode-ai/llm"
 
 export class HeaderTimeoutError extends Error {
@@ -29,7 +29,7 @@ function isOpenAiErrorRetryable(e: APICallError) {
 
 // Providers not reliably handled in this function:
 // - z.ai: can accept overflow silently (needs token-count/context-window checks)
-function message(providerID: ProviderV2.ID, e: APICallError) {
+function message(providerID: CoreProvider.ID, e: APICallError) {
   return iife(() => {
     const msg = e.message
     if (msg === "") {
@@ -162,7 +162,7 @@ export type ParsedAPICallError =
       metadata?: Record<string, string>
     }
 
-export function parseAPICallError(input: { providerID: ProviderV2.ID; error: APICallError }): ParsedAPICallError {
+export function parseAPICallError(input: { providerID: CoreProvider.ID; error: APICallError }): ParsedAPICallError {
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)
   if (isContextOverflow(m) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {

@@ -4,14 +4,14 @@ import { asc, eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Model } from "@opencode-ai/core/model"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { Prompt } from "@opencode-ai/core/session/prompt"
@@ -23,11 +23,11 @@ import { SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-
 import { testEffect } from "./lib/effect"
 import { Snapshot } from "@opencode-ai/core/snapshot"
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, SessionProjector.node])))
-const sessionsLayer = AppNodeBuilder.build(SessionV2.node, [[SessionExecution.node, SessionExecution.noopLayer]])
-const sessionID = SessionV2.ID.make("ses_projector_test")
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, Event.node, SessionProjector.node])))
+const sessionsLayer = AppNodeBuilder.build(Session.node, [[SessionExecution.node, SessionExecution.noopLayer]])
+const sessionID = Session.ID.make("ses_projector_test")
 const created = DateTime.makeUnsafe(0)
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
 
 const assistantRow = (
@@ -67,7 +67,7 @@ describe("SessionProjector", () => {
         .insert(SessionMessageTable)
         .values([assistantRow(boundary, 1), assistantRow(SessionMessage.ID.make("msg_later"), 2)])
         .run()
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       yield* events.publish(SessionEvent.RevertEvent.Staged, {
         sessionID,
         timestamp: DateTime.makeUnsafe(1),
@@ -115,7 +115,7 @@ describe("SessionProjector", () => {
           revert: { messageID: SessionMessage.ID.make("msg_gone"), files: [] },
         })
         .run()
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       yield* events.publish(SessionEvent.RevertEvent.Committed, {
         sessionID,
         messageID: SessionMessage.ID.make("msg_gone"),
@@ -145,7 +145,7 @@ describe("SessionProjector", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
 
       yield* events.publish(
         SessionEvent.Prompted,
@@ -156,7 +156,7 @@ describe("SessionProjector", () => {
           prompt: Prompt.make({ text: "first" }),
           delivery: "steer",
         },
-        { id: EventV2.ID.make("evt_z") },
+        { id: Event.ID.make("evt_z") },
       )
       yield* events.publish(
         SessionEvent.Prompted,
@@ -167,10 +167,10 @@ describe("SessionProjector", () => {
           prompt: Prompt.make({ text: "second" }),
           delivery: "steer",
         },
-        { id: EventV2.ID.make("evt_a") },
+        { id: Event.ID.make("evt_a") },
       )
 
-      const sessions = yield* SessionV2.Service
+      const sessions = yield* Session.Service
       const firstPage = yield* sessions.messages({ sessionID, limit: 1, order: "asc" })
       expect(firstPage.map((message) => (message.type === "user" ? message.text : message.type))).toEqual(["first"])
       const secondPage = yield* sessions.messages({
@@ -214,7 +214,7 @@ describe("SessionProjector", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       const id = SessionMessage.ID.make("msg_admitted")
       const admitted = yield* SessionInput.admit(db, events, {
         id,
@@ -259,7 +259,7 @@ describe("SessionProjector", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
 
       yield* events.publish(SessionEvent.AgentSwitched, {
         sessionID,
@@ -396,7 +396,7 @@ describe("SessionProjector", () => {
         })
         .run()
         .pipe(Effect.orDie)
-      const events = yield* EventV2.Service
+      const events = yield* Event.Service
       const id = SessionMessage.ID.make("msg_creator_collision")
 
       yield* events.publish(SessionEvent.Synthetic, { sessionID, messageID: id, timestamp: created, text: "keep me" })
@@ -471,7 +471,7 @@ describe("SessionProjector", () => {
         .run()
         .pipe(Effect.orDie)
 
-      const service = yield* EventV2.Service
+      const service = yield* Event.Service
       yield* service.publish(SessionEvent.Step.Ended, {
         sessionID,
         timestamp: DateTime.makeUnsafe(1),
@@ -526,7 +526,7 @@ describe("SessionProjector", () => {
         .run()
         .pipe(Effect.orDie)
 
-      const service = yield* EventV2.Service
+      const service = yield* Event.Service
       yield* service.publish(SessionEvent.Step.Ended, {
         sessionID,
         timestamp: DateTime.makeUnsafe(1),
@@ -588,7 +588,7 @@ describe("SessionProjector", () => {
         .run()
         .pipe(Effect.orDie)
 
-      const service = yield* EventV2.Service
+      const service = yield* Event.Service
       yield* service.publish(SessionEvent.Text.Started, {
         sessionID,
         assistantMessageID: SessionMessage.ID.make("msg_assistant_completed"),

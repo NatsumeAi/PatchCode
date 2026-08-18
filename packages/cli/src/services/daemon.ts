@@ -1,6 +1,6 @@
 import { Global } from "@opencode-ai/core/global"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { createOpencodeClient } from "@opencode-ai/sdk/api/client"
 import { ServerAuth } from "@opencode-ai/server/auth"
 import { Context, Effect, FileSystem, Layer, Option, Schedule, Schema, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
@@ -66,7 +66,7 @@ export const layer = Layer.effect(
     const healthy = Effect.fnUntraced(function* () {
       const info = yield* registration()
       const client = yield* createClient(info.url)
-      const response = yield* Effect.tryPromise(() => client.v2.health.get({ signal: AbortSignal.timeout(2_000) }))
+      const response = yield* Effect.tryPromise(() => client.api.health.get({ signal: AbortSignal.timeout(2_000) }))
       if (response.data?.healthy === true) return info
       return yield* Effect.fail(new Error("Registered server is not healthy"))
     })

@@ -1,6 +1,6 @@
 import { onMount } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import type { PromptInputV2Attachment, PromptInputV2Prompt } from "./types"
+import type { PromptInputAttachment, PromptInputPrompt } from "./types"
 
 const accepted = [
   "image/png",
@@ -61,12 +61,12 @@ const accepted = [
 ]
 
 type PromptTarget = {
-  current: () => PromptInputV2Prompt
+  current: () => PromptInputPrompt
   cursor: () => number | undefined
-  set: (prompt: PromptInputV2Prompt, cursor?: number) => void
+  set: (prompt: PromptInputPrompt, cursor?: number) => void
 }
 
-export type PromptInputV2AttachmentConfig = {
+export type PromptInputAttachmentConfig = {
   picker?: (
     options: { defaultPath?: string; multiple?: boolean; accept?: string[] },
     onFile: (file: File) => Promise<unknown>,
@@ -79,12 +79,12 @@ export type PromptInputV2AttachmentConfig = {
   getPathForFile?: (file: File) => string
 }
 
-export function createPromptInputV2Attachments(
-  input: PromptInputV2AttachmentConfig & {
+export function createPromptInputAttachments(
+  input: PromptInputAttachmentConfig & {
     capture: () => PromptTarget
     editor: () => HTMLElement | undefined
     focusEditor: () => void
-    addPart: (part: PromptInputV2Prompt[number]) => boolean
+    addPart: (part: PromptInputPrompt[number]) => boolean
     setDraggingType: (type: "image" | "@mention" | null) => void
   },
 ) {
@@ -103,7 +103,7 @@ export function createPromptInputV2Attachments(
     }
     const url = await dataUrl(file, mime)
     if (!url) return false
-    const attachment: PromptInputV2Attachment = {
+    const attachment: PromptInputAttachment = {
       type: "image",
       id: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2),
       filename: file.name,

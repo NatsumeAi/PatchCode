@@ -4,16 +4,16 @@ import os from "node:os"
 import path from "node:path"
 import { eq } from "drizzle-orm"
 import { Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -32,10 +32,10 @@ const dummy = Tool.make({
   execute: () => Effect.succeed({ ok: true }),
 })
 
-const sessionID = SessionV2.ID.make(`ses_hooks_sql_${Date.now()}`)
+const sessionID = Session.ID.make(`ses_hooks_sql_${Date.now()}`)
 const call = {
   sessionID,
-  agent: AgentV2.ID.make("build"),
+  agent: Agent.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_hooks_sql"),
   call: { type: "tool-call" as const, id: "call-dummy", name: "dummy", input: {} },
 }
@@ -51,7 +51,7 @@ describe("W5 SessionStart SQL reconnect", () => {
         Location.Service.of(location({ directory: AbsolutePath.make(repo) })),
       )
       const graph = AppNodeBuilder.build(
-        LayerNode.group([Database.node, EventV2.node, ToolRegistry.node, ToolRegistry.toolsNode, Hooks.node]),
+        LayerNode.group([Database.node, Event.node, ToolRegistry.node, ToolRegistry.toolsNode, Hooks.node]),
         [
           [Location.node, current],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],

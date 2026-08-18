@@ -1,4 +1,4 @@
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -13,7 +13,7 @@ export const ProjectCopyApi = HttpApi.make("projectCopyName").add(
   HttpApiGroup.make("projectCopyName")
     .add(
       HttpApiEndpoint.post("generateName", "/experimental/project/:projectID/copy/generate-name", {
-        params: { projectID: ProjectV2.ID },
+        params: { projectID: CoreProject.ID },
         query: WorkspaceRoutingQuery,
         payload: GenerateNamePayload,
         success: Schema.Struct({ name: Schema.String }),

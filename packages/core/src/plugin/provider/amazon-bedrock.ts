@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
 type MantleSDK = {
   languageModel: (modelID: string) => LanguageModelV3
@@ -113,7 +113,7 @@ export const AmazonBedrockPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.amazonBedrock) return
+        if (evt.model.providerID !== Provider.ID.amazonBedrock) return
         if (evt.model.api.type === "aisdk" && evt.model.api.package === "@ai-sdk/amazon-bedrock/mantle") {
           evt.language = selectMantleModel(evt.sdk, evt.model.api.id)
           return

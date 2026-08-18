@@ -1,9 +1,9 @@
 import { and, asc, eq } from "drizzle-orm"
 import { Effect } from "effect"
 import { Database } from "../database/database"
-import { EventV2 } from "../event"
+import { Event as CoreEvent } from "../event"
 import { Location } from "../location"
-import { SessionV1 } from "../session-legacy"
+import { SessionWire } from "../session-legacy"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { MessageTable, PartTable, SessionMessageTable } from "./sql"
@@ -18,10 +18,10 @@ export function getForkedTitle(title: string): string {
   return `${title} (fork #1)`
 }
 
-/** Copy V1 message/part rows and SessionMessageTable up to (exclusive) messageID onto a new session. Does not copy PromptTape. */
+/** Copy legacy message/part rows and SessionMessageTable up to (exclusive) messageID onto a new session. Does not copy PromptTape. */
 export const copyPrefix = Effect.fn("Session.copyPrefix")(function* (input: {
   db: Database.Interface["db"]
-  events: EventV2.Interface
+  events: CoreEvent.Interface
   from: SessionSchema.ID
   to: SessionSchema.ID
   messageID?: SessionMessage.ID
@@ -44,14 +44,14 @@ export const copyPrefix = Effect.fn("Session.copyPrefix")(function* (input: {
     idMap.set(String(row.id), String(newID))
     const info = {
       ...row.data,
-      id: SessionV1.MessageID.make(String(newID)),
+      id: SessionWire.MessageID.make(String(newID)),
       sessionID: input.to,
-    } as SessionV1.Info
+    } as SessionWire.Info
     if (info.role === "assistant" && info.parentID) {
       const mapped = idMap.get(String(info.parentID))
-      if (mapped) info.parentID = SessionV1.MessageID.make(mapped)
+      if (mapped) info.parentID = SessionWire.MessageID.make(mapped)
     }
-    yield* input.events.publish(SessionV1.Event.MessageUpdated, { sessionID: input.to, info }, options)
+    yield* input.events.publish(SessionWire.Event.MessageUpdated, { sessionID: input.to, info }, options)
 
     const parts = yield* input.db
       .select()
@@ -64,16 +64,16 @@ export const copyPrefix = Effect.fn("Session.copyPrefix")(function* (input: {
     for (const part of parts) {
       const p = {
         ...part.data,
-        id: SessionV1.PartID.ascending(),
-        messageID: SessionV1.MessageID.make(String(newID)),
+        id: SessionWire.PartID.ascending(),
+        messageID: SessionWire.MessageID.make(String(newID)),
         sessionID: input.to,
-      } as SessionV1.Part
+      } as SessionWire.Part
       if (p.type === "compaction" && p.tail_start_id) {
         const mapped = idMap.get(String(p.tail_start_id))
-        p.tail_start_id = mapped ? SessionV1.MessageID.make(mapped) : undefined
+        p.tail_start_id = mapped ? SessionWire.MessageID.make(mapped) : undefined
       }
       yield* input.events.publish(
-        SessionV1.Event.PartUpdated,
+        SessionWire.Event.PartUpdated,
         { sessionID: input.to, part: structuredClone(p), time: Date.now() },
         options,
       )

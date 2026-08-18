@@ -3,9 +3,9 @@ import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { DockTray } from "@opencode-ai/ui/dock-surface"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 
@@ -108,7 +108,7 @@ export function SessionRevertDock(props: {
     >
       <div
         data-component="session-revert-dock"
-        class="w-full overflow-hidden rounded-xl border-[0.5px] border-v2-border-border-base bg-v2-background-bg-layer-01"
+        class="w-full overflow-hidden rounded-xl border-[0.5px] border-kit-border-border-base bg-kit-background-bg-layer-01"
       >
         <div
           class="flex h-[42px] items-center gap-2 pl-4 pr-2"
@@ -117,24 +117,24 @@ export function SessionRevertDock(props: {
           onClick={toggle}
           onKeyDown={onHeaderKeyDown}
         >
-          <IconV2 name="outline-reset" size="normal" class="text-v2-icon-icon-muted" />
+          <KitIcon name="outline-reset" size="normal" class="text-kit-icon-icon-muted" />
           <span
             classList={{
               "font-[440] shrink-0 cursor-default text-[13px] leading-5 tracking-[-0.04px]": true,
-              "text-v2-text-text-base": !store.collapsed,
-              "text-v2-text-text-muted": store.collapsed,
+              "text-kit-text-text-base": !store.collapsed,
+              "text-kit-text-text-muted": store.collapsed,
             }}
           >
             {label()}
           </span>
           <Show when={store.collapsed && preview()}>
-            <span class="min-w-0 flex-1 truncate cursor-default text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint">
+            <span class="min-w-0 flex-1 truncate cursor-default text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-faint">
               {preview()}
             </span>
           </Show>
           <div class="ml-auto shrink-0">
-            <IconButtonV2
-              icon={<IconV2 name="outline-chevron-down" size="small" />}
+            <KitIconButton
+              icon={<KitIcon name="outline-chevron-down" size="small" />}
               size="large"
               variant="ghost-muted"
               style={{ transform: `rotate(${store.collapsed ? 180 : 0}deg)` }}
@@ -164,10 +164,10 @@ export function SessionRevertDock(props: {
             <For each={props.items}>
               {(item) => (
                 <div class="flex h-6 min-w-0 items-center gap-2">
-                  <span class="min-w-0 flex-1 truncate text-[13px] font-[400] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
+                  <span class="min-w-0 flex-1 truncate text-[13px] font-[400] leading-5 tracking-[-0.04px] text-kit-text-text-muted">
                     {item.text}
                   </span>
-                  <ButtonV2
+                  <KitButton
                     size="small"
                     variant="neutral"
                     class="shrink-0"
@@ -175,7 +175,7 @@ export function SessionRevertDock(props: {
                     onClick={() => props.onRestore(item.id)}
                   >
                     {language.t("session.revertDock.restore")}
-                  </ButtonV2>
+                  </KitButton>
                 </div>
               )}
             </For>

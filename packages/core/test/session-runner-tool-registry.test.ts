@@ -1,10 +1,10 @@
 import { describe, expect } from "bun:test"
 import { Tool } from "@opencode-ai/core/tool/tool"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -38,10 +38,10 @@ const integrated = testEffect(
   ]),
 )
 const identity = {
-  agent: AgentV2.ID.make("build"),
+  agent: Agent.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_registry"),
 }
-const sessionID = SessionV2.ID.make("ses_registry")
+const sessionID = Session.ID.make("ses_registry")
 const call = (name: string, id = `call-${name}`): ToolRegistry.ExecuteInput => ({
   sessionID,
   ...identity,

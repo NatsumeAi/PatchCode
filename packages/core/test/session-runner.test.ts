@@ -19,15 +19,15 @@ import { makeLocationNode } from "@opencode-ai/core/effect/app-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Permission } from "@opencode-ai/core/permission"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { Question } from "@opencode-ai/core/question"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { Session as CoreSession } from "@opencode-ai/core/session"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { Snapshot } from "@opencode-ai/core/snapshot"
 import { ContextSnapshotDecodeError } from "@opencode-ai/core/session/error"
 import { SessionEvent } from "@opencode-ai/core/session/event"
@@ -50,7 +50,7 @@ import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { OverflowContinue } from "@opencode-ai/core/session/overflow-continue"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigCompaction } from "@opencode-ai/core/config/compaction"
 import { Catalog } from "@opencode-ai/core/catalog"
@@ -67,9 +67,8 @@ import { SystemContext } from "@opencode-ai/core/system-context"
 import { SystemContextRegistry } from "@opencode-ai/core/system-context/registry"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { Location } from "@opencode-ai/core/location"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
 import { MemoryFlush } from "@opencode-ai/core/memory/flush"
 import { MemoryRecall } from "@opencode-ai/core/memory/recall"
 import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect"
@@ -203,7 +202,7 @@ let systemBaseline = "Initial context"
 let systemRemoved = false
 let systemUnavailable = false
 let systemLoadHook = Effect.void
-const skillBaselines = new Map<AgentV2.ID, string>()
+const skillBaselines = new Map<Agent.ID, string>()
 const systemContext = Layer.effectDiscard(
   SystemContextRegistry.Service.pipe(
     Effect.flatMap((registry) =>
@@ -301,8 +300,8 @@ const execution = Layer.effect(
   Effect.gen(function* () {
     const sessionRunner = yield* SessionRunner.Service
     const store = yield* SessionStore.Service
-    const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: Effect.fnUntraced(function* (sessionID: SessionV2.ID, force) {
+    const coordinator = yield* SessionRunCoordinator.make<CoreSession.ID, SessionRunner.RunError>({
+      drain: Effect.fnUntraced(function* (sessionID: CoreSession.ID, force) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* Effect.die(`Session not found: ${sessionID}`)
         // Provide the memory flush service directly so the runner's guarded
@@ -326,12 +325,12 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       Database.node,
-      EventV2.node,
+      Event.node,
       Question.node,
       SessionProjector.node,
       SessionStore.node,
       ApplicationTools.node,
-      AgentV2.node,
+      Agent.node,
       ToolRegistry.node,
       ToolRegistry.toolsNode,
       echoNode,
@@ -344,7 +343,7 @@ const it = testEffect(
       SessionRunnerLLM.node,
       SessionRuntime.node,
       SessionExecution.node,
-      SessionV2.node,
+      CoreSession.node,
     ]),
     [
       [LayerNodePlatform.llmClient, client],
@@ -362,10 +361,10 @@ const it = testEffect(
     ],
   ),
 )
-const sessionID = SessionV2.ID.make("ses_runner_test")
-const otherSessionID = SessionV2.ID.make("ses_runner_other")
+const sessionID = CoreSession.ID.make("ses_runner_test")
+const otherSessionID = CoreSession.ID.make("ses_runner_other")
 
-const insertSession = (id: SessionV2.ID) =>
+const insertSession = (id: CoreSession.ID) =>
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     yield* db
@@ -425,7 +424,7 @@ const providerUnavailable = () =>
 
 const setupOverflowRecovery = Effect.gen(function* () {
   yield* setup
-  const session = yield* SessionV2.Service
+  const session = yield* CoreSession.Service
   response = fragmentFixture("text", "text-earlier", ["Earlier answer"]).completeEvents
   yield* session.prompt({
     sessionID,
@@ -485,7 +484,7 @@ const messageTexts = (request: LLMRequest, role: "user" | "system") => {
 const userTexts = (request: LLMRequest) => messageTexts(request, "user")
 const systemTexts = (request: LLMRequest) => messageTexts(request, "system")
 const turnRequests = () => requests.filter((request) => !isTitleRequest(request))
-const epochSeq = (id: SessionV2.ID) =>
+const epochSeq = (id: CoreSession.ID) =>
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     const row = yield* db
@@ -496,15 +495,15 @@ const epochSeq = (id: SessionV2.ID) =>
       .pipe(Effect.orDie)
     return row?.seq ?? 0
   })
-const sessionTape = (id: SessionV2.ID = sessionID) =>
+const sessionTape = (id: CoreSession.ID = sessionID) =>
   Effect.gen(function* () {
     return PromptTapeStore.get(id, yield* epochSeq(id))
   })
 
-const replaySessionProjection = (id: SessionV2.ID) =>
+const replaySessionProjection = (id: CoreSession.ID) =>
   Effect.gen(function* () {
     const { db } = yield* Database.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     const recorded = yield* db
       .select()
       .from(EventTable)
@@ -530,7 +529,7 @@ const replaySessionProjection = (id: SessionV2.ID) =>
 type FragmentKind = "text" | "reasoning" | "tool input"
 
 type FragmentFixture = {
-  readonly delta: EventV2.Definition
+  readonly delta: Event.Definition
   readonly completeEvents: LLMEvent[]
   readonly partialEvents: LLMEvent[]
   readonly expectedAssistant: unknown
@@ -605,13 +604,13 @@ const fragmentFixture = (kind: FragmentKind, id: string, chunks: readonly string
 const verifyEphemeralDeltas = (kind: FragmentKind) =>
   Effect.gen(function* () {
     yield* setup
-    const session = yield* SessionV2.Service
+    const session = yield* CoreSession.Service
     const prompt = `Stream ${kind}`
     const chunks = Array.from({ length: 32 }, (_, index) => `${index},`)
     const fixture = fragmentFixture(kind, fragmentID(kind, "many"), chunks)
     const expectedContext = [{ type: "user", text: prompt }, fixture.expectedAssistant]
     yield* session.prompt({ sessionID, prompt: Prompt.make({ text: prompt }), resume: false })
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     const live = yield* events.subscribe(fixture.delta).pipe(Stream.take(32), Stream.runCollect, Effect.forkScoped)
     yield* Effect.yieldNow
     response = fixture.completeEvents
@@ -622,7 +621,7 @@ const verifyEphemeralDeltas = (kind: FragmentKind) =>
     const deltas = yield* db
       .select({ type: EventTable.type })
       .from(EventTable)
-      .where(eq(EventTable.type, EventV2.versionedType(fixture.delta.type, 1)))
+      .where(eq(EventTable.type, Event.versionedType(fixture.delta.type, 1)))
       .all()
       .pipe(Effect.orDie)
     expect(Array.from(yield* Fiber.join(live))).toHaveLength(32)
@@ -637,7 +636,7 @@ const verifyEphemeralDeltas = (kind: FragmentKind) =>
 const verifyPartialFlushOnFailure = (kind: FragmentKind) =>
   Effect.gen(function* () {
     yield* setup
-    const session = yield* SessionV2.Service
+    const session = yield* CoreSession.Service
     const prompt = `Fail after ${kind}`
     const fixture = fragmentFixture(kind, fragmentID(kind, "partial"), ["Partial"])
     const failure = providerUnavailable()
@@ -659,7 +658,7 @@ const verifyPartialFlushOnFailure = (kind: FragmentKind) =>
 const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
   Effect.gen(function* () {
     yield* setup
-    const session = yield* SessionV2.Service
+    const session = yield* CoreSession.Service
     const prompt = `Interrupt after ${kind}`
     const fixture = fragmentFixture(kind, fragmentID(kind, "interrupted"), ["Partial"])
     const streamed = yield* Deferred.make<void>()
@@ -689,9 +688,9 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
   })
 
 describe("SessionRunnerLLM", () => {
-  const awaitSessionTitle = (id: SessionV2.ID, expected: string) =>
+  const awaitSessionTitle = (id: CoreSession.ID, expected: string) =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       for (let i = 0; i < 50; i++) {
         const info = yield* session.get(id)
         if (info.title === expected) return info
@@ -714,7 +713,7 @@ describe("SessionRunnerLLM", () => {
         .run()
         .pipe(Effect.orDie)
       titleResponse = "Fix auth token refresh"
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       response = fragmentFixture("text", "text-main", ["Done"]).completeEvents
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Please fix auth token refresh" }), resume: false })
       yield* session.resume(sessionID)
@@ -737,7 +736,7 @@ describe("SessionRunnerLLM", () => {
         .run()
         .pipe(Effect.orDie)
       titleResponse = "First topic wins"
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       response = fragmentFixture("text", "text-main", ["Done"]).completeEvents
       // Two steers before drain: promoteSteers publishes both in one turn.
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First topic" }), resume: false })
@@ -757,7 +756,7 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       yield* setup
       const applicationTools = yield* ApplicationTools.Service
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const contexts: Tool.Context[] = []
       yield* applicationTools.register({
         application_context: Tool.make({
@@ -788,7 +787,7 @@ describe("SessionRunnerLLM", () => {
       expect(contexts).toEqual([
         {
           sessionID,
-          agent: AgentV2.ID.make("build"),
+          agent: Agent.ID.make("build"),
           assistantMessageID: expect.stringMatching(/^msg_/),
           toolCallID: "call-application",
         },
@@ -812,7 +811,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("starts a real runner turn after default prompt recording", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       requests.length = 0
       responses = undefined
       streamGate = undefined
@@ -827,10 +826,10 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("streams one request with registry definitions from chronological V2 user history", () =>
+  it.effect("streams one request with registry definitions from chronological user history", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
 
@@ -855,7 +854,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("retries the first provider turn after system context becomes available", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       const messageID = SessionMessage.ID.create()
       systemUnavailable = true
@@ -887,8 +886,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupts a source Location runner after a Session moves", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       requests.length = 0
@@ -920,7 +919,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("fails gracefully when a stored context snapshot cannot be decoded", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = []
@@ -945,7 +944,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("reuses one durable baseline after the context producer changes", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -980,14 +979,14 @@ describe("SessionRunnerLLM", () => {
   it.effect("includes the effective default agent system before durable context", () =>
     Effect.gen(function* () {
       yield* setup
-      const agent = yield* AgentV2.Service
+      const agent = yield* Agent.Service
       yield* agent.transform((editor) =>
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.system = "Build agent instructions"
           agent.mode = "primary"
         }),
       )
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1001,19 +1000,19 @@ describe("SessionRunnerLLM", () => {
   it.effect("uses the configured default agent system for omitted-agent sessions", () =>
     Effect.gen(function* () {
       yield* setup
-      const agent = yield* AgentV2.Service
+      const agent = yield* Agent.Service
       yield* agent.transform((editor) => {
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.system = "Build agent instructions"
           agent.mode = "primary"
         })
-        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+        editor.update(Agent.ID.make("reviewer"), (agent) => {
           agent.system = "Reviewer instructions"
           agent.mode = "primary"
         })
-        editor.default(AgentV2.ID.make("reviewer"))
+        editor.default(Agent.ID.make("reviewer"))
       })
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1029,9 +1028,9 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       yield* setup
       const { db } = yield* Database.Service
-      const agent = yield* AgentV2.Service
+      const agent = yield* Agent.Service
       yield* agent.transform((editor) =>
-        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+        editor.update(Agent.ID.make("reviewer"), (agent) => {
           agent.system = "Reviewer instructions"
           agent.mode = "primary"
         }),
@@ -1042,7 +1041,7 @@ describe("SessionRunnerLLM", () => {
         .where(eq(SessionTable.id, sessionID))
         .run()
         .pipe(Effect.orDie)
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1057,15 +1056,15 @@ describe("SessionRunnerLLM", () => {
   it.effect("updates selected-agent skill guidance after an agent switch", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
-      skillBaselines.set(AgentV2.ID.make("build"), "Build skills")
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
+      skillBaselines.set(Agent.ID.make("build"), "Build skills")
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
       response = []
       yield* session.resume(sessionID)
-      skillBaselines.set(AgentV2.ID.make("reviewer"), "Reviewer skills")
+      skillBaselines.set(Agent.ID.make("reviewer"), "Reviewer skills")
       yield* events.publish(SessionEvent.AgentSwitched, {
         sessionID,
         messageID: SessionMessage.ID.create(),
@@ -1086,10 +1085,10 @@ describe("SessionRunnerLLM", () => {
   it.effect("keeps the sampled agent when selection changes during observation", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
-      skillBaselines.set(AgentV2.ID.make("build"), "Build skills")
-      skillBaselines.set(AgentV2.ID.make("reviewer"), "Reviewer skills")
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
+      skillBaselines.set(Agent.ID.make("build"), "Build skills")
+      skillBaselines.set(Agent.ID.make("reviewer"), "Reviewer skills")
       let switched = false
       systemLoadHook = Effect.suspend(() => {
         if (switched) return Effect.void
@@ -1118,8 +1117,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("keeps the sampled model when selection changes during model resolution", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       let switched = false
       modelResolveHook = Effect.suspend(() => {
         if (switched) return Effect.void
@@ -1129,7 +1128,7 @@ describe("SessionRunnerLLM", () => {
             sessionID,
             messageID: SessionMessage.ID.create(),
             timestamp: DateTime.makeUnsafe(1),
-            model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
+            model: { id: CoreModel.ID.make("replacement"), providerID: CoreProvider.ID.make("fake") },
           })
           .pipe(Effect.asVoid)
       })
@@ -1146,7 +1145,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("admits removed context as a chronological System message", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1166,8 +1165,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("keeps the baseline and chronological System updates after a model switch", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1180,7 +1179,7 @@ describe("SessionRunnerLLM", () => {
         sessionID,
         messageID: SessionMessage.ID.create(),
         timestamp: DateTime.makeUnsafe(1),
-        model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("replacement"), providerID: CoreProvider.ID.make("fake") },
       })
       systemBaseline = "Replacement context"
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
@@ -1211,8 +1210,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("preserves the baseline while context is temporarily unavailable", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1222,7 +1221,7 @@ describe("SessionRunnerLLM", () => {
         sessionID,
         messageID: SessionMessage.ID.create(),
         timestamp: DateTime.makeUnsafe(1),
-        model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("replacement"), providerID: CoreProvider.ID.make("fake") },
       })
       systemUnavailable = true
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
@@ -1246,8 +1245,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("keeps origin baseline after completed compaction and admits context as TAIL", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1288,7 +1287,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("automatically compacts into a completed summary and retained recent turn", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       response = fragmentFixture("text", "text-first", ["Earlier answer"]).completeEvents
       yield* session.prompt({
         sessionID,
@@ -1367,7 +1366,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("flushes memory when automatic compaction triggers", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       flushCalls.length = 0
       response = fragmentFixture("text", "text-first", ["Earlier answer"]).completeEvents
       yield* session.prompt({
@@ -1577,8 +1576,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("preserves effective System updates while compaction rebaseline is blocked", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
 
       requests.length = 0
@@ -1613,7 +1612,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("projects reasoning and tool events without executing or continuing tools", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use tools" }), resume: false })
 
       requests.length = 0
@@ -1711,7 +1710,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("continues with reloaded history after durably settling one local tool call", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo this" }), resume: false })
 
       requests.length = 0
@@ -1769,7 +1768,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("second tool-loop request compiled body is a prefix of the first", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo once" }), resume: false })
       requests.length = 0
       responses = [
@@ -1798,8 +1797,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("reloads a model switch before a tool-driven continuation turn", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo this" }), resume: false })
 
       requests.length = 0
@@ -1825,7 +1824,7 @@ describe("SessionRunnerLLM", () => {
         sessionID,
         messageID: SessionMessage.ID.create(),
         timestamp: DateTime.makeUnsafe(1),
-        model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("replacement"), providerID: CoreProvider.ID.make("fake") },
       })
       systemBaseline = "Replacement context"
       yield* Deferred.succeed(toolExecutionGate, undefined)
@@ -1843,7 +1842,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("restores durable reasoning provider metadata in a second-turn request", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Think first" }), resume: false })
 
       requests.length = 0
@@ -1897,7 +1896,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("replays durable provider-executed tool results inline in a second-turn request", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Search first" }), resume: false })
 
       requests.length = 0
@@ -1938,7 +1937,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("starts recorded local tools eagerly and awaits settlement before continuing", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo five times" }), resume: false })
 
       requests.length = 0
@@ -1999,7 +1998,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("settles repeated provider-local tool call IDs against their owning assistant messages", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Echo twice" }), resume: false })
 
       requests.length = 0
@@ -2087,7 +2086,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("joins concurrent resume calls into one active provider run", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run once" }), resume: false })
 
       requests.length = 0
@@ -2126,7 +2125,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("/loop abort on the session-owned runtime stops the live drain", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep going" }), resume: false })
 
@@ -2182,7 +2181,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("steers an active provider turn with newly recorded prompts", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2225,7 +2224,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("promotes queued input after continuation ends", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2272,7 +2271,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("preserves durable queued input for a later wake after interruption", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt current work" }), resume: false })
 
@@ -2315,7 +2314,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("preserves durable steering input for a later resume after interruption", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt current work" }), resume: false })
 
@@ -2358,7 +2357,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("promotes queued inputs one at a time in FIFO order", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2401,7 +2400,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("promotes queued input after steering continuation ends", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start steering" }), resume: false })
       yield* session.prompt({
         sessionID,
@@ -2435,7 +2434,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("promotes steers before the next queued input", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2500,7 +2499,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("coalesces multiple active steering prompts into one continuation turn", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2540,7 +2539,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("runs steering input accepted while the active provider turn fails", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
 
       requests.length = 0
@@ -2572,8 +2571,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails local tools left running by a prior process before continuing", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Recover interrupted tool" }), resume: false })
       yield* SessionInput.promoteSteers((yield* Database.Service).db, events, sessionID, Number.MAX_SAFE_INTEGER)
       const assistantMessageID = SessionMessage.ID.create()
@@ -2582,7 +2581,7 @@ describe("SessionRunnerLLM", () => {
         assistantMessageID,
         timestamp: yield* DateTime.now,
         agent: "build",
-        model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("fake-model"), providerID: CoreProvider.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
@@ -2632,8 +2631,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails hosted tools left running by a prior process before continuing inline", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({
         sessionID,
         prompt: Prompt.make({ text: "Recover interrupted hosted tool" }),
@@ -2646,7 +2645,7 @@ describe("SessionRunnerLLM", () => {
         assistantMessageID,
         timestamp: yield* DateTime.now,
         agent: "build",
-        model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("fake-model"), providerID: CoreProvider.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
@@ -2687,8 +2686,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails pending tool input left by a prior process before continuing", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({
         sessionID,
         prompt: Prompt.make({ text: "Recover interrupted tool input" }),
@@ -2701,7 +2700,7 @@ describe("SessionRunnerLLM", () => {
         assistantMessageID,
         timestamp: yield* DateTime.now,
         agent: "build",
-        model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
+        model: { id: CoreModel.ID.make("fake-model"), providerID: CoreProvider.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
@@ -2726,7 +2725,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("promotes the first queued input when woken while idle", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({
         sessionID,
         prompt: Prompt.make({ text: "Wait in queue" }),
@@ -2746,8 +2745,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("retries inbox input after prompt projection rolls back", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       const defect = new Error("fail after prompt promotion")
       let fail = true
       yield* events.project(SessionEvent.Prompted, () => (fail ? Effect.die(defect) : Effect.void))
@@ -2772,8 +2771,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("does not strand a committed promotion when a post-commit listener defects", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* events.listen((event) =>
         event.type === SessionEvent.Prompted.type ? Effect.die("fail after prompt promotion commits") : Effect.void,
       )
@@ -2795,7 +2794,7 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       yield* setup
       yield* insertSession(otherSessionID)
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run first" }), resume: false })
       yield* session.prompt({ sessionID: otherSessionID, prompt: Prompt.make({ text: "Run second" }), resume: false })
 
@@ -2827,7 +2826,7 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       yield* setup
       yield* insertSession(otherSessionID)
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Run first tool" }), resume: false })
       yield* session.prompt({ sessionID: otherSessionID, prompt: Prompt.make({ text: "Run second tool" }), resume: false })
 
@@ -2895,11 +2894,11 @@ describe("SessionRunnerLLM", () => {
   it.effect("bounds 64-character session prompt cache keys", () =>
     Effect.gen(function* () {
       yield* setup
-      const longSessionID = SessionV2.ID.make(`ses_${"a".repeat(64)}`)
-      const otherLongSessionID = SessionV2.ID.make(`ses_${"b".repeat(64)}`)
+      const longSessionID = CoreSession.ID.make(`ses_${"a".repeat(64)}`)
+      const otherLongSessionID = CoreSession.ID.make(`ses_${"b".repeat(64)}`)
       yield* insertSession(longSessionID)
       yield* insertSession(otherLongSessionID)
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({
         sessionID: longSessionID,
         prompt: Prompt.make({ text: "Run long session" }),
@@ -2925,7 +2924,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("fans out one failed run and allows a later retry", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Retry after failure" }), resume: false })
 
       requests.length = 0
@@ -2958,7 +2957,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably settles local tool failures before continuing", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call missing" }), resume: false })
 
       requests.length = 0
@@ -3004,7 +3003,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("returns unexpected local tool defects to the model and continues", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call defect" }), resume: false })
 
       requests.length = 0
@@ -3052,7 +3051,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("returns policy-blocked tools to the model and continues", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const registry = yield* ToolRegistry.Service
       yield* registry.register({
         blocked: Tool.make({
@@ -3101,7 +3100,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupts runner continuation when permission approval is declined", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const registry = yield* ToolRegistry.Service
       yield* registry.register({
         declined: Tool.make({
@@ -3145,7 +3144,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("returns permission corrections to the model and continues", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const registry = yield* ToolRegistry.Service
       yield* registry.register({
         corrected: Tool.make({
@@ -3194,7 +3193,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupts runner continuation when a question is dismissed", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const registry = yield* ToolRegistry.Service
       const questions = yield* Question.Service
       yield* registry.register({
@@ -3250,7 +3249,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("awaits started local tools before surfacing provider stream failure", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Settle before failing" }), resume: false })
       const failure = providerUnavailable()
       toolExecutionGate = yield* Deferred.make<void>()
@@ -3284,7 +3283,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails blocked local tools when a provider turn is interrupted", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt blocked tool" }), resume: false })
       executions.length = 0
       toolExecutionGate = yield* Deferred.make<void>()
@@ -3334,7 +3333,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupts a blocked provider turn without local tool execution", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt provider" }), resume: false })
       requests.length = 0
       response = []
@@ -3357,7 +3356,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails blocked local tools when interrupted while awaiting settlement", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt tool settlement" }), resume: false })
       executions.length = 0
       toolExecutionGate = yield* Deferred.make<void>()
@@ -3394,13 +3393,13 @@ describe("SessionRunnerLLM", () => {
   it.effect("forces a text response on an agent's configured final step", () =>
     Effect.gen(function* () {
       yield* setup
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) =>
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.steps = 2
         }),
       )
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Finish at the limit" }), resume: false })
 
       requests.length = 0
@@ -3443,13 +3442,13 @@ describe("SessionRunnerLLM", () => {
   it.effect("resets the configured step allowance when steering input promotes", () =>
     Effect.gen(function* () {
       yield* setup
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) =>
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.steps = 2
         }),
       )
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start work" }), resume: false })
 
       requests.length = 0
@@ -3495,7 +3494,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("projects provider errors as terminal assistant step failures", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail durably" }), resume: false })
 
       requests.length = 0
@@ -3517,7 +3516,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("projects provider errors emitted before assistant step start", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail before step" }), resume: false })
 
       requests.length = 0
@@ -3536,7 +3535,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("does not recover context overflow after durable assistant output", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail after output" }), resume: false })
 
       requests.length = 0
@@ -3565,7 +3564,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("projects raw provider stream failures as terminal assistant step failures", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail raw stream durably" }), resume: false })
       const failure = providerUnavailable()
       // streamFailure is re-read every llm.stream() so W1 drain-internal retries
@@ -3584,7 +3583,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("does not continue automatically after a provider error follows a local tool call", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({
         sessionID,
         prompt: Prompt.make({ text: "Do not continue failed provider" }),
@@ -3609,7 +3608,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails a hosted tool when its provider errors before returning a result", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail hosted tool durably" }), resume: false })
 
       requests.length = 0
@@ -3640,7 +3639,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails a hosted tool left unresolved at normal provider EOF", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail hosted tool at EOF" }), resume: false })
       response = [
         LLMEvent.stepStart({ index: 0 }),
@@ -3665,7 +3664,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("durably fails a hosted tool left unresolved by a raw provider stream failure", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({
         sessionID,
         prompt: Prompt.make({ text: "Fail hosted tool on raw failure" }),
@@ -3702,7 +3701,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("keeps interleaved assistant text blocks separate", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Two blocks" }), resume: false })
 
       responses = undefined
@@ -3750,7 +3749,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("rejects duplicate streamed text starts", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       responses = undefined
       streamGate = undefined
       streamStarted = undefined
@@ -3765,7 +3764,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("transitions streamed raw tool input to parsed called input", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call provider tool" }), resume: false })
 
       responses = undefined
@@ -3794,7 +3793,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("rejects malformed streamed tool input ordering", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       responses = undefined
       streamGate = undefined
       streamStarted = undefined
@@ -3811,7 +3810,7 @@ describe("SessionRunnerLLM", () => {
     () =>
       Effect.gen(function* () {
         yield* setup
-        const session = yield* SessionV2.Service
+        const session = yield* CoreSession.Service
         const runtime = yield* SessionRuntime.Service
         const instance = yield* runtime.getOrCreate(sessionID)
 
@@ -3864,7 +3863,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("onTurnEnd records Waiting after a turn that does not need continuation", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Settle now" }), resume: false })
@@ -3882,7 +3881,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("onTurnEnd keeps the drain running across a tool-call turn and settles Waiting at the end", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Use a tool" }), resume: false })
@@ -3909,7 +3908,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("budget exhaustion consumes grace once then requests terminal budget_exhausted", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* instance.budget.setCap(1)
@@ -3940,7 +3939,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("a failed provider stream does not invoke verifier audit", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* instance.goalStore.set("Finish the parser")
@@ -3967,7 +3966,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("transient provider failure retries then succeeds without terminal", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Retry then ok" }), resume: false })
@@ -4007,7 +4006,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("a non-retryable provider failure requests terminal unrecoverable_failure", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail badly" }), resume: false })
@@ -4027,7 +4026,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("429 RateLimit retries once then succeeds (exactly 2 stream calls)", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Rate limit then ok" }), resume: false })
@@ -4067,7 +4066,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("content policy failure does not retry (single stream call)", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Blocked" }), resume: false })
@@ -4093,7 +4092,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("stops retry when terminal is requested during backoff", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Abort mid retry" }), resume: false })
@@ -4119,7 +4118,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("resume after settle does not re-origin compiled.messages[0]", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = fragmentFixture("text", "text-a", ["A"]).completeEvents
       yield* session.resume(sessionID)
@@ -4144,7 +4143,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("memory recall is a user append and does not rewrite compiled.messages[0]", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = fragmentFixture("text", "text-a", ["A"]).completeEvents
       yield* session.resume(sessionID)
@@ -4165,7 +4164,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("steer append grows compiled by one user with frozen system/tools", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Start working" }), resume: false })
       requests.length = 0
       responses = [
@@ -4200,18 +4199,18 @@ describe("SessionRunnerLLM", () => {
   it.effect("child session compiled.messages[0] is not the parent system", () =>
     Effect.gen(function* () {
       yield* setup
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) => {
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.system = "parent-agent-system"
           agent.mode = "primary"
         })
-        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+        editor.update(Agent.ID.make("reviewer"), (agent) => {
           agent.system = "child-agent-system"
           agent.mode = "primary"
         })
       })
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const location = Location.Ref.make({ directory: AbsolutePath.make("/project") })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Parent" }), resume: false })
       response = fragmentFixture("text", "text-parent", ["P"]).completeEvents
@@ -4221,7 +4220,7 @@ describe("SessionRunnerLLM", () => {
         parentID: sessionID,
         location,
         title: "child-tape",
-        agent: AgentV2.ID.make("reviewer"),
+        agent: Agent.ID.make("reviewer"),
       })
       requests.length = 0
       yield* session.prompt({ sessionID: child.id, prompt: Prompt.make({ text: "Child" }), resume: false })
@@ -4239,8 +4238,8 @@ describe("SessionRunnerLLM", () => {
   it.effect("shell output is one extra user-shaped message on the next compiled", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Before shell" }), resume: false })
       response = fragmentFixture("text", "text-before", ["ok"]).completeEvents
       yield* session.resume(sessionID)
@@ -4272,7 +4271,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupt mid-tools does not append a half-built assistant to the tape", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Interrupt tool settlement" }), resume: false })
       executions.length = 0
       toolExecutionGate = yield* Deferred.make<void>()
@@ -4298,7 +4297,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("permission correction continues as prefix plus one tool error", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const registry = yield* ToolRegistry.Service
       yield* registry.register({
         corrected: Tool.make({
@@ -4342,13 +4341,13 @@ describe("SessionRunnerLLM", () => {
   it.effect("switchModel drops the tape so the next generate origins for the new model", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = fragmentFixture("text", "text-a", ["A"]).completeEvents
       yield* session.resume(sessionID)
       yield* session.switchModel({
         sessionID,
-        model: ModelV2.Ref.make({ id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") }),
+        model: CoreModel.Ref.make({ id: CoreModel.ID.make("replacement"), providerID: CoreProvider.ID.make("fake") }),
       })
       expect(yield* sessionTape()).toBeUndefined()
       requests.length = 0
@@ -4364,7 +4363,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("switchAgent drops the tape so the next generate origins for the new agent", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = fragmentFixture("text", "text-a", ["A"]).completeEvents
       yield* session.resume(sessionID)
@@ -4383,7 +4382,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("terminal abort does not rewrite compiled.messages[0]", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runtime = yield* SessionRuntime.Service
       const instance = yield* runtime.getOrCreate(sessionID)
       yield* instance.goalStore.set("Finish the parser")
@@ -4408,7 +4407,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("busy revert leaves the session tape unchanged", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Busy revert" }), resume: false })
       streamGate = yield* Deferred.make<void>()
       streamStarted = yield* Deferred.make<void>()
@@ -4430,7 +4429,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("session title patch leaves tape bytes identical", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Title patch" }), resume: false })
       response = fragmentFixture("text", "text-title-patch", ["ok"]).completeEvents
@@ -4444,7 +4443,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("noReply resume:false does not origin a second tape", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep" }), resume: false })
       response = fragmentFixture("text", "text-keep", ["ok"]).completeEvents
       yield* session.resume(sessionID)
@@ -4459,7 +4458,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("rapid-fire two users is one origin and two user appends", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "One" }), resume: false })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Two" }), resume: false })
       response = fragmentFixture("text", "text-rapid", ["ok"]).completeEvents
@@ -4475,7 +4474,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("manual compact clears the session tape", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const runner = yield* SessionRunner.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Before compact" }), resume: false })
       response = fragmentFixture("text", "text-before-compact", ["ok"]).completeEvents
@@ -4492,7 +4491,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("revert commit truncates the tape so deleted assistant bytes are not resent", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep this user" }), resume: false })
       response = fragmentFixture("text", "text-reverted-asst", ["this-assistant-must-die"]).completeEvents
       yield* session.resume(sessionID)
@@ -4527,7 +4526,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("unrevert restores the pre-truncate tape so the assistant stays on the next generate", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep this user" }), resume: false })
       response = fragmentFixture("text", "text-unrevert-asst", ["this-assistant-survives-unrevert"]).completeEvents
       yield* session.resume(sessionID)
@@ -4555,7 +4554,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("eight identical tool fingerprints abort without rewriting compiled.messages[0]", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Loop echo" }), resume: false })
       const calls = Array.from({ length: 8 }, (_, i) =>
         LLMEvent.toolCall({ id: `doom-${i}`, name: "echo", input: { text: "same" } }),
@@ -4576,7 +4575,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("clearAll then loadTape restores the persisted marker from the epoch row", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const { db } = yield* Database.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Persist" }), resume: false })
       response = fragmentFixture("text", "text-persist", ["ok"]).completeEvents
@@ -4601,7 +4600,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("fork copies history onto a new tape key without touching the parent tape", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Parent fork" }), resume: false })
       response = fragmentFixture("text", "text-parent-fork", ["kept"]).completeEvents
       yield* session.resume(sessionID)
@@ -4629,7 +4628,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("fork at messageID copies the exclusive prefix only", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Keep" }), resume: false })
       response = fragmentFixture("text", "text-fork-keep", ["a"]).completeEvents
       yield* session.resume(sessionID)
@@ -4647,7 +4646,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("busy fork leaves the parent tape unchanged", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Busy fork" }), resume: false })
       streamGate = yield* Deferred.make<void>()
       streamStarted = yield* Deferred.make<void>()
@@ -4666,7 +4665,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("middle deleteMessage drops the tape so the next generate hydrates", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
       response = fragmentFixture("text", "text-del-first", ["a"]).completeEvents
       yield* session.resume(sessionID)
@@ -4692,7 +4691,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("busy deleteMessage leaves the session tape unchanged", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Busy delete" }), resume: false })
       streamGate = yield* Deferred.make<void>()
       streamStarted = yield* Deferred.make<void>()
@@ -4713,7 +4712,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("removePart drops the tape", () =>
     Effect.gen(function* () {
       yield* setup
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Part drop" }), resume: false })
       response = fragmentFixture("text", "text-part-drop", ["ok"]).completeEvents
       yield* session.resume(sessionID)
@@ -4723,7 +4722,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.removePart({
         sessionID,
         messageID: user!.id,
-        partID: SessionV1.PartID.ascending(),
+        partID: SessionWire.PartID.ascending(),
       })
       expect(yield* sessionTape()).toBeUndefined()
     }),

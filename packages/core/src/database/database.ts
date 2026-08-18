@@ -17,7 +17,7 @@ export interface Interface {
   db: DatabaseShape
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/storage/Database") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/storage/Database") {}
 
 /**
  * W7: ensure FTS5 + triggers exist even when empty-DB bootstrap marks migrations

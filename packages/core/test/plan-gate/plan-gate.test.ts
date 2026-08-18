@@ -3,13 +3,13 @@ import path from "node:path"
 import { ChildProcess } from "effect/unstable/process"
 import { Effect, Layer, Stream } from "effect"
 import { eq } from "drizzle-orm"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { Config } from "@opencode-ai/core/config"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { FileMutation } from "@opencode-ai/core/file-mutation"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
@@ -17,7 +17,7 @@ import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { PlanGate, isPlanPath } from "@opencode-ai/core/session/plan-gate"
@@ -34,7 +34,7 @@ import { testEffect } from "../lib/effect"
 import { toolIdentity, executeTool } from "../lib/tool"
 import fs from "node:fs/promises"
 
-const sessionID = SessionV2.ID.make("ses_plan_gate")
+const sessionID = Session.ID.make("ses_plan_gate")
 
 describe("W8b isPlanPath", () => {
   test("only the two plan trees match", () => {
@@ -107,7 +107,7 @@ describe("W8b PlanGate mutations", () => {
           const graph = AppNodeBuilder.build(
             LayerNode.group([
               Database.node,
-              EventV2.node,
+              Event.node,
               ToolRegistry.node,
               ToolRegistry.toolsNode,
               LocationMutation.node,
@@ -194,7 +194,7 @@ describe("W8b PlanGate mutations", () => {
           const graph = AppNodeBuilder.build(
             LayerNode.group([
               Database.node,
-              EventV2.node,
+              Event.node,
               ToolRegistry.node,
               ToolRegistry.toolsNode,
               LocationMutation.node,
@@ -259,10 +259,10 @@ describe("W8b PlanGate mutations", () => {
         const graph = AppNodeBuilder.build(
           LayerNode.group([
             Database.node,
-            EventV2.node,
+            Event.node,
             SessionStore.node,
             PermissionSaved.node,
-            AgentV2.node,
+            Agent.node,
             Permission.node,
             ToolRegistry.node,
             ToolRegistry.toolsNode,
@@ -283,9 +283,9 @@ describe("W8b PlanGate mutations", () => {
         return Effect.gen(function* () {
           const { db } = yield* Database.Service
           yield* setupSession(db, tmp.path, 1, "build")
-          const agents = yield* AgentV2.Service
+          const agents = yield* Agent.Service
           yield* agents.transform((editor) =>
-            editor.update(AgentV2.ID.make("build"), (agent) => {
+            editor.update(Agent.ID.make("build"), (agent) => {
               agent.mode = "primary"
               agent.permissions = [{ action: "*", resource: "*", effect: "allow" }]
             }),

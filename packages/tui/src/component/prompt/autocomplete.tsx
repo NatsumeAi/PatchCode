@@ -22,7 +22,7 @@ import type { PromptInfo } from "../../prompt/history"
 import { useFrecency } from "../../prompt/frecency"
 import { useBindings, useCommandSlashes, useOpencodeModeStack } from "../../keymap"
 import { displayCharAt, mentionTriggerIndex } from "../../prompt/display"
-import type { FileSystemEntry } from "@opencode-ai/sdk/v2"
+import type { FileSystemEntry } from "@opencode-ai/sdk/api"
 
 function removeLineRange(input: string) {
   const hashIndex = input.lastIndexOf("#")
@@ -321,7 +321,7 @@ export function Autocomplete(props: {
       const { lineRange, baseQuery } = extractLineRange(input.query ?? "")
 
       // Get files from SDK
-      const result = await sdk.client.v2.fs.find({
+      const result = await sdk.client.api.fs.find({
         query: baseQuery,
         limit: "20",
         location: {

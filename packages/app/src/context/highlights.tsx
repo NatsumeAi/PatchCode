@@ -144,7 +144,10 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
     const platform = usePlatform()
     const dialog = useDialog()
     const settings = useSettings()
-    const [store, setStore, _, ready] = persisted("highlights.v1", createStore<Store>({ version: undefined }))
+    const [store, setStore, _, ready] = persisted(
+      { key: "highlights", legacy: ["highlights.v1"] },
+      createStore<Store>({ version: undefined }),
+    )
 
     const [range, setRange] = createStore({
       from: undefined as string | undefined,

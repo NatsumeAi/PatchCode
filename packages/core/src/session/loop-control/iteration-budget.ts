@@ -5,7 +5,7 @@ import { makeGlobalNode } from "../../effect/app-node"
 
 /**
  * IterationBudget caps the iteration count of a long-running agent loop
- * (the opencode v2 session runner). The budget is set up once per session-drain
+ * (the session runner). The budget is set up once per session-drain
  * scope and may be consumed / refunded thread-safely from any fiber via
  * Effect.SynchronizedRef.
  *

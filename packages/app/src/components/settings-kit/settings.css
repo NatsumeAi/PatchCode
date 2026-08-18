@@ -1,0 +1,729 @@
+@import "@opencode-ai/ui/kit/text-input.css";
+@import "@opencode-ai/ui/kit/button.css";
+
+[data-component="tabs"][data-variant="settings"] {
+  height: 100%;
+}
+
+[data-component="dialog"][data-variant="settings"] [data-slot="dialog-container"] {
+  background: var(--kit-background-bg-base);
+}
+
+[data-component="dialog"][data-variant="settings"] [data-slot="dialog-body"] {
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings-kit-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  user-select: none;
+}
+
+.settings-kit-panel :is(input, textarea, [contenteditable="true"]) {
+  user-select: text;
+}
+
+.settings-kit-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-kit-tab-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 40px 40px 32px;
+  background: linear-gradient(to bottom, var(--kit-background-bg-base) calc(100% - 24px), transparent);
+}
+
+.settings-kit-tab-title {
+  font-size: 15px;
+  font-weight: 640;
+  line-height: 1;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  width: 100%;
+  padding: 0 40px 40px;
+}
+
+[data-slot="settings-kit-row-description"] a.settings-kit-link {
+  color: var(--kit-text-text-accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+[data-slot="settings-kit-row-description"] a.settings-kit-link:hover {
+  color: var(--kit-text-text-accent-hover);
+}
+
+.settings-kit-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-kit-section-title {
+  padding-bottom: 8px;
+  font-size: 15px;
+  font-weight: 640;
+  line-height: 1;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-section-title + [data-component="settings-kit-list"] {
+  margin-top: -4px;
+  margin-bottom: 0;
+}
+
+[data-component="settings-kit-list"] {
+  border-radius: 8px;
+  background-color: var(--kit-background-bg-layer-01);
+  padding-inline: 20px;
+  box-shadow: inset 0 0 0 0.5px var(--kit-border-border-muted);
+}
+
+.settings-kit-interface-feature [data-component="settings-kit-list"] {
+  background-color: var(--kit-background-bg-base);
+  box-shadow: var(--kit-elevation-raised);
+}
+
+[data-component="settings-kit-row"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding-block: 20px;
+  border-bottom: 0.5px solid var(--kit-border-border-base);
+}
+
+[data-component="settings-kit-row"]:last-child {
+  border-bottom: none;
+}
+
+@media (min-width: 640px) {
+  [data-component="settings-kit-row"] {
+    flex-wrap: nowrap;
+  }
+}
+
+[data-slot="settings-kit-row-copy"] {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+[data-slot="settings-kit-row-title"] {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  letter-spacing: -0.04px;
+  color: var(--kit-text-text-base);
+  font-variation-settings: "slnt" 0;
+}
+
+[data-slot="settings-kit-row-description"] {
+  margin-block: -3.5px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--kit-text-text-muted);
+}
+
+[data-slot="settings-kit-row-control"] {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+[data-slot="settings-kit-row-control"] > div:has([data-component="switch"]),
+[data-slot="settings-kit-row-control"] > [data-component="switch"] {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+}
+
+@media (min-width: 640px) {
+  [data-slot="settings-kit-row-control"] {
+    width: auto;
+    flex-shrink: 0;
+  }
+}
+
+[data-slot="settings-kit-row-control"] [data-component="text-input"] {
+  width: 100%;
+}
+
+[data-component="dialog"][data-variant="settings"] [data-component="select-kit-root"] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+[data-component="dialog"][data-variant="settings"] [data-component="button"] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+[data-component="tabs"][data-variant="settings"][data-orientation="vertical"] [data-slot="tabs-kit-list"] {
+  background-color: var(--kit-background-bg-layer-01);
+}
+
+@media (max-width: 639px) {
+  .settings-kit[data-component="tabs"][data-variant="settings"][data-orientation="vertical"]
+    [data-slot="tabs-kit-list"] {
+    width: 144px;
+    min-width: 144px;
+    padding-inline: 8px;
+  }
+}
+
+.settings-kit-nav-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 4px 4px;
+  user-select: none;
+}
+
+.settings-kit-nav-footer > span {
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-faint);
+}
+
+.settings-kit-legacy-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+.settings-kit-legacy-panel [data-component="dialog"] {
+  display: contents;
+}
+
+.settings-kit-provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 20px;
+  border-bottom: 0.5px solid var(--kit-border-border-base);
+}
+
+.settings-kit-provider-row:last-child {
+  border-bottom: none;
+}
+
+@media (min-width: 640px) {
+  .settings-kit-provider-row {
+    flex-wrap: nowrap;
+  }
+}
+
+.settings-kit-providers [data-component="provider-icon"] {
+  color: var(--kit-icon-icon-base);
+}
+
+.settings-kit-provider-lead {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.settings-kit-provider-lead:not(:has(.settings-kit-provider-copy)) {
+  align-items: center;
+}
+
+.settings-kit-provider-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-kit-provider-main {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-kit-provider-name {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 16px;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-provider-description {
+  margin-block: -3.5px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  color: var(--kit-text-text-muted);
+}
+
+.settings-kit-provider-empty {
+  padding-block: 20px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+}
+
+.settings-kit-provider-env-hint {
+  padding-right: 12px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  cursor: default;
+}
+
+.group:hover .settings-kit-provider-env-hint {
+  opacity: 1;
+}
+
+.settings-kit-providers-view-all {
+  margin-top: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--kit-text-text-accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-kit-providers-view-all:hover {
+  color: var(--kit-text-text-accent-hover);
+}
+
+.settings-kit-tab-body.settings-kit-providers {
+  gap: 32px;
+}
+
+.settings-kit-tab-header:has(+ .settings-kit-tab-body.settings-kit-providers) {
+  padding-bottom: 32px;
+}
+
+.settings-kit-providers .settings-kit-section-title {
+  padding-bottom: 0;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+}
+
+.settings-kit-providers .settings-kit-section-title + [data-component="settings-kit-list"] {
+  margin-top: 16px;
+}
+
+.settings-kit-tab-header.settings-kit-tab-header--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 32px;
+}
+
+.settings-kit-tab-header--stacked > .settings-kit-tab-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-kit-tab-search {
+  position: relative;
+  width: 100%;
+}
+
+.settings-kit-tab-search [data-component="text-input"] {
+  width: 100%;
+}
+
+.settings-kit-tab-search [data-slot="text-input-kit-input"] {
+  padding-right: 28px;
+}
+
+.settings-kit-tab-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  z-index: 1;
+  transform: translateY(-50%);
+}
+
+.settings-kit-models {
+  gap: 12px;
+}
+
+.settings-kit-models .settings-kit-section {
+  gap: 12px;
+}
+
+.settings-kit-models .settings-kit-section[data-expanded] {
+  padding-bottom: 12px;
+}
+
+.settings-kit-models-group-header {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+
+.settings-kit-models-group-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-models-group-trigger:focus-visible {
+  outline: 2px solid var(--kit-border-border-focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .settings-kit-models-group-trigger:not(:disabled):hover {
+    background-color: var(--kit-background-bg-layer-02);
+  }
+}
+
+.settings-kit-models-group-trigger:disabled {
+  cursor: default;
+}
+
+.settings-kit-models-group-chevron {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--kit-icon-icon-muted);
+}
+
+.settings-kit-models-group-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-kit-models .settings-kit-section-title {
+  padding-bottom: 0;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 16px;
+}
+
+.settings-kit-models [data-component="provider-icon"] {
+  color: var(--kit-icon-icon-base);
+}
+
+.settings-kit-models [data-component="settings-kit-list"] {
+  padding-inline: 16px;
+}
+
+.settings-kit-models .settings-kit-section-title + [data-component="settings-kit-list"] {
+  margin-top: 0;
+}
+
+.settings-kit-models [data-slot="settings-kit-row-description"]:empty {
+  display: none;
+}
+
+.settings-kit-models [data-slot="settings-kit-row-copy"] {
+  gap: 0;
+}
+
+.settings-kit-models [data-slot="settings-kit-row-title"] {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-kit-models-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding-block: 48px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+  text-align: center;
+}
+
+.settings-kit-models-status-filter {
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-shortcuts .settings-kit-section {
+  gap: 16px;
+}
+
+.settings-kit-shortcuts .settings-kit-section-title {
+  padding-bottom: 0;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+}
+
+.settings-kit-shortcuts [data-component="settings-kit-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 20px;
+  border-radius: 6px;
+}
+
+.settings-kit-shortcuts [data-component="settings-kit-list"] > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-kit-shortcuts [data-component="settings-kit-list"] > div:not(:last-child) {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 0.5px solid var(--kit-border-border-base);
+}
+
+.settings-kit-shortcuts [data-component="settings-kit-list"] > div > span {
+  font-weight: 440;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -0.04px;
+  color: var(--kit-text-text-base);
+  font-variation-settings: "slnt" 0;
+}
+
+.settings-kit-keybind-button {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  font-style: normal;
+  font-weight: 530;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.05px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    "tnum" on,
+    "lnum" on;
+  font-variation-settings: "slnt" 0;
+  color: var(--kit-text-text-faint);
+}
+
+.settings-kit-keybind-button:hover {
+  background-color: var(--kit-background-bg-layer-02);
+}
+
+.settings-kit-keybind-button:focus-visible {
+  outline: 2px solid var(--kit-border-border-focus);
+  outline-offset: 2px;
+}
+
+.settings-kit-keybind-button--active {
+  color: var(--kit-text-text-faint);
+  border-radius: 2px;
+  background-color: var(--kit-background-bg-layer-02);
+}
+
+.settings-kit-shortcuts-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding-block: 48px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+  text-align: center;
+}
+
+.settings-kit-shortcuts-status-filter {
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-tab-body.settings-kit-servers {
+  gap: 0;
+}
+
+.settings-kit-tab-header.settings-kit-servers-header {
+  padding-bottom: 24px;
+}
+
+.settings-kit-servers-header .settings-kit-tab-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-kit-tab-header.settings-kit-servers-header.settings-kit-tab-header--stacked {
+  gap: 24px;
+  padding-bottom: 24px;
+}
+
+.settings-kit-servers [data-component="settings-kit-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 20px;
+  border-radius: 6px;
+}
+
+.settings-kit-servers-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-kit-servers-row:not(:last-child) {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 0.5px solid var(--kit-border-border-base);
+}
+
+.settings-kit-servers-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-kit-servers-lead {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.settings-kit-servers-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-kit-servers-name {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-servers-meta {
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+}
+
+.settings-kit-servers-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding-block: 48px;
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-text-text-muted);
+  text-align: center;
+}
+
+.settings-kit-servers-status-filter {
+  color: var(--kit-text-text-base);
+}
+
+[data-component="dialog"].settings-kit-server-dialog [data-slot="dialog-container"] {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  height: auto;
+  border-radius: 8px;
+  align-items: stretch;
+}
+
+[data-component="dialog"].settings-kit-server-dialog [data-slot="dialog-content"] {
+  align-items: stretch;
+  width: 100%;
+}
+
+[data-component="dialog"].settings-kit-server-dialog [data-slot="dialog-header"] {
+  align-items: center;
+  padding: 24px 24px 16px;
+}
+
+[data-component="dialog"].settings-kit-server-dialog [data-slot="dialog-body"] {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+[data-component="dialog"].settings-kit-server-dialog [data-slot="dialog-footer"] {
+  padding: 24px;
+}
+
+.settings-kit-server-dialog-label {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--kit-text-text-base);
+}
+
+.settings-kit-server-dialog-error {
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--kit-state-fg-danger);
+}

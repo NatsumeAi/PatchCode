@@ -1,23 +1,23 @@
 import { Icon, type IconProps } from "@opencode-ai/ui/icon"
 import { Toast, showToast as showLegacyToast, type ToastOptions, type ToastVariant } from "@opencode-ai/ui/toast"
-import { ToastV2, showToastV2 } from "@opencode-ai/ui/v2/toast-v2"
+import { Toast as KitToast, showToast as showKitToast } from "@opencode-ai/ui/kit/toast"
 
-let v2 = false
+let kit = false
 
-export function setV2Toast(value: boolean) {
-  v2 = value
+export function setKitToast(value: boolean) {
+  kit = value
 }
 
-export function ToastRegion(props: { v2: boolean }) {
-  if (props.v2) return <ToastV2.Region />
+export function ToastRegion(props: { kit: boolean }) {
+  if (props.kit) return <KitToast.Region />
   return <Toast.Region />
 }
 
 export function showToast(options: ToastOptions | string) {
-  if (!v2) return showLegacyToast(options)
-  if (typeof options === "string") return showToastV2(options)
+  if (!kit) return showLegacyToast(options)
+  if (typeof options === "string") return showKitToast(options)
 
-  return showToastV2({
+  return showKitToast({
     ...options,
     icon: resolveIcon(options.icon, options.variant),
     actions: options.actions?.map((action) => ({

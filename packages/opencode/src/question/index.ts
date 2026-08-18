@@ -1,21 +1,23 @@
-import { QuestionV1 } from "@opencode-ai/schema/question-legacy"
+import { Question } from "@opencode-ai/schema/question"
 
-export const Option = QuestionV1.Option
-export type Option = typeof Option.Type
-export const Info = QuestionV1.Info
-export type Info = typeof Info.Type
-export const Prompt = QuestionV1.Prompt
-export type Prompt = typeof Prompt.Type
-export const Tool = QuestionV1.Tool
-export type Tool = typeof Tool.Type
-export const Request = QuestionV1.Request
-export type Request = typeof Request.Type
-export const Answer = QuestionV1.Answer
-export type Answer = typeof Answer.Type
-export const Reply = QuestionV1.Reply
-export type Reply = typeof Reply.Type
-export const Replied = QuestionV1.Replied
-export const Rejected = QuestionV1.Rejected
-export const Event = QuestionV1.Event
+export const Option = Question.Option
+export type Option = Question.Option
+export const Info = Question.Info
+export type Info = Question.Info
+export const Prompt = Question.Prompt
+export type Prompt = Question.Prompt
+export const Tool = Question.Tool
+export type Tool = Question.Tool
+export const Request = Question.Request
+export type Request = Question.Request
+export const Answer = Question.Answer
+export type Answer = Question.Answer
+export const Reply = Question.Reply
+export type Reply = Question.Reply
+export const Replied = Question.Replied
+export const Rejected = Question.Rejected
+export const Event = Question.Event
+
+export { RejectedError, NotFoundError } from "@opencode-ai/core/question"
 
 export * as Question from "."

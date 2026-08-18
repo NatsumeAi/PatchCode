@@ -15,7 +15,7 @@
 // The tick counter prevents stale idle events from resolving the wrong turn.
 // We also re-check live session status before resolving an idle event so a
 // delayed idle from an older turn cannot complete a newer busy turn.
-import type { Event, GlobalEvent, OpencodeClient } from "@opencode-ai/sdk/v2"
+import type { Event, GlobalEvent, OpencodeClient } from "@opencode-ai/sdk/api"
 import { Context, Deferred, Effect, Exit, Layer, Scope, Stream } from "effect"
 import { makeRuntime } from "@/effect/run-service"
 import { liveSessionID } from "@/session/live-legacy-parts"
@@ -154,14 +154,9 @@ function sid(event: Event): string | undefined {
 
   if (
     event.type === "permission.asked" ||
-    event.type === "permission.asked" ||
-    event.type === "permission.replied" ||
     event.type === "permission.replied" ||
     event.type === "question.asked" ||
-    event.type === "question.asked" ||
     event.type === "question.replied" ||
-    event.type === "question.replied" ||
-    event.type === "question.rejected" ||
     event.type === "question.rejected" ||
     event.type === "session.error" ||
     event.type === "session.status"
@@ -488,12 +483,7 @@ function createLayer(input: StreamInput) {
         }
 
         const trackBlocker = (event: Event) => {
-          if (
-            event.type !== "permission.asked" &&
-            event.type !== "permission.asked" &&
-            event.type !== "question.asked" &&
-            event.type !== "question.asked"
-          ) {
+          if (event.type !== "permission.asked" && event.type !== "question.asked") {
             return
           }
 
@@ -507,10 +497,7 @@ function createLayer(input: StreamInput) {
         const releaseBlocker = (event: Event) => {
           if (
             event.type !== "permission.replied" &&
-            event.type !== "permission.replied" &&
             event.type !== "question.replied" &&
-            event.type !== "question.replied" &&
-            event.type !== "question.rejected" &&
             event.type !== "question.rejected"
           ) {
             return
@@ -583,7 +570,7 @@ function createLayer(input: StreamInput) {
                 return
               }
 
-              const questions = yield* Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+              const questions = yield* Effect.promise(() => input.sdk.api.question.request.list()).pipe(
                 Effect.map((item) => (item.data?.data ?? []).filter((request) => request.sessionID === input.sessionID)),
                 Effect.orElseSucceed(() => []),
               )
@@ -640,14 +627,14 @@ function createLayer(input: StreamInput) {
         const replayRequests = () =>
           Effect.all(
             [
-              Effect.promise(() => input.sdk.v2.permission.request.list()).pipe(
+              Effect.promise(() => input.sdk.api.permission.request.list()).pipe(
                 Effect.flatMap((item) =>
                   item.error
                     ? Effect.fail(item.error)
                     : Effect.succeed((item.data?.data ?? []).map(toPermissionRequest)),
                 ),
               ),
-              Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+              Effect.promise(() => input.sdk.api.question.request.list()).pipe(
                 Effect.flatMap((item) => (item.error ? Effect.fail(item.error) : Effect.succeed(item.data?.data ?? []))),
               ),
             ],
@@ -714,11 +701,11 @@ function createLayer(input: StreamInput) {
                 Effect.map((item) => item.data ?? []),
                 Effect.orElseSucceed(() => []),
               ),
-              Effect.promise(() => input.sdk.v2.permission.request.list()).pipe(
+              Effect.promise(() => input.sdk.api.permission.request.list()).pipe(
                 Effect.map((item) => (item.data?.data ?? []).map(toPermissionRequest)),
                 Effect.orElseSucceed(() => []),
               ),
-              Effect.promise(() => input.sdk.v2.question.request.list()).pipe(
+              Effect.promise(() => input.sdk.api.question.request.list()).pipe(
                 Effect.map((item) => item.data?.data ?? []),
                 Effect.orElseSucceed(() => []),
               ),

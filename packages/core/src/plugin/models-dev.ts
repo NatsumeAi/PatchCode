@@ -1,16 +1,16 @@
 import { define } from "./internal"
-import type { ModelV2Info } from "@opencode-ai/sdk/v2/types"
+import type { ModelInfo } from "@opencode-ai/sdk/api/types"
 import { Effect, Stream } from "effect"
-import { EventV2 } from "../event"
+import { Event as CoreEvent } from "../event"
 import { ModelsDev } from "../models-dev"
-import { ProviderV2 } from "../provider"
+import { Provider as CoreProvider } from "../provider"
 
 function released(date: string) {
   const time = Date.parse(date)
   return Number.isFinite(time) ? time : 0
 }
 
-function cost(input: ModelsDev.Model["cost"]): ModelV2Info["cost"] {
+function cost(input: ModelsDev.Model["cost"]): ModelInfo["cost"] {
   const base = {
     input: input?.input ?? 0,
     output: input?.output ?? 0,
@@ -49,13 +49,13 @@ function cost(input: ModelsDev.Model["cost"]): ModelV2Info["cost"] {
   ]
 }
 
-function mergeCost(base: ModelV2Info["cost"], override: ModelsDev.Model["cost"] | undefined) {
+function mergeCost(base: ModelInfo["cost"], override: ModelsDev.Model["cost"] | undefined) {
   if (!override) return base
   const next = cost(override)
   const [baseDefault, ...baseTiers] = base
   const [nextDefault, ...nextTiers] = next
-  const tierKey = (item: ModelV2Info["cost"][number]) => `${item.tier?.type ?? "base"}:${item.tier?.size ?? 0}`
-  const merge = (left: ModelV2Info["cost"][number], right: ModelV2Info["cost"][number]) => ({
+  const tierKey = (item: ModelInfo["cost"][number]) => `${item.tier?.type ?? "base"}:${item.tier?.size ?? 0}`
+  const merge = (left: ModelInfo["cost"][number], right: ModelInfo["cost"][number]) => ({
     ...left,
     ...right,
     tier: right.tier ?? left.tier,
@@ -74,11 +74,11 @@ function modeName(model: ModelsDev.Model, mode: string) {
 }
 
 function applyModel(
-  draft: ModelV2Info,
+  draft: ModelInfo,
   model: ModelsDev.Model,
   input: {
     readonly name?: string
-    readonly cost?: ModelV2Info["cost"]
+    readonly cost?: ModelInfo["cost"]
     readonly request?: NonNullable<NonNullable<ModelsDev.Model["experimental"]>["modes"]>[string]["provider"]
     /** Provider-level npm / api from models.dev parent when the model entry omits them. */
     readonly providerNpm?: string
@@ -144,7 +144,7 @@ export const ModelsDevPlugin = define({
   id: "models-dev",
   effect: Effect.fn(function* (ctx) {
     const modelsDev = yield* ModelsDev.Service
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     yield* ctx.integration.transform(
       Effect.fn(function* (integrations) {
         const data = yield* modelsDev.get()
@@ -167,7 +167,7 @@ export const ModelsDevPlugin = define({
       Effect.fn(function* (catalog) {
         const data = yield* modelsDev.get()
         for (const item of Object.values(data)) {
-          const providerID = ProviderV2.ID.make(item.id)
+          const providerID = CoreProvider.ID.make(item.id)
           catalog.provider.update(providerID, (provider) => {
             provider.name = item.name
             provider.api = item.npm

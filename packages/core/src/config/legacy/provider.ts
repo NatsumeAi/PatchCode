@@ -1,4 +1,4 @@
-export * as ConfigProviderV1 from "./provider"
+export * as ConfigProviderInput from "./provider"
 
 import { Schema } from "effect"
 import { PositiveInt } from "../../schema"

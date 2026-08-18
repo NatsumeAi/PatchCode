@@ -1,6 +1,6 @@
 import { useSearchParams } from "@solidjs/router"
 import { createEffect, untrack } from "solid-js"
-import { usePromptInputV2Controller } from "@/components/prompt-input-v2"
+import { usePromptInputController } from "@/components/prompt-input-kit"
 import { useComments } from "@/context/comments"
 import { useLocal } from "@/context/local"
 import { usePrompt } from "@/context/prompt"
@@ -28,7 +28,7 @@ export function createNewSessionDraftController(workspace: { worktree: () => str
     model,
   })
   const projectControls = createPromptProjectControls()
-  const input = usePromptInputV2Controller({
+  const input = usePromptInputController({
     get controls() {
       return controls()
     },

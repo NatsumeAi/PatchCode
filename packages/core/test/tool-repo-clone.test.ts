@@ -9,7 +9,7 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { RepositoryCache } from "@opencode-ai/core/repository-cache"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { RepoCloneTool } from "@opencode-ai/core/tool/repo-clone"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -17,7 +17,7 @@ import { tempLocationLayer } from "./fixture/location"
 import { testEffect } from "./lib/effect"
 import { executeTool, settleTool, toolIdentity } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_repo_clone")
+const sessionID = Session.ID.make("ses_repo_clone")
 const ensured: Array<{ remote: string }> = []
 const cacheDir = mkdtempSync(path.join(os.tmpdir(), "oc-repo-cache-"))
 writeFileSync(path.join(cacheDir, "README.md"), "from-cache\n")

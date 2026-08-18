@@ -1,9 +1,9 @@
 import type { ContentBlock, ContentChunk, ResourceLink, Role } from "@agentclientprotocol/sdk"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 
-export type PromptPart = SessionV1.TextPartInput | SessionV1.FilePartInput
+export type PromptPart = SessionWire.TextPartInput | SessionWire.FilePartInput
 
 export type ReplayPart =
   | {
@@ -160,7 +160,7 @@ function uriToFilePart(
   uri: string,
   mime: string,
   filename?: string,
-): SessionV1.FilePartInput | SessionV1.TextPartInput {
+): SessionWire.FilePartInput | SessionWire.TextPartInput {
   try {
     if (uri.startsWith("file://")) {
       return {

@@ -2,9 +2,9 @@ import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect } from "effect"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
-const providerID = ProviderV2.ID.make("cloudflare-workers-ai")
+const providerID = Provider.ID.make("cloudflare-workers-ai")
 
 export const CloudflareWorkersAIPlugin = define({
   id: "cloudflare-workers-ai",
@@ -54,7 +54,7 @@ function workersEndpoint(accountId: string) {
   return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`
 }
 
-function hasWorkersEndpoint(api: ProviderV2.Api) {
+function hasWorkersEndpoint(api: Provider.Api) {
   return api.type === "aisdk" && Boolean(api.url)
 }
 

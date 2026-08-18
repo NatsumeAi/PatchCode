@@ -7,9 +7,9 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { executeTool, toolIdentity } from "./lib/tool"
 import { tempLocationLayer } from "./fixture/location"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 
-const sessionID = SessionV2.ID.make("ses_invalid_tool_test")
+const sessionID = Session.ID.make("ses_invalid_tool_test")
 
 const withRegistry = <A>(body: (registry: ToolRegistry.Interface) => Effect.Effect<A>) =>
   Effect.gen(function* () {

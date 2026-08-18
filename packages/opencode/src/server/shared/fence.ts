@@ -2,7 +2,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { inArray } from "drizzle-orm"
 import { EventSequenceTable } from "@opencode-ai/core/event/sql"
 import { Workspace } from "@/control-plane/workspace"
-import type { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import type { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import { Effect } from "effect"
 
 export const HEADER = "x-opencode-sync"
@@ -51,7 +51,7 @@ export function parse(headers: Headers): State | undefined {
   )
 }
 
-export function wait(workspaceID: WorkspaceV2.ID, state: State, signal?: AbortSignal) {
+export function wait(workspaceID: CoreWorkspace.ID, state: State, signal?: AbortSignal) {
   return Effect.gen(function* () {
     yield* Effect.logInfo("waiting for state", { workspaceID, state })
     yield* Workspace.Service.use((workspace) => workspace.waitForSync(workspaceID, state, signal))

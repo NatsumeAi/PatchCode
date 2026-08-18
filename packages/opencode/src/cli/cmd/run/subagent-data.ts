@@ -1,4 +1,4 @@
-import type { Event, Message, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Event, Message, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/api"
 import * as Locale from "@/util/locale"
 import { createLivePartState, leftoverPartsFromLive, liveSessionID, type LivePartState } from "@/session/live-legacy-parts"
 import {
@@ -501,7 +501,7 @@ function compactCallMap(detail: DetailState) {
   const keep = new Set(recent(detail.data.call.keys(), SUBAGENT_CALL_LIMIT))
 
   for (const request of detail.data.permissions) {
-    const key = callKey(request.tool?.messageID, request.tool?.callID)
+    const key = callKey(request.source?.messageID, request.source?.callID)
     if (key) {
       keep.add(key)
     }
@@ -826,14 +826,9 @@ export function reduceSubagentData(input: {
     event.type === "message.updated" ||
     event.type === "message.part.delta" ||
     event.type === "permission.asked" ||
-    event.type === "permission.asked" ||
-    event.type === "permission.replied" ||
     event.type === "permission.replied" ||
     event.type === "question.asked" ||
-    event.type === "question.asked" ||
     event.type === "question.replied" ||
-    event.type === "question.replied" ||
-    event.type === "question.rejected" ||
     event.type === "question.rejected" ||
     event.type === "session.error" ||
     event.type === "session.status"

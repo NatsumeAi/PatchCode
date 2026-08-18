@@ -73,7 +73,7 @@ await createClient({
 
 const generatedTypes = await Bun.file("./src/v2/gen/types.gen.ts").text()
 // openapi-ts 0.90.10 emits numeric-suffix ref variants ("SessionNextTextEnded1")
-// when the same event schema is referenced by both V2Event and
+// when the same event schema is referenced by both ServerEvent and
 // SessionDurableEvent. They are identical content; only a true duplicate
 // (same type name defined twice) is an error.
 const typeNames = Array.from(generatedTypes.matchAll(/export type (SessionNext\w+) =/g), (m) => m[1])
@@ -82,7 +82,7 @@ if (duplicates.length > 0) {
   throw new Error(`Session history generated duplicate Session event variants: ${duplicates.join(", ")}`)
 }
 const historyTypesPatched = generatedTypes.replace(
-  /(export type V2SessionHistoryData = \{[\s\S]*?query\?: \{\s*limit\?: )string([;,]\s*after\?: )string/,
+  /(export type (?:Api|V2)?SessionHistoryData = \{[\s\S]*?query\?: \{\s*limit\?: )string([;,]\s*after\?: )string/,
   "$1number$2number",
 )
 if (historyTypesPatched === generatedTypes) {

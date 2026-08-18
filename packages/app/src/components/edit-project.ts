@@ -71,7 +71,7 @@ export function createEditProjectModel(props: { project: LocalProject; server: S
       const start = store.startup.trim()
 
       if (props.project.id && props.project.id !== "global") {
-        if ((await serverCtx().sdk.protocol) !== "v1") return
+        if ((await serverCtx().sdk.protocol) !== "legacy") return
         const project = await serverCtx()
           .sdk.client.project.update({
             projectID: props.project.id,

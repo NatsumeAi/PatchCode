@@ -11,10 +11,10 @@ import { Tag } from "@opencode-ai/ui/tag"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { Icon } from "@opencode-ai/ui/v2/icon"
-import { Tag as TagV2 } from "@opencode-ai/ui/v2/badge-v2"
-import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Icon } from "@opencode-ai/ui/kit/icon"
+import { Tag as KitTag } from "@opencode-ai/ui/kit/badge"
+import { Menu } from "@opencode-ai/ui/kit/menu"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 import { decode64 } from "@/utils/base64"
@@ -222,7 +222,7 @@ export function ModelSelectorPopover(props: {
   )
 }
 
-export function ModelSelectorPopoverV2(props: {
+export function ModelSelectorPopoverKit(props: {
   provider?: string
   model?: ModelState
   trigger: ModelSelectorTrigger
@@ -236,7 +236,7 @@ export function ModelSelectorPopoverV2(props: {
   })
 
   return (
-    <ModelSelectorPopoverV2View
+    <ModelSelectorPopoverView
       trigger={props.trigger}
       models={controller.models}
       groups={controller.groups}
@@ -244,7 +244,7 @@ export function ModelSelectorPopoverV2(props: {
       select={controller.select}
       onManage={() => {
         void import("./dialog-manage-models").then((module) => {
-          void dialog.show(() => <module.DialogManageModelsV2 />)
+          void dialog.show(() => <module.DialogManageModelsKit />)
         })
       }}
       onClose={() => props.onClose?.()}
@@ -291,7 +291,7 @@ function createModelSelectorController(input: {
   }
 }
 
-function ModelSelectorPopoverV2View(props: {
+function ModelSelectorPopoverView(props: {
   trigger: ModelSelectorTrigger
   models: (search: string) => ModelItem[]
   groups: (models: ModelItem[]) => { category: string; items: ModelItem[] }[]
@@ -373,24 +373,24 @@ function ModelSelectorPopoverV2View(props: {
   })
 
   return (
-    <MenuV2 open={store.open} modal={false} placement="top-start" gutter={6} onOpenChange={setOpen}>
-      <MenuV2.Trigger as={props.trigger} />
-      <MenuV2.Portal>
-        <MenuV2.Content
+    <Menu open={store.open} modal={false} placement="top-start" gutter={6} onOpenChange={setOpen}>
+      <Menu.Trigger as={props.trigger} />
+      <Menu.Portal>
+        <Menu.Content
           ref={(element: HTMLDivElement) => (contentRef = element)}
-          class="w-[284px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 !p-0 shadow-[var(--v2-elevation-floating)] focus:outline-none"
+          class="w-[284px] overflow-hidden rounded-md border-0 bg-kit-background-bg-layer-01 !p-0 shadow-[var(--kit-elevation-floating)] focus:outline-none"
           onPointerDownOutside={dismiss.preventTriggerRestore}
           onFocusOutside={dismiss.preventTriggerRestore}
           onCloseAutoFocus={dismiss.onCloseAutoFocus}
         >
           <div class="flex flex-col p-0.5">
-            <div class="flex h-7 items-center gap-2 rounded-sm pl-3 pr-2.5 text-v2-icon-icon-muted">
+            <div class="flex h-7 items-center gap-2 rounded-sm pl-3 pr-2.5 text-kit-icon-icon-muted">
               <Icon name="magnifying-glass" size="small" class="shrink-0" />
               <input
                 ref={(el) => (searchRef = el)}
                 value={store.search}
                 placeholder={language.t("dialog.model.search.placeholder")}
-                class="h-7 min-w-0 flex-1 border-0 bg-transparent text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint"
+                class="h-7 min-w-0 flex-1 border-0 bg-transparent text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base outline-none placeholder:text-kit-text-text-faint"
                 spellcheck={false}
                 autocorrect="off"
                 autocomplete="off"
@@ -426,7 +426,7 @@ function ModelSelectorPopoverV2View(props: {
               <Show when={store.search.trim()}>
                 <button
                   type="button"
-                  class="flex size-5 items-center justify-center rounded-sm text-v2-icon-icon-muted hover:bg-v2-overlay-simple-overlay-hover"
+                  class="flex size-5 items-center justify-center rounded-sm text-kit-icon-icon-muted hover:bg-kit-overlay-simple-overlay-hover"
                   onPointerDown={(event) => event.preventDefault()}
                   onClick={() => setSearch("")}
                   aria-label={language.t("common.clear")}
@@ -436,27 +436,27 @@ function ModelSelectorPopoverV2View(props: {
               </Show>
             </div>
           </div>
-          <div class="h-px bg-v2-border-border-muted" />
+          <div class="h-px bg-kit-border-border-muted" />
           <ScrollView data-slot="model-selector-scroll" class="max-h-[220px] min-h-0">
             <div class="flex flex-col p-0.5 pt-0">
               <Show
                 when={models().length > 0}
                 fallback={
-                  <div class="flex h-12 items-center px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint">
+                  <div class="flex h-12 items-center px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-faint">
                     {language.t("dialog.model.empty")}
                   </div>
                 }
               >
                 <For each={groups()}>
                   {(group) => (
-                    <MenuV2.Group>
-                      <MenuV2.GroupLabel class="gap-2 px-3">
+                    <Menu.Group>
+                      <Menu.GroupLabel class="gap-2 px-3">
                         <span class="min-w-0 truncate">{group.items[0].provider.name}</span>
-                      </MenuV2.GroupLabel>
-                      <MenuV2.RadioGroup value={props.current()}>
+                      </Menu.GroupLabel>
+                      <Menu.RadioGroup value={props.current()}>
                         <For each={group.items}>
                           {(item) => (
-                            <TooltipV2
+                            <KitTooltip
                               class="w-full"
                               placement="right-start"
                               gutter={6}
@@ -466,16 +466,16 @@ function ModelSelectorPopoverV2View(props: {
                                   model={item}
                                   latest={item.latest}
                                   free={isFree(item.provider.id, item.cost)}
-                                  v2
+                                  kit
                                 />
                               }
                             >
-                              <MenuV2.RadioItem
+                              <Menu.RadioItem
                                 value={modelKey(item)}
                                 data-option-key={modelKey(item)}
                                 data-selected-model={props.current() === modelKey(item) ? true : undefined}
                                 class="scroll-my-6 w-full"
-                                classList={{ "!bg-v2-overlay-simple-overlay-hover": store.active === modelKey(item) }}
+                                classList={{ "!bg-kit-overlay-simple-overlay-hover": store.active === modelKey(item) }}
                                 onMouseEnter={() => {
                                   setStore("active", modelKey(item))
                                   setTimeout(() => searchRef?.focus())
@@ -484,27 +484,27 @@ function ModelSelectorPopoverV2View(props: {
                               >
                                 <span class="min-w-0 truncate leading-5">{item.name}</span>
                                 <Show when={isFree(item.provider.id, item.cost)}>
-                                  <TagV2 class="shrink-0">{language.t("model.tag.free")}</TagV2>
+                                  <KitTag class="shrink-0">{language.t("model.tag.free")}</KitTag>
                                 </Show>
                                 <Show when={item.latest}>
-                                  <TagV2 class="shrink-0">{language.t("model.tag.latest")}</TagV2>
+                                  <KitTag class="shrink-0">{language.t("model.tag.latest")}</KitTag>
                                 </Show>
-                              </MenuV2.RadioItem>
-                            </TooltipV2>
+                              </Menu.RadioItem>
+                            </KitTooltip>
                           )}
                         </For>
-                      </MenuV2.RadioGroup>
-                    </MenuV2.Group>
+                      </Menu.RadioGroup>
+                    </Menu.Group>
                   )}
                 </For>
               </Show>
             </div>
           </ScrollView>
-          <div class="h-px bg-v2-border-border-muted" />
+          <div class="h-px bg-kit-border-border-muted" />
           <div class="flex flex-col p-0.5">
-            <MenuV2.Item
+            <Menu.Item
               data-option-key={manageKey}
-              classList={{ "!bg-v2-overlay-simple-overlay-hover": store.active === manageKey }}
+              classList={{ "!bg-kit-overlay-simple-overlay-hover": store.active === manageKey }}
               onMouseEnter={() => {
                 setStore("active", manageKey)
                 setTimeout(() => searchRef?.focus())
@@ -513,11 +513,11 @@ function ModelSelectorPopoverV2View(props: {
             >
               <Icon name="outline-sliders" size="small" />
               <span class="min-w-0 flex-1 truncate leading-5">{language.t("dialog.model.manage")}</span>
-            </MenuV2.Item>
+            </Menu.Item>
           </div>
-        </MenuV2.Content>
-      </MenuV2.Portal>
-    </MenuV2>
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu>
   )
 }
 

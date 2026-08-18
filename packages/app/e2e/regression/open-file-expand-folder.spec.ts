@@ -115,16 +115,16 @@ test("expands a folder whose path has a trailing Windows separator", async ({ pa
   await panel.getByRole("button", { name: "Open file" }).click()
   await expect(panel.getByRole("tab", { name: "Open file" })).toHaveAttribute("data-selected", "")
 
-  const sidebar = panel.locator('[data-component="session-review-v2-sidebar-root"]')
+  const sidebar = panel.locator('[data-component="session-review-kit-sidebar-root"]')
   await expect(sidebar).toBeVisible()
 
-  const frontendRow = panel.locator('[data-slot="file-tree-v2-row"][data-path="frontend"]')
+  const frontendRow = panel.locator('[data-slot="file-tree-kit-row"][data-path="frontend"]')
   await expect(frontendRow).toBeVisible()
   await expect(frontendRow).toHaveAttribute("aria-expanded", "false")
   await frontendRow.click()
   await expect(frontendRow).toHaveAttribute("aria-expanded", "true")
 
-  const appRow = panel.locator('[data-slot="file-tree-v2-row"][data-path="frontend/app.ts"]')
+  const appRow = panel.locator('[data-slot="file-tree-kit-row"][data-path="frontend/app.ts"]')
   await expect(appRow).toBeVisible()
   await appRow.click()
   await expect(panel.getByRole("tab", { name: "app.ts" })).toHaveAttribute("data-selected", "")

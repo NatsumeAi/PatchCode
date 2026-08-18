@@ -11,7 +11,7 @@ import type {
   ToolPart,
   FilePart,
   AgentPart,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { DataProvider } from "../context/data"
 import { FileComponentProvider } from "@opencode-ai/ui/context/file"
 import { SessionTurn } from "./session-turn"
@@ -2011,7 +2011,7 @@ function Playground() {
       {/* Main area: timeline preview */}
       <div
         ref={previewRef!}
-        style={{ flex: "1", overflow: "auto", "min-width": "0", "background-color": "var(--v2-background-bg-base)" }}
+        style={{ flex: "1", overflow: "auto", "min-width": "0", "background-color": "var(--kit-background-bg-base)" }}
       >
         <DataProvider data={data()} directory="/project">
           <FileComponentProvider component={FileStub}>

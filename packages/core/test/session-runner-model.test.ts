@@ -5,11 +5,11 @@ import { DateTime, Effect } from "effect"
 import { Headers } from "effect/unstable/http"
 import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Project } from "@opencode-ai/core/project"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { it } from "./lib/effect"
 
@@ -22,12 +22,12 @@ type Api =
     }
   | { readonly type: "native"; readonly url?: string; readonly settings: Record<string, unknown> }
 
-const model = (api: Api, variants: ModelV2.Info["variants"] = []) =>
-  ModelV2.Info.make({
-    id: ModelV2.ID.make("test-model"),
-    providerID: ProviderV2.ID.make("test-provider"),
+const model = (api: Api, variants: Model.Info["variants"] = []) =>
+  Model.Info.make({
+    id: Model.ID.make("test-model"),
+    providerID: Provider.ID.make("test-provider"),
     name: "Test model",
-    api: { id: ModelV2.ID.make("api-test-model"), ...api },
+    api: { id: Model.ID.make("api-test-model"), ...api },
     capabilities: { tools: true, input: ["text"], output: ["text"] },
     request: {
       headers: { "x-test": "header" },
@@ -76,7 +76,7 @@ describe("SessionRunnerModel", () => {
   it.effect("uses merged API settings for OpenAI-compatible auth and request defaults", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(
-        ModelV2.Info.make({
+        Model.Info.make({
           ...model({
             type: "aisdk",
             package: "@ai-sdk/openai-compatible",
@@ -104,7 +104,7 @@ describe("SessionRunnerModel", () => {
     Effect.gen(function* () {
       const catalog = model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }, [
         {
-          id: ModelV2.VariantID.make("high"),
+          id: Model.VariantID.make("high"),
           headers: { "x-variant": "high" },
           body: {
             store: false,
@@ -114,14 +114,14 @@ describe("SessionRunnerModel", () => {
           },
         },
       ])
-      const session = SessionV2.Info.make({
-        id: SessionV2.ID.make("ses_model_variant"),
-        projectID: ProjectV2.ID.global,
+      const session = CoreSession.Info.make({
+        id: CoreSession.ID.make("ses_model_variant"),
+        projectID: Project.ID.global,
         title: "test",
         model: {
           id: catalog.id,
           providerID: catalog.providerID,
-          variant: ModelV2.VariantID.make("high"),
+          variant: Model.VariantID.make("high"),
         },
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -148,17 +148,17 @@ describe("SessionRunnerModel", () => {
         { type: "aisdk", package: "@ai-sdk/openai-compatible", url: "https://compatible.example/v1" },
         [
           {
-            id: ModelV2.VariantID.make("high"),
+            id: Model.VariantID.make("high"),
             headers: {},
             body: { store: false, reasoning_effort: "high" },
           },
         ],
       )
-      const session = SessionV2.Info.make({
-        id: SessionV2.ID.make("ses_compatible_variant"),
-        projectID: ProjectV2.ID.global,
+      const session = CoreSession.Info.make({
+        id: CoreSession.ID.make("ses_compatible_variant"),
+        projectID: Project.ID.global,
         title: "test",
-        model: { id: catalog.id, providerID: catalog.providerID, variant: ModelV2.VariantID.make("high") },
+        model: { id: catalog.id, providerID: catalog.providerID, variant: Model.VariantID.make("high") },
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
@@ -178,14 +178,14 @@ describe("SessionRunnerModel", () => {
   it.effect("rejects an explicit unavailable Session variant during model resolution", () =>
     Effect.gen(function* () {
       const catalog = model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" })
-      const session = SessionV2.Info.make({
-        id: SessionV2.ID.make("ses_model_variant_unavailable"),
-        projectID: ProjectV2.ID.global,
+      const session = CoreSession.Info.make({
+        id: CoreSession.ID.make("ses_model_variant_unavailable"),
+        projectID: Project.ID.global,
         title: "test",
         model: {
           id: catalog.id,
           providerID: catalog.providerID,
-          variant: ModelV2.VariantID.make("unknown"),
+          variant: Model.VariantID.make("unknown"),
         },
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -209,16 +209,16 @@ describe("SessionRunnerModel", () => {
     Effect.gen(function* () {
       const catalog = model({ type: "aisdk", package: "@ai-sdk/anthropic", url: "https://anthropic.example/v1" }, [
         {
-          id: ModelV2.VariantID.make("high"),
+          id: Model.VariantID.make("high"),
           headers: {},
           body: { thinking: { type: "enabled", budget_tokens: 12000 } },
         },
       ])
-      const session = SessionV2.Info.make({
-        id: SessionV2.ID.make("ses_anthropic_variant"),
-        projectID: ProjectV2.ID.global,
+      const session = CoreSession.Info.make({
+        id: CoreSession.ID.make("ses_anthropic_variant"),
+        projectID: Project.ID.global,
         title: "test",
-        model: { id: catalog.id, providerID: catalog.providerID, variant: ModelV2.VariantID.make("high") },
+        model: { id: catalog.id, providerID: catalog.providerID, variant: Model.VariantID.make("high") },
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
@@ -250,7 +250,7 @@ describe("SessionRunnerModel", () => {
   it.effect("uses resolved credentials for bearer auth", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(
-        ModelV2.Info.make({
+        Model.Info.make({
           ...model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }),
           request: { headers: {}, body: {} },
         }),
@@ -273,7 +273,7 @@ describe("SessionRunnerModel", () => {
     Effect.gen(function* () {
       const credential = Credential.Key.make({ type: "key", key: "stored-secret", metadata: { tenant: "work" } })
       const resolved = yield* SessionRunnerModel.fromCatalogModel(
-        ModelV2.Info.make({
+        Model.Info.make({
           ...model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }),
           request: { headers: {}, body: { apiKey: "configured-secret" } },
         }),
@@ -295,7 +295,7 @@ describe("SessionRunnerModel", () => {
   it.effect("does not project OAuth account metadata into the request body", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(
-        ModelV2.Info.make({
+        Model.Info.make({
           ...model({ type: "aisdk", package: "@ai-sdk/openai", url: "https://openai.example/v1" }),
           request: { headers: {}, body: {} },
         }),

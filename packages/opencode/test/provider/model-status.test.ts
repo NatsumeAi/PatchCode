@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { ConfigProviderV1 } from "@opencode-ai/core/config/legacy/provider"
+import { ConfigProviderInput } from "@opencode-ai/core/config/legacy/provider"
 import { CatalogModelStatus, ModelStatus } from "@/provider/model-status"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Provider } from "@/provider/provider"
@@ -13,7 +13,7 @@ describe("provider model status schemas", () => {
   })
 
   test("accepts active status across public provider schemas", () => {
-    expect(Schema.decodeUnknownSync(ConfigProviderV1.Model)({ status: "active" }).status).toBe("active")
+    expect(Schema.decodeUnknownSync(ConfigProviderInput.Model)({ status: "active" }).status).toBe("active")
     expect(
       Schema.decodeUnknownSync(ModelsDev.Model)({
         id: "test-model",

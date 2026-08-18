@@ -1,6 +1,6 @@
 @import "@opencode-ai/ui/styles/tailwind";
 @import "@opencode-ai/session-ui/styles";
-@import "@opencode-ai/ui/v2/styles/tailwind.css";
+@import "@opencode-ai/ui/kit/styles/tailwind.css";
 @import "tw-animate-css";
 
 @font-face {
@@ -115,7 +115,7 @@
     left: 0;
     width: 100%;
     height: 12px;
-    background: var(--v2-background-bg-base);
+    background: var(--kit-background-bg-base);
   }
 
   .home-session-group-header::after {
@@ -128,21 +128,21 @@
     pointer-events: none;
     background: linear-gradient(
       180deg,
-      var(--v2-background-bg-base) 0%,
-      color-mix(in srgb, var(--v2-background-bg-base) 92.0456%, transparent) 7.93%,
-      color-mix(in srgb, var(--v2-background-bg-base) 84.9947%, transparent) 14.14%,
-      color-mix(in srgb, var(--v2-background-bg-base) 78.6813%, transparent) 19%,
-      color-mix(in srgb, var(--v2-background-bg-base) 72.9394%, transparent) 22.85%,
-      color-mix(in srgb, var(--v2-background-bg-base) 67.6028%, transparent) 26.05%,
-      color-mix(in srgb, var(--v2-background-bg-base) 62.5055%, transparent) 28.95%,
-      color-mix(in srgb, var(--v2-background-bg-base) 57.4815%, transparent) 31.91%,
-      color-mix(in srgb, var(--v2-background-bg-base) 52.3647%, transparent) 35.27%,
-      color-mix(in srgb, var(--v2-background-bg-base) 46.989%, transparent) 39.4%,
-      color-mix(in srgb, var(--v2-background-bg-base) 41.1884%, transparent) 44.65%,
-      color-mix(in srgb, var(--v2-background-bg-base) 34.7969%, transparent) 51.36%,
-      color-mix(in srgb, var(--v2-background-bg-base) 27.6484%, transparent) 59.9%,
-      color-mix(in srgb, var(--v2-background-bg-base) 19.5767%, transparent) 70.62%,
-      color-mix(in srgb, var(--v2-background-bg-base) 10.416%, transparent) 83.87%,
+      var(--kit-background-bg-base) 0%,
+      color-mix(in srgb, var(--kit-background-bg-base) 92.0456%, transparent) 7.93%,
+      color-mix(in srgb, var(--kit-background-bg-base) 84.9947%, transparent) 14.14%,
+      color-mix(in srgb, var(--kit-background-bg-base) 78.6813%, transparent) 19%,
+      color-mix(in srgb, var(--kit-background-bg-base) 72.9394%, transparent) 22.85%,
+      color-mix(in srgb, var(--kit-background-bg-base) 67.6028%, transparent) 26.05%,
+      color-mix(in srgb, var(--kit-background-bg-base) 62.5055%, transparent) 28.95%,
+      color-mix(in srgb, var(--kit-background-bg-base) 57.4815%, transparent) 31.91%,
+      color-mix(in srgb, var(--kit-background-bg-base) 52.3647%, transparent) 35.27%,
+      color-mix(in srgb, var(--kit-background-bg-base) 46.989%, transparent) 39.4%,
+      color-mix(in srgb, var(--kit-background-bg-base) 41.1884%, transparent) 44.65%,
+      color-mix(in srgb, var(--kit-background-bg-base) 34.7969%, transparent) 51.36%,
+      color-mix(in srgb, var(--kit-background-bg-base) 27.6484%, transparent) 59.9%,
+      color-mix(in srgb, var(--kit-background-bg-base) 19.5767%, transparent) 70.62%,
+      color-mix(in srgb, var(--kit-background-bg-base) 10.416%, transparent) 83.87%,
       transparent 100%
     );
   }
@@ -154,8 +154,8 @@
     width: 12px;
     height: 12px;
     border-radius: 9999px;
-    border: 2px solid color-mix(in srgb, var(--v2-icon-icon-accent) 30%, transparent);
-    border-top-color: var(--v2-icon-icon-accent);
+    border: 2px solid color-mix(in srgb, var(--kit-icon-icon-accent) 30%, transparent);
+    border-top-color: var(--kit-icon-icon-accent);
     animation: titlebar-update-loader-spin 0.67s linear infinite;
     transform-origin: 50% 50%;
   }
@@ -219,7 +219,7 @@
 
   [data-slot="home-projects-scroll"]::before {
     top: 0;
-    background: linear-gradient(to bottom, var(--v2-background-bg-base), transparent);
+    background: linear-gradient(to bottom, var(--kit-background-bg-base), transparent);
   }
 
   [data-slot="model-selector-scroll"]::before {
@@ -227,33 +227,33 @@
     height: 12px;
     background: linear-gradient(
       180deg,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 80%, transparent) 0%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 78.3336%, transparent) 4.7%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 76.4824%, transparent) 8.9%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 74.368%, transparent) 12.8%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 71.9123%, transparent) 16.56%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 69.037%, transparent) 20.37%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 65.664%, transparent) 24.4%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 61.715%, transparent) 28.83%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 57.1117%, transparent) 33.84%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 51.776%, transparent) 39.6%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 45.6296%, transparent) 46.3%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 38.5944%, transparent) 54.1%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 30.592%, transparent) 63.2%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 21.5443%, transparent) 73.76%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 11.373%, transparent) 85.97%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 0%, transparent) 100%
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 80%, transparent) 0%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 78.3336%, transparent) 4.7%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 76.4824%, transparent) 8.9%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 74.368%, transparent) 12.8%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 71.9123%, transparent) 16.56%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 69.037%, transparent) 20.37%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 65.664%, transparent) 24.4%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 61.715%, transparent) 28.83%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 57.1117%, transparent) 33.84%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 51.776%, transparent) 39.6%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 45.6296%, transparent) 46.3%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 38.5944%, transparent) 54.1%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 30.592%, transparent) 63.2%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 21.5443%, transparent) 73.76%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 11.373%, transparent) 85.97%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 0%, transparent) 100%
     );
   }
 
   [data-slot="manage-models-scroll"]::before {
     top: 0;
-    background: linear-gradient(to bottom, var(--v2-background-bg-base), transparent);
+    background: linear-gradient(to bottom, var(--kit-background-bg-base), transparent);
   }
 
   [data-slot="home-projects-scroll"]::after {
     bottom: 0;
-    background: linear-gradient(to top, var(--v2-background-bg-base), transparent);
+    background: linear-gradient(to top, var(--kit-background-bg-base), transparent);
   }
 
   [data-slot="model-selector-scroll"]::after {
@@ -261,22 +261,22 @@
     height: 12px;
     background: linear-gradient(
       0deg,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 80%, transparent) 0%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 78.3336%, transparent) 4.7%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 76.4824%, transparent) 8.9%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 74.368%, transparent) 12.8%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 71.9123%, transparent) 16.56%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 69.037%, transparent) 20.37%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 65.664%, transparent) 24.4%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 61.715%, transparent) 28.83%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 57.1117%, transparent) 33.84%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 51.776%, transparent) 39.6%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 45.6296%, transparent) 46.3%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 38.5944%, transparent) 54.1%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 30.592%, transparent) 63.2%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 21.5443%, transparent) 73.76%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 11.373%, transparent) 85.97%,
-      color-mix(in srgb, var(--v2-background-bg-layer-01) 0%, transparent) 100%
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 80%, transparent) 0%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 78.3336%, transparent) 4.7%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 76.4824%, transparent) 8.9%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 74.368%, transparent) 12.8%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 71.9123%, transparent) 16.56%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 69.037%, transparent) 20.37%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 65.664%, transparent) 24.4%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 61.715%, transparent) 28.83%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 57.1117%, transparent) 33.84%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 51.776%, transparent) 39.6%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 45.6296%, transparent) 46.3%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 38.5944%, transparent) 54.1%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 30.592%, transparent) 63.2%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 21.5443%, transparent) 73.76%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 11.373%, transparent) 85.97%,
+      color-mix(in srgb, var(--kit-background-bg-layer-01) 0%, transparent) 100%
     );
   }
 
@@ -317,7 +317,7 @@
   }
 
   @supports (animation-timeline: --manage-models-scroll) and (timeline-scope: --manage-models-scroll) {
-    [data-slot="manage-models-scroll"] .settings-v2-panel {
+    [data-slot="manage-models-scroll"] .settings-kit-panel {
       scroll-timeline: --manage-models-scroll y;
     }
 

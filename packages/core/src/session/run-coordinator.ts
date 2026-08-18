@@ -29,7 +29,7 @@ export const make = <Key, E>(options: {
   Effect.gen(function* () {
     const active = new Map<Key, Entry<E>>()
     const set = yield* FiberSet.make<void, never>()
-    // Capture the first run/wake caller context (SessionV2 / HTTP), not the
+    // Capture the first run/wake caller context (Session / HTTP), not the
     // SessionExecution construction fiber. Construction does not include
     // hoisted globals such as Database.
     let fork: Fork | undefined

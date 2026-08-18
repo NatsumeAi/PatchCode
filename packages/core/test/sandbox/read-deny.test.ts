@@ -11,14 +11,14 @@ import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ReadTool } from "@opencode-ai/core/tool/read"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { location } from "../fixture/location"
 import { executeTool, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_read_deny_sandbox")
+const sessionID = Session.ID.make("ses_read_deny_sandbox")
 
 const permission = Layer.succeed(
   Permission.Service,

@@ -1,12 +1,12 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SearchTool } from "@opencode-ai/core/tool/search-tool"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -17,7 +17,7 @@ import { Trust } from "@opencode-ai/core/trust"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolDefinitions, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_mcp_defer")
+const sessionID = Session.ID.make("ses_mcp_defer")
 const seen: string[] = []
 let pingCount = 0
 

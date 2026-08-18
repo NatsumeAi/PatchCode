@@ -1,7 +1,7 @@
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
+import { Permission } from "@opencode-ai/schema/permission"
 import { afterEach, describe, expect } from "bun:test"
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Cause, Config, Effect, Exit, Layer } from "effect"
@@ -31,8 +31,8 @@ import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from ".
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
 import { eq } from "drizzle-orm"
 import { resetDatabase } from "../fixture/db"
@@ -84,7 +84,7 @@ function createTextMessage(sessionID: SessionIDType, text: string) {
       role: "user",
       sessionID,
       agent: "build",
-      model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test") },
+      model: { providerID: Provider.ID.make("test"), modelID: Model.ID.make("test") },
       time: { created: Date.now() },
     })
     const part = yield* svc.updatePart({
@@ -132,9 +132,9 @@ const insertLegacyAssistantMessage = (sessionID: SessionIDType, seq = 1, time = 
       type: "assistant",
       agent: "build",
       model: {
-        id: ModelV2.ID.make("model"),
-        providerID: ProviderV2.ID.make("provider"),
-        variant: ModelV2.VariantID.make("default"),
+        id: Model.ID.make("model"),
+        providerID: Provider.ID.make("provider"),
+        variant: Model.VariantID.make("default"),
       },
       time: { created: DateTime.makeUnsafe(time) },
       content: [],
@@ -162,7 +162,7 @@ const insertLegacyAssistantMessage = (sessionID: SessionIDType, seq = 1, time = 
     return message
   })
 
-const insertCorruptV2Message = (sessionID: SessionIDType, time = 1) =>
+const insertCorruptMessage = (sessionID: SessionIDType, time = 1) =>
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     yield* db
@@ -361,7 +361,7 @@ describe("session HttpApi", () => {
         const messages = yield* request(`${pathFor(SessionPaths.messages, { sessionID: parent.id })}?limit=1`, {
           headers,
         })
-        const messagePage = yield* json<SessionV1.WithParts[]>(messages)
+        const messagePage = yield* json<SessionWire.WithParts[]>(messages)
         const nextCursor = messages.headers["x-next-cursor"]
         expect(nextCursor).toBeTruthy()
         expect(messagePage[0]?.parts[0]).toMatchObject({ type: "text" })
@@ -378,7 +378,7 @@ describe("session HttpApi", () => {
         ).toBe(400)
 
         expect(
-          yield* requestJson<SessionV1.WithParts>(
+          yield* requestJson<SessionWire.WithParts>(
             pathFor(SessionPaths.message, { sessionID: parent.id, messageID: message.info.id }),
             { headers },
           ),
@@ -440,7 +440,7 @@ describe("session HttpApi", () => {
       Effect.gen(function* () {
         const test = yield* TestInstance
         const headers = { "x-opencode-directory": test.directory }
-        const session = yield* createSession({ title: "v2 cursor" })
+        const session = yield* createSession({ title: "cursor" })
         const firstMessage = yield* insertLegacyAssistantMessage(session.id, 1, 2)
         const secondMessage = yield* insertLegacyAssistantMessage(session.id, 2, 1)
 
@@ -575,7 +575,7 @@ describe("session HttpApi", () => {
       const config = testProviderConfig(llm.url)
       const directory = yield* tmpdirScoped({ git: true, config })
       const headers = { "x-opencode-directory": directory }
-      const session = yield* createSession({ title: "v2 prompt recording" }).pipe(provideInstanceEffect(directory))
+      const session = yield* createSession({ title: "prompt recording" }).pipe(provideInstanceEffect(directory))
 
       const recordPrompt = () =>
         request(`/api/session/${session.id}/prompt`, {
@@ -636,7 +636,7 @@ describe("session HttpApi", () => {
         requestJson<{ data: SessionMessage.Message[] }>(`/api/session/${session.id}/message`, { headers }).pipe(
           Effect.map(({ data }) => data.find((message) => message.id === wakeID)),
         ),
-        "V2 prompt was not promoted after wake",
+        "prompt was not promoted after wake",
         "10 seconds",
       )
       expect(message).toMatchObject({ id: wakeID, type: "user" })
@@ -649,7 +649,7 @@ describe("session HttpApi", () => {
       Effect.gen(function* () {
         const test = yield* TestInstance
         const headers = { "x-opencode-directory": test.directory }
-        const session = yield* createSession({ title: "v2 compact wait" })
+        const session = yield* createSession({ title: "compact wait" })
 
         const compact = yield* request(`/api/session/${session.id}/compact`, { method: "POST", headers })
         expect(compact.status).toBe(204)
@@ -665,8 +665,8 @@ describe("session HttpApi", () => {
     () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
-        const session = yield* createSession({ title: "v2 corrupt message" })
-        yield* insertCorruptV2Message(session.id)
+        const session = yield* createSession({ title: "corrupt message" })
+        yield* insertCorruptMessage(session.id)
 
         const messages = yield* request(`/api/session/${session.id}/message`, {
           headers: { "x-opencode-directory": test.directory },
@@ -979,7 +979,7 @@ describe("session HttpApi", () => {
         const first = yield* createTextMessage(session.id, "first")
         const second = yield* createTextMessage(session.id, "second")
 
-        const updated = yield* requestJson<SessionV1.Part>(
+        const updated = yield* requestJson<SessionWire.Part>(
           pathFor(SessionPaths.updatePart, {
             sessionID: session.id,
             messageID: first.info.id,
@@ -1070,7 +1070,7 @@ describe("session HttpApi", () => {
         })
         expect(partRevert.status).toBe(200)
 
-        const permissionID = String(PermissionV1.ID.ascending())
+        const permissionID = String(Permission.ID.create())
         const permission = yield* request(
           pathFor(SessionPaths.permissions, {
             sessionID: session.id,

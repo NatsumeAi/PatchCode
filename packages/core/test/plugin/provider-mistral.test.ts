@@ -2,18 +2,18 @@ import { AISDK } from "@opencode-ai/core/aisdk"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { MistralPlugin } from "@opencode-ai/core/plugin/provider/mistral"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* () {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* Plugin.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
   yield* MistralPlugin.effect(host)
@@ -22,13 +22,13 @@ const addPlugin = Effect.fn(function* () {
 describe("MistralPlugin", () => {
   it.effect("creates a Mistral SDK for @ai-sdk/mistral", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("mistral"), Model.ID.make("mistral-large")),
+          api: { id: Model.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -39,13 +39,13 @@ describe("MistralPlugin", () => {
 
   it.effect("ignores non-Mistral SDK packages", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("mistral"), Model.ID.make("mistral-large")),
+          api: { id: Model.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "mistral" },
@@ -56,7 +56,7 @@ describe("MistralPlugin", () => {
 
   it.effect("matches the old bundled Mistral SDK provider name for the bundled provider ID", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const providers: string[] = []
       yield* addPlugin()
@@ -66,9 +66,9 @@ describe("MistralPlugin", () => {
         }),
       )
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("mistral"), Model.ID.make("mistral-large")),
+          api: { id: Model.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -80,7 +80,7 @@ describe("MistralPlugin", () => {
 
   it.effect("matches the old bundled Mistral SDK provider name for custom provider IDs", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const providers: string[] = []
       yield* addPlugin()
@@ -90,9 +90,9 @@ describe("MistralPlugin", () => {
         }),
       )
       yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("custom-mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("custom-mistral"), Model.ID.make("mistral-large")),
+          api: { id: Model.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/mistral",
         options: { name: "custom-mistral" },
@@ -103,7 +103,7 @@ describe("MistralPlugin", () => {
 
   it.effect("leaves Mistral language selection on the default sdk.languageModel(api.id) path", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const calls: string[] = []
       const sdk = {
@@ -114,9 +114,9 @@ describe("MistralPlugin", () => {
       }
       yield* addPlugin()
       const result = yield* aisdk.runLanguage({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("mistral"), Model.ID.make("alias")),
+          api: { id: Model.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
         }),
         sdk,
         options: {},

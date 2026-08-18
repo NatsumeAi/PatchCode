@@ -18,8 +18,8 @@ import { PartTable } from "@opencode-ai/core/session/sql"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { httpApiLayer, requestInDirectory } from "./httpapi-layer"
 
 const it = testEffect(Layer.mergeAll(LayerNode.compile(LayerNode.group([Session.node, Database.node])), httpApiLayer))
@@ -33,7 +33,7 @@ function seedNegativeTokenSession() {
       role: "user",
       sessionID: info.id,
       agent: "build",
-      model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test") },
+      model: { providerID: Provider.ID.make("test"), modelID: Model.ID.make("test") },
       time: { created: Date.now() },
     })
     const partID = PartID.ascending()

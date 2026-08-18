@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, mock, test } from "bun:test"
-import type { GlobalEvent } from "@opencode-ai/sdk/v2"
+import type { GlobalEvent } from "@opencode-ai/sdk/api"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { Renderable, ScrollBoxRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"

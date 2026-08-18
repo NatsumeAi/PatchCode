@@ -7,13 +7,13 @@ import { DynamicTools } from "@opencode-ai/core/tool/dynamic"
 import { Tools } from "@opencode-ai/core/tool/tools"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Permission } from "@opencode-ai/core/permission"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { tmpdir } from "./fixture/tmpdir"
@@ -47,11 +47,11 @@ const hostLayer = Layer.succeed(
 
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([ApplicationTools.node, Database.node, EventV2.node, LocationServiceMap.node]),
+    LayerNode.group([ApplicationTools.node, Database.node, Event.node, LocationServiceMap.node]),
   ).pipe(Layer.provideMerge(hostLayer)),
 )
 
-describe("DynamicTools install into V2 ToolRegistry", () => {
+describe("DynamicTools install into ToolRegistry", () => {
   it.live("registers host-provided MCP/plugin tools into materialize definitions", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -90,8 +90,8 @@ describe("DynamicTools install into V2 ToolRegistry", () => {
             )
             const materialized = yield* registry.materialize().pipe(Effect.provide(locations.get(locationRef)))
             const result = yield* materialized.settle({
-              sessionID: SessionV2.ID.make("ses_dynamic"),
-              agent: AgentV2.ID.make("build"),
+              sessionID: Session.ID.make("ses_dynamic"),
+              agent: Agent.ID.make("build"),
               assistantMessageID: SessionMessage.ID.make("msg_dynamic"),
               call: { type: "tool-call", id: "call_dyn", name: "playwright_click", input: { text: "ok" } },
             })

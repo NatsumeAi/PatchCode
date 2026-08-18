@@ -5,29 +5,29 @@ import type { SessionMessage } from "./message"
 import type { Prompt } from "./prompt"
 import type { SessionInput } from "./input"
 import type { Snapshot } from "../snapshot"
-import { PermissionV1 } from "../permission-legacy"
-import { ProjectV2 } from "../project"
+import { Permission } from "@opencode-ai/schema/permission"
+import { Project } from "../project"
 import type { SessionSchema } from "./schema"
-import type { MessageID, PartID, SessionV1 } from "../session-legacy"
-import { WorkspaceV2 } from "../workspace"
+import type { MessageID, PartID, SessionWire } from "../session-legacy"
+import { Workspace } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { SystemContext } from "../system-context/index"
-import { AgentV2 } from "../agent"
+import { Agent } from "../agent"
 import type { Revert } from "@opencode-ai/schema/revert"
 
 type SessionMessageData = Omit<(typeof SessionMessage.Message)["Encoded"], "type" | "id">
-type V1MessageData = Omit<SessionV1.Info, "id" | "sessionID">
-type V1PartData = Omit<SessionV1.Part, "id" | "sessionID" | "messageID">
+type V1MessageData = Omit<SessionWire.Info, "id" | "sessionID">
+type V1PartData = Omit<SessionWire.Part, "id" | "sessionID" | "messageID">
 
 export const SessionTable = sqliteTable(
   "session",
   {
     id: text().$type<SessionSchema.ID>().primaryKey(),
     project_id: text()
-      .$type<ProjectV2.ID>()
+      .$type<Project.ID>()
       .notNull()
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
-    workspace_id: text().$type<WorkspaceV2.ID>(),
+    workspace_id: text().$type<Workspace.ID>(),
     parent_id: text().$type<SessionSchema.ID>(),
     slug: text().notNull(),
     directory: DatabasePath.directoryColumn().notNull(),
@@ -50,7 +50,7 @@ export const SessionTable = sqliteTable(
     tokens_cache_read: integer().notNull().default(0),
     tokens_cache_write: integer().notNull().default(0),
     revert: text({ mode: "json" }).$type<Revert.State>(),
-    permission: text({ mode: "json" }).$type<PermissionV1.Ruleset>(),
+    permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
     agent: text(),
     model: text({ mode: "json" }).$type<{
       id: string

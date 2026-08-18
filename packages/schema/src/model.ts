@@ -5,7 +5,7 @@ import { optional } from "./schema"
 import { Provider } from "./provider"
 import { statics } from "./schema"
 
-export const ID = Schema.String.pipe(Schema.brand("ModelV2.ID"))
+export const ID = Schema.String.pipe(Schema.brand("Model.ID"))
 export type ID = typeof ID.Type
 
 export const VariantID = Schema.String.pipe(Schema.brand("VariantID"))
@@ -84,7 +84,7 @@ export const Info = Schema.Struct({
     output: Schema.Int,
   }),
 })
-  .annotate({ identifier: "ModelV2.Info" })
+  .annotate({ identifier: "Model.Info" })
   .pipe(
     statics((schema) => ({
       empty: (providerID: Provider.ID, modelID: ID) =>

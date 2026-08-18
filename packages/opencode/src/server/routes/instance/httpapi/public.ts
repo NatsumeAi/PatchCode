@@ -106,11 +106,11 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
     for (const method of ["get", "post", "put", "delete", "patch"] as const) {
       const operation = item[method]
       if (!operation) continue
-      const isV2Api = isV2ApiPath(path)
+      const apiPath = isApiPath(path)
       if (operation.requestBody) {
         // The legacy OpenAPI surface never marked request bodies as required.
         // Keep that SDK surface stable while the HttpApi spec is tightened.
-        if (!isV2Api) delete operation.requestBody.required
+        if (!apiPath) delete operation.requestBody.required
         const body = operation.requestBody.content?.["application/json"]
         if (body?.schema) body.schema = stripOptionalNull(structuredClone(body.schema))
         if (path === "/experimental/workspace" && method === "post") {
@@ -143,7 +143,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
           if (content.schema) content.schema = stripOptionalNull(structuredClone(content.schema))
         }
       }
-      if (!isV2Api) {
+      if (!apiPath) {
         // Auth is still runtime middleware outside the legacy public OpenAPI
         // metadata, so the legacy SDK should not expose auth schemes or
         // generated 401 error unions.
@@ -164,7 +164,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
                   ? { $ref: "#/components/schemas/Event" }
                   : path === "/global/event"
                     ? { $ref: "#/components/schemas/GlobalEvent" }
-                    : { $ref: "#/components/schemas/V2Event" },
+                    : { $ref: "#/components/schemas/ServerEvent" },
             },
           },
         }
@@ -177,7 +177,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
   return input
 }
 
-function isV2ApiPath(path: string) {
+function isApiPath(path: string) {
   return path === "/api" || path.startsWith("/api/")
 }
 
@@ -374,8 +374,7 @@ function referencesComponent(input: unknown, name: string): boolean {
 
 function normalizeLegacyOperation(operation: OpenApiOperation, path: string, method: string) {
   if (path === "/experimental/console/switch" && method === "post") delete operation.responses?.["400"]
-  // V2 转正（deprecate-v1-use-v2 Task 1）：session.prompt 已切 v2（响应 SessionInput.Admitted），
-  // 不再强制 WithParts 覆盖；/session/{sessionID}/command 在 Task 3 前仍是 v1，保留 legacy 形状。
+  // /session/{sessionID}/command still uses the legacy HTTP shape until that route shares the live admit path.
   if (path !== "/session/{sessionID}/command" || method !== "post") return
   const response = operation.responses?.["200"]?.content?.["application/json"]
   if (!response) return

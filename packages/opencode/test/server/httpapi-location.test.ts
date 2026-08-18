@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { Context, Schema } from "effect"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
@@ -21,7 +21,7 @@ function request(route: string, directory: string, init: RequestInit = {}) {
 }
 
 const Event = Schema.Struct({
-  id: EventV2.ID,
+  id: CoreEvent.ID,
   type: Schema.String,
   location: Schema.optional(Location.Ref),
   data: Schema.Unknown,
@@ -77,8 +77,8 @@ afterEach(async () => {
   await resetDatabase()
 })
 
-describe("v2 location HttpApi", () => {
-  test("decodes EventV2 location refs without resolved project metadata", () => {
+describe("location HttpApi", () => {
+  test("decodes CoreEvent location refs without resolved project metadata", () => {
     expect(
       Schema.decodeUnknownSync(Event)({
         id: "evt_test",
@@ -105,7 +105,7 @@ describe("v2 location HttpApi", () => {
     }
   })
 
-  test("streams native EventV2 payloads across locations", async () => {
+  test("streams native CoreEvent payloads across locations", async () => {
     await using subscriber = await tmpdir({ git: true })
     await using publisher = await tmpdir({ git: true })
     const response = await request("/api/event", subscriber.path)

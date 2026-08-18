@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/api"
 
 /** Safe string coerce for tool input/metadata fields. */
 export function str(v: unknown): string | undefined {

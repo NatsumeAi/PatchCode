@@ -20,7 +20,7 @@ import type {
   SnapshotFileDiff,
   ConsoleState,
   SessionMessage,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "./project"
 import { useEvent } from "./event"
@@ -181,24 +181,16 @@ export const {
       hydratingSessions.get(sessionID)?.parts.add(partID)
     }
 
-    /** Map Permission.Request → PermissionRequest shape the existing prompt UI uses. */
-    const toPermissionRequest = (props: {
-      id: string
-      sessionID: string
-      action: string
-      resources: string[]
-      save?: string[]
-      metadata?: Record<string, unknown>
-      source?: { type: string; messageID?: string; callID?: string }
-    }): PermissionRequest => ({
+    /** Live Permission.Request is the prompt UI shape. */
+    const toPermissionRequest = (props: PermissionRequest): PermissionRequest => ({
       id: props.id,
       sessionID: props.sessionID,
-      permission: props.action,
-      patterns: props.resources ?? [],
+      action: props.action,
+      resources: props.resources ?? [],
       metadata: { ...(props.metadata ?? {}) },
-      always: props.save?.length ? [...props.save] : [...(props.resources ?? [])],
+      save: props.save?.length ? [...props.save] : [...(props.resources ?? [])],
       ...(props.source?.type === "tool" && props.source.messageID && props.source.callID
-        ? { tool: { messageID: props.source.messageID, callID: props.source.callID } }
+        ? { source: { type: "tool" as const, messageID: props.source.messageID, callID: props.source.callID } }
         : {}),
     })
 
@@ -230,7 +222,7 @@ export const {
       workspace: string | undefined,
       message?: string,
     ) => {
-      return sdk.client.v2.session.permission.reply({
+      return sdk.client.api.session.permission.reply({
         sessionID: request.sessionID,
         requestID: request.id,
         reply,
@@ -417,7 +409,7 @@ export const {
     const rehydrateAfterCompaction = async (sessionID: string) => {
       fullSyncedSessions.delete(sessionID)
       try {
-        const v2 = await sdk.client.v2.session.messages({ sessionID, limit: 100 })
+        const v2 = await sdk.client.api.session.messages({ sessionID, limit: 100 })
         const items = (v2.data?.data ?? []) as SessionMessage[]
         if (items.length > 0) {
           applySessionMessages(sessionID, items)
@@ -477,28 +469,8 @@ export const {
         }
 
         case "permission.asked": {
-          const raw = event.properties as {
-            id: string
-            sessionID: string
-            action?: string
-            permission?: string
-            resources?: string[]
-            patterns?: string[]
-            save?: string[]
-            always?: string[]
-            metadata?: Record<string, unknown>
-            source?: { type: string; messageID?: string; callID?: string }
-            tool?: PermissionRequest["tool"]
-          }
-          const request = raw.action !== undefined ? toPermissionRequest({
-            id: raw.id,
-            sessionID: raw.sessionID,
-            action: raw.action,
-            resources: raw.resources ?? [],
-            save: raw.save,
-            metadata: raw.metadata,
-            source: raw.source,
-          }) : raw as PermissionRequest
+          const raw = event.properties as PermissionRequest
+          const request = toPermissionRequest(raw)
           if (permission.mode === "auto") {
             void replyPermission(request, "once", directory, workspace)
             break
@@ -1714,7 +1686,7 @@ export const {
             let legacyList = messages.data ?? []
             if (legacyList.length === 0) {
               try {
-                const v2 = await sdk.client.v2.session.messages({ sessionID, limit: 100 })
+                const v2 = await sdk.client.api.session.messages({ sessionID, limit: 100 })
                 const items = (v2.data?.data ?? []) as SessionMessage[]
                 if (items.length > 0) {
                   applySessionMessages(sessionID, items)

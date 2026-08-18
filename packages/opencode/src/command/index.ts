@@ -7,7 +7,7 @@ import { Effect, Layer, Context, Option, Schema } from "effect"
 import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
-import { CommandV2 } from "@opencode-ai/core/command"
+import { Command as CoreCommand } from "@opencode-ai/core/command"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
@@ -170,7 +170,7 @@ const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>((ctx) => init(ctx))
 
-    const fromV2 = (item: CommandV2.Info): Info => {
+    const fromCore = (item: CoreCommand.Info): Info => {
       const model =
         item.model === undefined
           ? undefined
@@ -187,39 +187,39 @@ const layer = Layer.effect(
       }
     }
 
-    /** Live CommandV2 merge via LocationServiceMap (W10). serviceOption(CommandV2) at
-     * instance init is always None — CommandV2 is location-scoped. */
-    const listV2 = Effect.fn("Command.listV2")(function* () {
-      // LocationServiceMap is global (AppLayer). CommandV2 lives inside a location
-      // layer — resolve it via locations.get(ref), never serviceOption(CommandV2).
+    /** Live CoreCommand merge via LocationServiceMap (W10). serviceOption(CoreCommand) at
+     * instance init is always None — CoreCommand is location-scoped. */
+    const listCore = Effect.fn("Command.listCore")(function* () {
+      // LocationServiceMap is global (AppLayer). CoreCommand lives inside a location
+      // layer — resolve it via locations.get(ref), never serviceOption(CoreCommand).
       const locations = yield* Effect.serviceOption(LocationServiceMap.Service)
-      if (Option.isNone(locations)) return [] as CommandV2.Info[]
+      if (Option.isNone(locations)) return [] as CoreCommand.Info[]
       const ctx = yield* InstanceState.context
       const ref = Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) })
       return yield* Effect.gen(function* () {
-        const v2 = yield* CommandV2.Service
+        const v2 = yield* CoreCommand.Service
         return yield* v2.list()
       }).pipe(
         Effect.provide(locations.value.get(ref)),
-        Effect.catch(() => Effect.succeed([] as CommandV2.Info[])),
+        Effect.catch(() => Effect.succeed([] as CoreCommand.Info[])),
       )
     })
 
     const get = Effect.fn("Command.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
       if (s.commands[name]) return s.commands[name]
-      const extras = yield* listV2()
+      const extras = yield* listCore()
       const hit = extras.find((item) => item.name === name)
-      return hit ? fromV2(hit) : undefined
+      return hit ? fromCore(hit) : undefined
     })
 
     const list = Effect.fn("Command.list")(function* () {
       const s = yield* InstanceState.get(state)
-      const extras = yield* listV2()
+      const extras = yield* listCore()
       const merged = { ...s.commands }
       for (const item of extras) {
         if (merged[item.name]) continue
-        merged[item.name] = fromV2(item)
+        merged[item.name] = fromCore(item)
       }
       return Object.values(merged)
     })

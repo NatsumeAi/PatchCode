@@ -4,7 +4,7 @@ import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Permission } from "@opencode-ai/core/permission"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { BrowserHost } from "@opencode-ai/core/tool/browser-host"
 import { BrowserTool } from "@opencode-ai/core/tool/browser"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -12,7 +12,7 @@ import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { testEffect } from "./lib/effect"
 import { executeTool, toolDefinitions, toolIdentity } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_browser")
+const sessionID = Session.ID.make("ses_browser")
 const clicks: string[] = []
 const navigated: string[] = []
 

@@ -6,7 +6,7 @@ import { TabsInfoPopup } from "@/components/help-button"
 import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { usePlatform } from "@/context/platform"
 import { setNavigate } from "@/utils/notification-click"
-import { setV2Toast, ToastRegion } from "@/utils/toast"
+import { setKitToast, ToastRegion } from "@/utils/toast"
 
 export default function NewLayout(props: ParentProps) {
   const platform = usePlatform()
@@ -14,7 +14,7 @@ export default function NewLayout(props: ParentProps) {
   setNavigate(navigate)
   const [state, setState] = createStore({ debugTools: true })
 
-  createEffect(() => setV2Toast(true))
+  createEffect(() => setKitToast(true))
 
   const update: TitlebarUpdate = {
     version: () => {
@@ -28,7 +28,7 @@ export default function NewLayout(props: ParentProps) {
 
   return (
     <div
-      class="relative bg-v2-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+      class="relative bg-kit-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
       style={{
         "padding-top": "env(safe-area-inset-top, 0px)",
         "padding-bottom": "env(safe-area-inset-bottom, 0px)",
@@ -47,7 +47,7 @@ export default function NewLayout(props: ParentProps) {
       </main>
       {import.meta.env.DEV && state.debugTools && <DebugBar inline />}
       <TabsInfoPopup />
-      <ToastRegion v2 />
+      <ToastRegion kit />
     </div>
   )
 }

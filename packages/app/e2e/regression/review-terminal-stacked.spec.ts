@@ -25,7 +25,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   let detailFailures = 1
   await page.setViewportSize({ width: 1400, height: 900 })
   await mockOpenCodeServer(page, {
-    protocol: "v1",
+    protocol: "legacy",
     directory,
     project: {
       id: projectID,
@@ -158,7 +158,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expectTree(page, 2_773, "action.yml")
   await expectStackGeometry(page)
 
-  const treeViewport = page.locator('#review-panel [data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
+  const treeViewport = page.locator('#review-panel [data-slot="session-review-kit-sidebar-tree"] .scroll-view__viewport')
   await treeViewport.hover()
   await page.mouse.wheel(0, 100_000)
   await expect
@@ -181,7 +181,7 @@ test("keeps the review tree and terminal sized when both panels are open", async
   })
   await lastFile.click()
   await lazyDiff
-  const preview = page.locator('[data-slot="session-review-v2-diff-scroll"]')
+  const preview = page.locator('[data-slot="session-review-kit-diff-scroll"]')
   await expect(preview).toContainText("after-1")
   detailVersion = 2
   sessionStatus[sessionID] = { type: "busy" }
@@ -211,8 +211,8 @@ test("keeps the review tree and terminal sized when both panels are open", async
   await expectTree(page, 2_773, "action.yml")
 
   await page.getByRole("button", { name: "Toggle file tree" }).click()
-  await expect(page.locator('[data-slot="session-review-v2-sidebar"]')).toHaveCount(0)
-  await expect(page.locator('#review-panel [data-component="file-tree-v2"]')).toHaveCount(0)
+  await expect(page.locator('[data-slot="session-review-kit-sidebar"]')).toHaveCount(0)
+  await expect(page.locator('#review-panel [data-component="file-tree-kit"]')).toHaveCount(0)
   await page.getByRole("button", { name: "Toggle file tree" }).click()
   await expectTree(page, 2_773, "action.yml")
 
@@ -249,15 +249,15 @@ async function expectTree(page: Page, total: number, file: string) {
 }
 
 async function expectMountedTree(page: Page, total: number) {
-  const tree = page.locator('#review-panel [data-component="file-tree-v2"]')
+  const tree = page.locator('#review-panel [data-component="file-tree-kit"]')
   await expect(tree).toHaveAttribute("data-total-rows", String(total))
   await expect
-    .poll(() => tree.evaluate((element) => element.querySelectorAll('[data-slot="file-tree-v2-row"]').length))
+    .poll(() => tree.evaluate((element) => element.querySelectorAll('[data-slot="file-tree-kit-row"]').length))
     .toBeGreaterThan(0)
   const state = await tree.evaluate((element) => ({
     root: element.getBoundingClientRect().height,
     viewport: element.closest<HTMLElement>(".scroll-view__viewport")!.getBoundingClientRect().height,
-    rows: element.querySelectorAll('[data-slot="file-tree-v2-row"]').length,
+    rows: element.querySelectorAll('[data-slot="file-tree-kit-row"]').length,
   }))
   expect(state.viewport).toBeGreaterThan(0)
   expect(state.root).toBeGreaterThan(0)

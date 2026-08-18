@@ -1,4 +1,4 @@
-import type { SessionV1 } from "@opencode-ai/core/session-legacy"
+import type { SessionWire } from "@opencode-ai/core/session-legacy"
 
 export { parseGitHubRemote } from "@/util/repository"
 
@@ -7,7 +7,7 @@ export { parseGitHubRemote } from "@/util/repository"
  * Returns null for non-text responses (signals summary needed).
  * Throws only for truly empty responses.
  */
-export function extractResponseText(parts: SessionV1.Part[]): string | null {
+export function extractResponseText(parts: SessionWire.Part[]): string | null {
   const textPart = parts.findLast((p) => p.type === "text")
   if (textPart) return textPart.text
 

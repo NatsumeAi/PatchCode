@@ -5,7 +5,7 @@ import { DateTime, Effect, Option, Stream } from "effect"
 import { eq } from "drizzle-orm"
 import type { Config } from "../config"
 import { Database } from "../database/database"
-import type { EventV2 } from "../event"
+import type { Event } from "../event"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
@@ -122,7 +122,7 @@ type Settings = {
 }
 
 type Dependencies = {
-  readonly events: EventV2.Interface
+  readonly events: Event.Interface
   readonly llm: {
     readonly stream: (request: LLMRequest) => Stream.Stream<LLMEvent, LLMError>
   }
@@ -332,7 +332,7 @@ const isTurnStart = (message: SessionMessage.Message) => message.type === "user"
 /**
  * Group entries into turns. A turn starts at a user/synthetic message; leading
  * non-user messages (system baseline, agent/model switches) form their own
- * numbered turn. Groups are message-granular: in the v2 message model a tool
+ * numbered turn. Groups are message-granular: in the current message model a tool
  * call and its result live inside one assistant message, so no cut can ever
  * separate them (equivalent to Pi's isCutPointMessage constraint).
  */
@@ -639,7 +639,7 @@ export const make = (dependencies: Dependencies) => {
   })
   const compactAfterOverflow = Effect.fn("SessionCompaction.compactAfterOverflow")(function* (input: Input) {
     const reason = input.reason ?? "auto"
-    // V1 processor: compaction.auto === false means 413/overflow stops the turn
+    // Legacy processor: compaction.auto === false means 413/overflow stops the turn
     // with ContextOverflowError instead of auto-compacting.
     if (reason === "auto" && !config.auto) return false
     const context = input.model.route.defaults.limits?.context

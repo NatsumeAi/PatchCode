@@ -5,7 +5,7 @@ import { EventBus } from "./event-bus"
 
 /**
  * Publish subagent terminal events onto a parent session's loop-control EventBus.
- * Called from the V2 Task host choke point (notifyParent / foreground settle)
+ * Called from the Task host choke point (notifyParent / foreground settle)
  * so LoopControlHost can transition WorkerState Waiting → Active (or abort on fail).
  */
 export const publishSubagentTerminal = (input: {

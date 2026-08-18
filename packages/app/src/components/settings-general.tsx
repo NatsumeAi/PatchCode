@@ -5,7 +5,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { Tag } from "@opencode-ai/ui/v2/badge-v2"
+import { Tag } from "@opencode-ai/ui/kit/badge"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useParams } from "@solidjs/router"
@@ -129,7 +129,7 @@ export const SettingsGeneral: Component = () => {
   const [shells] = createResource(
     async () => {
       const sdk = serverSdk()
-      if ((await sdk.protocol) === "v1") {
+      if ((await sdk.protocol) === "legacy") {
         return (await sdk.client.pty.shells()).data ?? []
       }
       // return (await sdk.api.pty.shells()).data
@@ -270,7 +270,7 @@ export const SettingsGeneral: Component = () => {
               onChange={(checked) => {
                 settings.general.setNewLayoutDesigns(checked)
                 if (!checked) return
-                void import("@/components/settings-v2").then((module) => {
+                void import("@/components/settings-kit").then((module) => {
                   void dialog.show(() => <module.DialogSettings />)
                 })
               }}

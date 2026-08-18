@@ -8,7 +8,7 @@
  * extracted from the response body, plus `.status` and `.body` attached.
  */
 import { afterEach, describe, expect, test } from "bun:test"
-import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient } from "@opencode-ai/sdk/api"
 import { Server } from "../../src/server/server"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
@@ -26,7 +26,7 @@ function client(directory: string) {
   })
 }
 
-describe("v2 SDK error shape", () => {
+describe("SDK error shape", () => {
   test("404 with NamedError body throws a real Error carrying the server message", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
     const sdk = client(tmp.path)

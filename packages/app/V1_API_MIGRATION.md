@@ -1,6 +1,6 @@
 # V1 API Migration Checklist
 
-The app is currently hybrid. In this document, V1 refers to the legacy unprefixed server APIs used by `@opencode-ai/sdk/v2`, despite the SDK package name.
+The app is currently hybrid. In this document, V1 refers to the legacy unprefixed server APIs used by `@opencode-ai/sdk/api`, despite the SDK package name.
 
 ## Events
 

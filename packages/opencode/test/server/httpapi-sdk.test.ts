@@ -1,6 +1,6 @@
 import { afterEach, describe, expect } from "bun:test"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { Deferred, Effect, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import { HttpServer } from "effect/unstable/http"
@@ -10,12 +10,12 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient } from "@opencode-ai/sdk/api"
 import { validateSession } from "../../src/cli/tui/validate-session"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
-import { MessageV2 } from "../../src/session/session-message-wire"
+import { MessageWire } from "../../src/session/session-message-wire"
 
 import type { Config } from "@/config/config"
 import { Session as SessionNs } from "@/session/session"
@@ -26,8 +26,8 @@ import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { testProviderConfig } from "../lib/test-provider"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionInputTable, SessionMessageTable } from "@opencode-ai/core/session/sql"
 import { Session as SessionSchema } from "@opencode-ai/schema/session"
@@ -206,7 +206,7 @@ function httpapiInstance<A, E>(
   options: {
     serverPath: ServerPath
     git?: boolean
-    config?: Partial<ConfigV1.Info>
+    config?: Partial<ConfigInput.Info>
     setup?: (dir: string) => Effect.Effect<void, E, TestServices>
   },
   run: (input: ProjectFixture) => Effect.Effect<A, E, TestScope>,
@@ -230,7 +230,7 @@ function withProject<A, E, E2 = never>(
   serverPath: ServerPath,
   options: {
     git?: boolean
-    config?: Partial<ConfigV1.Info>
+    config?: Partial<ConfigInput.Info>
     setup?: (dir: string) => Effect.Effect<void, E2, TestServices>
   },
   run: (input: ProjectFixture) => Effect.Effect<A, E, TestScope>,
@@ -314,9 +314,9 @@ function seedMessage(directory: string, sessionID: string) {
             role: "user",
             time: { created: Date.now() },
             agent: "test",
-            model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test") },
+            model: { providerID: Provider.ID.make("test"), modelID: Model.ID.make("test") },
             tools: {},
-          } satisfies SessionV1.User)
+          } satisfies SessionWire.User)
           const part = yield* svc.updatePart({
             id: PartID.ascending(),
             sessionID: id,
@@ -393,7 +393,7 @@ describe("HttpApi SDK", () => {
           onRequest: (value) => (request = value),
         })
         const found = yield* pollWithTimeout(
-          call(() => sdk.v2.fs.find({ query: "hello", type: "file" })).pipe(
+          call(() => sdk.api.fs.find({ query: "hello", type: "file" })).pipe(
             Effect.map((result) => (result.data?.data.length ? result : undefined)),
           ),
           "SDK file search index was not ready",
@@ -674,7 +674,7 @@ describe("HttpApi SDK", () => {
     ),
   )
 
-  // Regression: EventV2 must publish on the same ProjectBus the /event handler
+  // Regression: CoreEvent must publish on the same ProjectBus the /event handler
   // subscribes to, AND the /event stream must forward handler ALS/context into the
   // body-pump fiber. Drives the full SDK → /event → Session.updatePart → sync.run →
   // bus.publish → SDK subscriber path. Goes red if either the publisher uses a
@@ -705,7 +705,7 @@ describe("HttpApi SDK", () => {
               Deferred.doneUnsafe(ready, Effect.void)
               continue
             }
-            if (type === MessageV2.Event.PartUpdated.type) {
+            if (type === MessageWire.Event.PartUpdated.type) {
               Deferred.doneUnsafe(received, Effect.succeed(payload))
               return
             }
@@ -900,7 +900,7 @@ describe("HttpApi SDK", () => {
     withFakeLlm("default", ({ sdk, llm }) =>
       Effect.gen(function* () {
         yield* llm.text("admitted", { usage: { input: 1, output: 1 } })
-        const session = yield* capture(() => sdk.session.create({ title: "v2 prompt admission" }))
+        const session = yield* capture(() => sdk.session.create({ title: "prompt admission" }))
         expect(session.status).toBe(200)
         const sessionID = String(record(session.data).id)
         expect(sessionID.startsWith("ses")).toBe(true)

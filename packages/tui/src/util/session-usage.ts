@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Part } from "@opencode-ai/sdk/api"
 import { Locale } from "./locale"
 
 const money = new Intl.NumberFormat("en-US", {

@@ -5,7 +5,7 @@ import type {
   Project,
   ProviderAuthResponse,
   SessionStatus,
-} from "@opencode-ai/sdk/v2/client"
+} from "@opencode-ai/sdk/api/client"
 import { showToast } from "@/utils/toast"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { type Accessor, batch, createMemo, getOwner, onCleanup, onMount, untrack } from "solid-js"
@@ -95,7 +95,7 @@ export const loadMcpQuery = (
   directory: string,
   api: McpListApi,
   legacy?: OpencodeClient,
-  protocol?: Promise<"v1" | "v2">,
+  protocol?: Promise<"legacy" | "current">,
 ): ApiQueryOptions<Record<string, McpServer["status"]>, readonly [ServerScope, string, "mcp"]> =>
   queryOptions<
     Record<string, McpServer["status"]>,
@@ -105,7 +105,7 @@ export const loadMcpQuery = (
   >({
     queryKey: [scope, directory, "mcp"] as const,
     queryFn: async () => {
-      if ((await protocol) === "v1" && legacy) return (await legacy.mcp.status()).data ?? {}
+      if ((await protocol) === "legacy" && legacy) return (await legacy.mcp.status()).data ?? {}
       return api
         .list({ location: { directory } })
         .then((result) => Object.fromEntries(result.data.map((server) => [server.name, server.status])))
@@ -117,7 +117,7 @@ export const loadMcpResourcesQuery = (
   directory: string,
   api: McpResourceApi,
   legacy?: OpencodeClient,
-  protocol?: Promise<"v1" | "v2">,
+  protocol?: Promise<"legacy" | "current">,
 ): ApiQueryOptions<Record<string, McpResource>, readonly [ServerScope, string, "mcpResources"]> =>
   queryOptions<
     Record<string, McpResource>,
@@ -127,7 +127,7 @@ export const loadMcpResourcesQuery = (
   >({
     queryKey: [scope, directory, "mcpResources"] as const,
     queryFn: async () => {
-      if ((await protocol) === "v1" && legacy) {
+      if ((await protocol) === "legacy" && legacy) {
         return Object.fromEntries(
           Object.entries((await legacy.experimental.resource.list()).data ?? {}).map(([key, resource]) => [
             key,
@@ -181,7 +181,7 @@ function makeQueryOptionsApi(
   serverSDK: () => OpencodeClient,
   serverAPI: ServerApi,
   sdkFor: (dir: PathKey) => OpencodeClient,
-  protocol: Promise<"v1" | "v2">,
+  protocol: Promise<"legacy" | "current">,
 ) {
   return {
     globalConfig: () => loadGlobalConfigQuery(scope, serverSDK()),
@@ -241,7 +241,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   const activeSessionsQuery = useQuery(() =>
     loadActiveSessionsQuery(serverSDK.scope, {
       active: async () => {
-        if ((await serverSDK.protocol) === "v1") {
+        if ((await serverSDK.protocol) === "legacy") {
           const statuses = (await serverSDK.client.session.status()).data ?? {}
           seedActiveSessionStatuses(session, statuses)
           for (const sessionID of Object.keys(statuses)) {
@@ -418,7 +418,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         queryFn: () =>
           serverSDK.protocol
             .then((protocol) =>
-              protocol === "v1"
+              protocol === "legacy"
                 ? loadRootSessionsV1({ client: sdkFor(directory), directory, limit })
                 : loadRootSessions({ api: serverSDK.api.session, directory, limit }),
             )
@@ -535,7 +535,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     const eventType: string = event.type
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
-    if (event.current) session.applyV2(event.current)
+    if (event.current) session.applyCurrent(event.current)
     session.apply(event)
     if (event.type === "session.created" || event.type === "session.updated" || event.type === "session.deleted") {
       homeSessions.apply(event)
@@ -698,14 +698,14 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
         await toggleMcp({
           status,
           connect: async () => {
-            if ((await serverSDK.protocol) === "v1") {
+            if ((await serverSDK.protocol) === "legacy") {
               await sdk.mcp.connect({ name })
               return
             }
             await serverSDK.api.mcp.connect({ server: name, location: { directory: key } })
           },
           disconnect: async () => {
-            if ((await serverSDK.protocol) === "v1") {
+            if ((await serverSDK.protocol) === "legacy") {
               await sdk.mcp.disconnect({ name })
               return
             }

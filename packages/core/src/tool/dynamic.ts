@@ -29,7 +29,7 @@ export interface Host {
   >
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/DynamicTools.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/DynamicTools.Host") {}
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {

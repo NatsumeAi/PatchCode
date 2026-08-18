@@ -1,6 +1,6 @@
 /**
  * Taken from https://www.solid-ui.com/docs/components/drawer
- * Only used in one place hence not a v2 component yet... can be promoted to ui/v2 later
+ * Only used in one place hence not a kit component yet... can be promoted to ui/kit later
  */
 
 import type { Component, ComponentProps, JSX, ValidComponent } from "solid-js"
@@ -34,7 +34,7 @@ const DrawerOverlay = <T extends ValidComponent = "div">(props: DynamicProps<T, 
     <DrawerPrimitive.Overlay
       class={props.class}
       classList={{
-        "fixed inset-0 z-[100] bg-v2-overlay-simple-overlay-scrim opacity-0 backdrop-blur-none transition-[opacity,backdrop-filter] duration-300 data-[opening]:opacity-100 data-[opening]:backdrop-blur-[4px] data-[closing]:opacity-0 data-[closing]:backdrop-blur-none": true,
+        "fixed inset-0 z-[100] bg-kit-overlay-simple-overlay-scrim opacity-0 backdrop-blur-none transition-[opacity,backdrop-filter] duration-300 data-[opening]:opacity-100 data-[opening]:backdrop-blur-[4px] data-[closing]:opacity-0 data-[closing]:backdrop-blur-none": true,
       }}
       style={overlayStyle()}
       {...rest}
@@ -55,7 +55,7 @@ const DrawerContent = <T extends ValidComponent = "div">(props: DynamicProps<T, 
       <DrawerPrimitive.Content
         class={props.class}
         classList={{
-          "group/drawer-content fixed inset-y-[6px] right-[6px] left-auto z-[100] flex h-auto max-h-[calc(100vh-12px)] w-[560px] max-w-[calc(100vw-12px)] flex-col items-start rounded-[8px] bg-v2-background-bg-base p-0 shadow-[var(--v2-elevation-overlay)] data-[transitioning]:transition-transform data-[transitioning]:duration-300 md:select-none": true,
+          "group/drawer-content fixed inset-y-[6px] right-[6px] left-auto z-[100] flex h-auto max-h-[calc(100vh-12px)] w-[560px] max-w-[calc(100vw-12px)] flex-col items-start rounded-[8px] bg-kit-background-bg-base p-0 shadow-[var(--kit-elevation-overlay)] data-[transitioning]:transition-transform data-[transitioning]:duration-300 md:select-none": true,
         }}
         {...rest}
       >
@@ -82,7 +82,7 @@ const DrawerTitle = <T extends ValidComponent = "div">(props: DynamicProps<T, Dr
   return (
     <DrawerPrimitive.Label
       class={props.class}
-      classList={{ "text-base font-[530] leading-none tracking-[-0.04px] text-v2-text-text-base": true }}
+      classList={{ "text-base font-[530] leading-none tracking-[-0.04px] text-kit-text-text-base": true }}
       {...rest}
     />
   )
@@ -98,7 +98,7 @@ const DrawerDescription = <T extends ValidComponent = "div">(props: DynamicProps
     <DrawerPrimitive.Description
       class={props.class}
       classList={{
-        "text-[13px] font-[440] leading-[140%] tracking-[-0.04px] text-v2-text-text-muted": true,
+        "text-[13px] font-[440] leading-[140%] tracking-[-0.04px] text-kit-text-text-muted": true,
       }}
       {...rest}
     />

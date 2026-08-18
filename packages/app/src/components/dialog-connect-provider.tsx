@@ -9,9 +9,9 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tag } from "@opencode-ai/ui/tag"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { DialogBody, DialogHeader, DialogTitle, DialogV2 } from "@opencode-ai/ui/v2/dialog-v2"
-import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
+import { DialogBody, DialogHeader, DialogTitle, Dialog as KitDialog } from "@opencode-ai/ui/kit/dialog"
+import { TextInput as KitTextInput } from "@opencode-ai/ui/kit/text-input"
 import { showToast } from "@/utils/toast"
 import {
   type Accessor,
@@ -120,9 +120,9 @@ export const DialogConnectProvider: Component<{
         </Dialog>
       }
     >
-      <DialogV2
+      <KitDialog
         containerClass="!h-[min(calc(100vh_-_16px),512px)] !w-[min(calc(100vw_-_16px),640px)]"
-        class="[font-family:var(--v2-font-family-sans)] [&_[data-slot=dialog-header]]:!px-5 [&_[data-slot=dialog-header-title]]:!text-[15px] [&_[data-slot=dialog-header-title]]:!tracking-[-0.13px]"
+        class="[font-family:var(--kit-font-family-sans)] [&_[data-slot=dialog-header]]:!px-5 [&_[data-slot=dialog-header-title]]:!text-[15px] [&_[data-slot=dialog-header-title]]:!tracking-[-0.13px]"
       >
         <DialogHeader closeLabel={language.t("common.close")}>
           <Show
@@ -131,7 +131,7 @@ export const DialogConnectProvider: Component<{
           >
             <button
               type="button"
-              class="flex size-5 items-center justify-center rounded-sm text-v2-icon-icon-muted hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+              class="flex size-5 items-center justify-center rounded-sm text-kit-icon-icon-muted hover:bg-kit-overlay-simple-overlay-hover focus-visible:bg-kit-overlay-simple-overlay-hover focus-visible:outline-none"
               onClick={() => back.current()}
               aria-label={language.t("common.goBack")}
             >
@@ -144,7 +144,7 @@ export const DialogConnectProvider: Component<{
             <Content />
           </div>
         </DialogBody>
-      </DialogV2>
+      </KitDialog>
     </Show>
   )
 }
@@ -156,7 +156,7 @@ function ProviderPicker(props: {
 }) {
   const settings = useSettings()
   if (settings.general.newLayoutDesigns())
-    return <ProviderPickerV2 directory={props.directory} onSelect={props.onSelect} onPrepare={props.onPrepare} />
+    return <ProviderPickerKit directory={props.directory} onSelect={props.onSelect} onPrepare={props.onPrepare} />
   const providers = useProviders(() => props.directory?.())
   const language = useLanguage()
   const popularGroup = () => language.t("dialog.provider.group.popular")
@@ -224,7 +224,7 @@ function ProviderPicker(props: {
   )
 }
 
-function ProviderPickerV2(props: {
+function ProviderPickerKit(props: {
   directory?: Accessor<string | undefined>
   onSelect: (provider: string) => void
   onPrepare?: () => void
@@ -293,10 +293,10 @@ function ProviderPickerV2(props: {
   return (
     <div ref={picker} class="flex min-h-0 flex-1 flex-col gap-4" onKeyDown={handleKeyDown}>
       <div class="shrink-0 px-1 pt-px">
-        <TextInputV2
+        <KitTextInput
           ref={search}
           type="search"
-          class="!w-full [font-family:var(--v2-font-family-sans)]"
+          class="!w-full [font-family:var(--kit-font-family-sans)]"
           leadingIcon={<Icon name="magnifying-glass" size="small" />}
           placeholder={language.t("dialog.provider.search.placeholder")}
           value={store.filter}
@@ -316,7 +316,7 @@ function ProviderPickerV2(props: {
             {(group) => (
               <Show when={group.items().length > 0}>
                 <section class="flex flex-col">
-                  <div class="px-3 pb-2 text-[13px] font-[440] leading-none tracking-[-0.04px] text-v2-text-text-muted">
+                  <div class="px-3 pb-2 text-[13px] font-[440] leading-none tracking-[-0.04px] text-kit-text-text-muted">
                     {group.title}
                   </div>
                   <For each={group.items()}>
@@ -324,34 +324,34 @@ function ProviderPickerV2(props: {
                       <button
                         type="button"
                         data-provider-id={provider.id}
-                        class="flex min-h-9 w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[13px] leading-none tracking-[-0.04px] hover:bg-v2-overlay-simple-overlay-hover focus:bg-v2-overlay-simple-overlay-hover focus:outline-none"
-                        classList={{ "bg-v2-overlay-simple-overlay-hover": store.active === provider.id }}
+                        class="flex min-h-9 w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[13px] leading-none tracking-[-0.04px] hover:bg-kit-overlay-simple-overlay-hover focus:bg-kit-overlay-simple-overlay-hover focus:outline-none"
+                        classList={{ "bg-kit-overlay-simple-overlay-hover": store.active === provider.id }}
                         onMouseEnter={() => setStore("active", provider.id)}
                         disabled={store.connecting !== undefined}
                         aria-busy={store.connecting === provider.id}
                         onClick={() => connect(provider.id)}
                       >
-                        <ProviderIcon id={provider.id} class="size-4 shrink-0 text-v2-icon-icon-base" />
-                        <span class="min-w-0 truncate font-[530] text-v2-text-text-base">{provider.name}</span>
+                        <ProviderIcon id={provider.id} class="size-4 shrink-0 text-kit-icon-icon-base" />
+                        <span class="min-w-0 truncate font-[530] text-kit-text-text-base">{provider.name}</span>
                         <Show when={provider.id === "opencode" || provider.id === "opencode-go"}>
-                          <span class="min-w-0 truncate font-[440] text-v2-text-text-muted">
+                          <span class="min-w-0 truncate font-[440] text-kit-text-text-muted">
                             {language.t(
                               provider.id === "opencode"
                                 ? "dialog.provider.opencode.tagline"
                                 : "dialog.provider.opencodeGo.tagline",
                             )}
                           </span>
-                          <span class="flex h-4 shrink-0 items-center rounded-xs border-[0.5px] border-v2-border-border-base bg-v2-background-bg-layer-03 px-1 text-[11px] font-[530] leading-none tracking-[0.05px] text-v2-text-text-muted">
+                          <span class="flex h-4 shrink-0 items-center rounded-xs border-[0.5px] border-kit-border-border-base bg-kit-background-bg-layer-03 px-1 text-[11px] font-[530] leading-none tracking-[0.05px] text-kit-text-text-muted">
                             {language.t("dialog.provider.tag.recommended")}
                           </span>
                         </Show>
                         <Show when={provider.id === CUSTOM_ID}>
-                          <span class="flex h-4 shrink-0 items-center rounded-xs border-[0.5px] border-v2-border-border-base bg-v2-background-bg-layer-03 px-1 text-[11px] font-[530] leading-none tracking-[0.05px] text-v2-text-text-muted">
+                          <span class="flex h-4 shrink-0 items-center rounded-xs border-[0.5px] border-kit-border-border-base bg-kit-background-bg-layer-03 px-1 text-[11px] font-[530] leading-none tracking-[0.05px] text-kit-text-text-muted">
                             {language.t("settings.providers.tag.custom")}
                           </span>
                         </Show>
                         <Show when={store.connecting === provider.id}>
-                          <Spinner class="ml-auto size-4 shrink-0 text-v2-icon-icon-muted" />
+                          <Spinner class="ml-auto size-4 shrink-0 text-kit-icon-icon-muted" />
                         </Show>
                       </button>
                     )}
@@ -361,14 +361,14 @@ function ProviderPickerV2(props: {
             )}
           </For>
           <Show when={rows().length === 0}>
-            <div class="flex h-24 items-center justify-center text-[13px] font-[440] text-v2-text-text-muted">
+            <div class="flex h-24 items-center justify-center text-[13px] font-[440] text-kit-text-text-muted">
               {language.t("dialog.provider.empty")}
             </div>
           </Show>
         </div>
         <div
           class="pointer-events-none absolute inset-x-0 bottom-0 h-10"
-          style={{ background: "linear-gradient(to bottom, transparent, var(--v2-background-bg-layer-01))" }}
+          style={{ background: "linear-gradient(to bottom, transparent, var(--kit-background-bg-layer-01))" }}
         />
       </div>
     </div>
@@ -730,7 +730,7 @@ function ProviderConnection(props: {
     if (newLayout())
       return (
         <div class="flex flex-col gap-2">
-          <div class="px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
+          <div class="px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-muted">
             {language.t("provider.connect.selectMethod", { provider: provider().name })}
           </div>
           <div class="flex flex-col">
@@ -740,15 +740,15 @@ function ProviderConnection(props: {
                 return (
                   <button
                     type="button"
-                    class="group flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] leading-5 tracking-[-0.04px] hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+                    class="group flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] leading-5 tracking-[-0.04px] hover:bg-kit-overlay-simple-overlay-hover focus-visible:bg-kit-overlay-simple-overlay-hover focus-visible:outline-none"
                     onClick={() => void selectMethod(index())}
                   >
-                    <span class="flex h-2 w-4 shrink-0 items-center justify-center rounded-[1px] bg-v2-background-bg-base shadow-[var(--v2-elevation-button-neutral)]">
-                      <span class="hidden h-0.5 w-2.5 bg-v2-icon-icon-base group-hover:block group-focus-visible:block" />
+                    <span class="flex h-2 w-4 shrink-0 items-center justify-center rounded-[1px] bg-kit-background-bg-base shadow-[var(--kit-elevation-button-neutral)]">
+                      <span class="hidden h-0.5 w-2.5 bg-kit-icon-icon-base group-hover:block group-focus-visible:block" />
                     </span>
-                    <span class="font-[530] text-v2-text-text-base">{details().label}</span>
+                    <span class="font-[530] text-kit-text-text-base">{details().label}</span>
                     <Show when={details().hint}>
-                      {(hint) => <span class="font-[440] text-v2-text-text-muted">{hint()}</span>}
+                      {(hint) => <span class="font-[440] text-kit-text-text-muted">{hint()}</span>}
                     </Show>
                   </button>
                 )
@@ -826,7 +826,7 @@ function ProviderConnection(props: {
 
     if (newLayout())
       return (
-        <div class="flex flex-col gap-5 px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
+        <div class="flex flex-col gap-5 px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-muted">
           <Show
             when={provider().id === "opencode"}
             fallback={language.t("provider.connect.apiKey.description", { provider: provider().name })}
@@ -838,7 +838,7 @@ function ProviderConnection(props: {
                 {language.t("provider.connect.opencodeZen.visit.prefix")}
                 <Link
                   href="https://opencode.ai/zen"
-                  class="text-v2-text-text-base focus-visible:rounded-xs focus-visible:outline-2 focus-visible:outline-v2-border-border-focus"
+                  class="text-kit-text-text-base focus-visible:rounded-xs focus-visible:outline-2 focus-visible:outline-kit-border-border-focus"
                 >
                   {language.t("provider.connect.opencodeZen.visit.link")}
                 </Link>
@@ -847,9 +847,9 @@ function ProviderConnection(props: {
             </div>
           </Show>
           <form onSubmit={handleSubmit} class="flex flex-col items-start gap-5 self-stretch">
-            <label class="flex w-full flex-col gap-1 font-[530] leading-4 text-v2-text-text-base">
+            <label class="flex w-full flex-col gap-1 font-[530] leading-4 text-kit-text-text-base">
               {language.t("provider.connect.apiKey.label", { provider: provider().name })}
-              <TextInputV2
+              <KitTextInput
                 ref={apiKey}
                 class="!w-full"
                 name="apiKey"
@@ -865,14 +865,14 @@ function ProviderConnection(props: {
             </label>
             <Show when={formStore.error}>
               {(error) => (
-                <div id={errorID} role="alert" class="-mt-4 text-xs text-v2-state-fg-danger">
+                <div id={errorID} role="alert" class="-mt-4 text-xs text-kit-state-fg-danger">
                   {error()}
                 </div>
               )}
             </Show>
-            <ButtonV2 type="submit" variant="contrast" data-action="provider-connect-submit">
+            <KitButton type="submit" variant="contrast" data-action="provider-connect-submit">
               {language.t("common.continue")}
-            </ButtonV2>
+            </KitButton>
           </form>
         </div>
       )
@@ -964,18 +964,18 @@ function ProviderConnection(props: {
 
     if (newLayout())
       return (
-        <div class="flex flex-col gap-5 px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
+        <div class="flex flex-col gap-5 px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-muted">
           <div>
             {language.t("provider.connect.oauth.code.visit.prefix")}
-            <Link href={store.authorization!.url} class="text-v2-text-text-base">
+            <Link href={store.authorization!.url} class="text-kit-text-text-base">
               {language.t("provider.connect.oauth.code.visit.link")}
             </Link>
             {language.t("provider.connect.oauth.code.visit.suffix", { provider: provider().name })}
           </div>
           <form onSubmit={handleSubmit} class="flex flex-col items-start gap-5 self-stretch">
-            <label class="flex w-full flex-col gap-1 font-[530] leading-4 text-v2-text-text-base">
+            <label class="flex w-full flex-col gap-1 font-[530] leading-4 text-kit-text-text-base">
               {language.t("provider.connect.oauth.code.label", { method: method()?.label ?? "" })}
-              <TextInputV2
+              <KitTextInput
                 ref={codeInput}
                 class="!w-full"
                 name="code"
@@ -990,14 +990,14 @@ function ProviderConnection(props: {
             </label>
             <Show when={formStore.error}>
               {(error) => (
-                <div id={errorID} role="alert" class="-mt-4 text-xs text-v2-state-fg-danger">
+                <div id={errorID} role="alert" class="-mt-4 text-xs text-kit-state-fg-danger">
                   {error()}
                 </div>
               )}
             </Show>
-            <ButtonV2 type="submit" variant="contrast">
+            <KitButton type="submit" variant="contrast">
               {language.t("common.continue")}
-            </ButtonV2>
+            </KitButton>
           </form>
         </div>
       )
@@ -1100,12 +1100,12 @@ function ProviderConnection(props: {
       <div class={newLayout() ? "flex h-10 shrink-0 items-start gap-2 px-3" : "flex items-center gap-4 px-2.5"}>
         <ProviderIcon
           id={props.provider}
-          class={newLayout() ? "mt-0.5 size-4 shrink-0 text-v2-icon-icon-base" : "size-5 shrink-0 icon-strong-base"}
+          class={newLayout() ? "mt-0.5 size-4 shrink-0 text-kit-icon-icon-base" : "size-5 shrink-0 icon-strong-base"}
         />
         <div
           class={
             newLayout()
-              ? "text-[15px] font-[530] leading-5 tracking-[-0.13px] text-v2-text-text-base"
+              ? "text-[15px] font-[530] leading-5 tracking-[-0.13px] text-kit-text-text-base"
               : "text-16-medium text-text-strong"
           }
         >

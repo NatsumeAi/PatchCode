@@ -9,7 +9,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Git } from "@opencode-ai/core/git"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectDirectoryTable, ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProjectCopy } from "@opencode-ai/core/project/copy"
@@ -18,7 +18,7 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([ProjectCopy.node, Database.node, EventV2.node, ProjectDirectories.node])),
+  AppNodeBuilder.build(LayerNode.group([ProjectCopy.node, Database.node, CoreEvent.node, ProjectDirectories.node])),
 )
 
 function abs(input: string) {
@@ -116,7 +116,7 @@ describe("ProjectCopy", () => {
     Effect.gen(function* () {
       const input = yield* setup()
       const copy = yield* ProjectCopy.Service
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const temp = yield* Effect.promise(() => fs.realpath(path.dirname(input.root.path)))
       const parent = abs(path.join(temp, path.basename(input.root.path) + "-copy-created"))
       const target = abs(path.join(parent, "copy"))
@@ -278,7 +278,7 @@ describe("ProjectCopy", () => {
     Effect.gen(function* () {
       const input = yield* setup()
       const copy = yield* ProjectCopy.Service
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const event = yield* events.subscribe(ProjectCopy.Event.Updated).pipe(
         Stream.take(1),
         Stream.runCollect,
@@ -300,7 +300,7 @@ describe("ProjectCopy", () => {
     Effect.gen(function* () {
       const input = yield* setup()
       const copy = yield* ProjectCopy.Service
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const target = abs(`${input.root.path}-copy-external`)
       yield* Effect.addFinalizer(() =>
         Effect.promise(() => fs.rm(target, { recursive: true, force: true })).pipe(Effect.ignore),

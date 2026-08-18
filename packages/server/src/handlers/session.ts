@@ -1,4 +1,4 @@
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -18,7 +18,7 @@ const DefaultSessionHistoryLimit = 50
 
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
-    const session = yield* SessionV2.Service
+    const session = yield* CoreSession.Service
 
     return handlers
       .handle(
@@ -208,7 +208,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
           )
           // SDK wait is "until the agent loop is idle". An idle session (no
           // drain, including a brand-new session) must 204 immediately.
-          // SessionV2.wait still polls for a completed assistant and is used
+          // CoreSession.wait still polls for a completed assistant and is used
           // by github/task after they have already started a turn.
           const active = yield* session.active
           if (!active.has(ctx.params.sessionID)) {

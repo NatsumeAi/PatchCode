@@ -10,7 +10,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { Image } from "@opencode-ai/core/image"
 import { Permission } from "@opencode-ai/core/permission"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
@@ -144,7 +144,7 @@ const readLayer = (imageLayer: Layer.Layer<Image.Service>) =>
   ])
 const it = testEffect(readLayer(imageLayer))
 const itWithoutResizer = testEffect(readLayer(unavailableImage))
-const sessionID = SessionV2.ID.make("ses_read_tool_test")
+const sessionID = Session.ID.make("ses_read_tool_test")
 
 describe("ReadTool", () => {
   beforeEach(() => {

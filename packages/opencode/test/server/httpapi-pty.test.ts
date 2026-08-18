@@ -27,7 +27,7 @@ afterEach(async () => {
   await resetDatabase()
 })
 
-describe("v2 pty HttpApi", () => {
+describe("pty HttpApi", () => {
   testPty("serves location-wrapped PTY routes and retains exited sessions", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
 

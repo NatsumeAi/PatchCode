@@ -11,7 +11,7 @@ import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/l
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { BackgroundJob } from "@/background/job"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { registerAdapter } from "../../src/control-plane/adapters"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
@@ -41,7 +41,7 @@ const appLayer = AppNodeBuilder.build(
     Database.node,
     Ripgrep.node,
     BackgroundJob.node,
-    EventV2.node,
+    Event.node,
   ]),
   [
     [InstanceStore.bootstrapNode, noopBootstrapLayer],

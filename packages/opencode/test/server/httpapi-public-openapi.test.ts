@@ -36,9 +36,9 @@ type OpenApiSpec = {
 
 const methods = ["get", "post", "put", "delete", "patch"] as const
 
-const allowedV2BuiltInEndpointErrors: string[] = []
+const allowedApiBuiltInEndpointErrors: string[] = []
 
-function v2Operations(spec: OpenApiSpec) {
+function apiOperations(spec: OpenApiSpec) {
   return Object.entries(spec.paths).flatMap(([path, item]) =>
     path.startsWith("/api/")
       ? methods.flatMap((method) => {
@@ -69,7 +69,7 @@ function isBuiltInEndpointError(name: string) {
   return name.startsWith("EffectHttpApiError") || name.startsWith("effect_HttpApiError_")
 }
 
-describe("PublicApi OpenAPI v2 errors", () => {
+describe("PublicApi OpenAPI current errors", () => {
   test("includes plugin-facing core schemas", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
@@ -79,7 +79,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
         "IntegrationInputs",
         "IntegrationMethod",
         "IntegrationRef",
-        "SkillV2Source",
+        "SkillSource",
       ]),
     )
   })
@@ -101,25 +101,25 @@ describe("PublicApi OpenAPI v2 errors", () => {
     })
   })
 
-  test("names the v2 event union without the SSE string wrapper collision", () => {
+  test("names the event union without the SSE string wrapper collision", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
-    expect(spec.components.schemas.V2Event1).toBeUndefined()
-    expect(spec.components.schemas.V2Event?.anyOf?.length).toBeGreaterThan(0)
-    expect(spec.components.schemas.V2EventStream).toMatchObject({
+    expect(spec.components.schemas.ServerEvent1).toBeUndefined()
+    expect(spec.components.schemas.ServerEvent?.anyOf?.length).toBeGreaterThan(0)
+    expect(spec.components.schemas.ServerEventStream).toMatchObject({
       type: "string",
       contentMediaType: "application/json",
-      contentSchema: { $ref: "#/components/schemas/V2Event" },
+      contentSchema: { $ref: "#/components/schemas/ServerEvent" },
     })
     expect(spec.paths["/api/event"]?.get?.responses?.["200"]?.content?.["text/event-stream"]?.schema).toEqual({
-      $ref: "#/components/schemas/V2Event",
+      $ref: "#/components/schemas/ServerEvent",
     })
   })
 
   test("preserves /api auth responses", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
-    for (const route of v2Operations(spec)) {
+    for (const route of apiOperations(spec)) {
       expect(route.operation.responses?.["401"], `${route.method.toUpperCase()} ${route.path}`).toBeDefined()
       expect(route.operation.security, `${route.method.toUpperCase()} ${route.path}`).toEqual([])
     }
@@ -134,7 +134,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
     expect(spec.paths["/api/reference"]?.get).toBeDefined()
   })
 
-  test("preserves required request bodies for v2 mutations", () => {
+  test("preserves required request bodies for current mutations", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     for (const path of [
@@ -174,7 +174,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
 
   test("does not rewrite /api endpoint errors to legacy error components", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
-    const refs = v2Operations(spec)
+    const refs = apiOperations(spec)
       .flatMap((route) =>
         Object.entries(route.operation.responses ?? {}).flatMap(([status, response]) => {
           const ref = responseRef(response)
@@ -188,7 +188,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
 
   test("new /api endpoint errors cannot use built-in components without an explicit allowlist", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
-    const builtInEndpointErrors = v2Operations(spec)
+    const builtInEndpointErrors = apiOperations(spec)
       .flatMap((route) =>
         Object.entries(route.operation.responses ?? {}).flatMap(([status, response]) => {
           if (status === "401") return []
@@ -200,10 +200,10 @@ describe("PublicApi OpenAPI v2 errors", () => {
       )
       .sort()
 
-    expect(builtInEndpointErrors).toEqual(allowedV2BuiltInEndpointErrors)
+    expect(builtInEndpointErrors).toEqual(allowedApiBuiltInEndpointErrors)
   })
 
-  test("documents v2 provider and model catalog errors", () => {
+  test("documents current provider and model catalog errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     expect(componentName(responseRef(spec.paths["/api/provider"]?.get?.responses?.["503"]) ?? "")).toBe(
@@ -220,7 +220,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
     )
   })
 
-  test("documents v2 session not-found errors", () => {
+  test("documents current session not-found errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     for (const route of [
@@ -234,7 +234,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
     }
   })
 
-  test("documents v2 compact busy errors", () => {
+  test("documents current compact busy errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     expect(
@@ -242,7 +242,7 @@ describe("PublicApi OpenAPI v2 errors", () => {
     ).toBe("ServiceUnavailableError")
   })
 
-  test("documents v2 session read data errors", () => {
+  test("documents current session read data errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     for (const route of [
@@ -274,16 +274,8 @@ describe("PublicApi OpenAPI v2 errors", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
     expect(
-      componentName(responseRef(spec.paths["/permission/{requestID}/reply"]?.post?.responses?.["404"]) ?? ""),
-    ).toBe("PermissionNotFoundError")
-    for (const route of [
-      ["post", "/question/{requestID}/reply"],
-      ["post", "/question/{requestID}/reject"],
-    ] as const) {
-      expect(componentName(responseRef(spec.paths[route[1]]?.[route[0]]?.responses?.["404"]) ?? "")).toBe(
-        "QuestionNotFoundError",
-      )
-    }
+      componentNames(spec.paths["/api/session/{sessionID}/permission/{requestID}/reply"]?.post?.responses?.["404"]),
+    ).toEqual(["PermissionNotFoundError", "SessionNotFoundError"])
     for (const route of [
       ["post", "/api/session/{sessionID}/question/{requestID}/reply"],
       ["post", "/api/session/{sessionID}/question/{requestID}/reject"],

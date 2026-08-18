@@ -1,4 +1,4 @@
-export * as ConfigPluginV1 from "./plugin"
+export * as ConfigPluginInput from "./plugin"
 
 import { Schema } from "effect"
 

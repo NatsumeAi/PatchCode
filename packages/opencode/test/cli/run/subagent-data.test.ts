@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Event } from "@opencode-ai/sdk/v2"
+import type { Event } from "@opencode-ai/sdk/api"
 import { entryBody } from "@/cli/cmd/run/entry.body"
 import {
   bootstrapSubagentCalls,
@@ -222,18 +222,18 @@ describe("run subagent data", () => {
           {
             id: "perm-1",
             sessionID: "child-1",
-            permission: "read",
-            patterns: ["src/**/*.ts"],
+            action: "read",
+            resources: ["src/**/*.ts"],
             metadata: {},
-            always: [],
+            save: [],
           },
           {
             id: "perm-2",
             sessionID: "other",
-            permission: "read",
-            patterns: ["src/**/*.ts"],
+            action: "read",
+            resources: ["src/**/*.ts"],
             metadata: {},
-            always: [],
+            save: [],
           },
         ],
         questions: [question("question-1", "child-1"), question("question-2", "other")],

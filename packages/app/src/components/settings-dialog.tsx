@@ -17,7 +17,7 @@ export function useSettingsDialog(defaultValue?: string) {
   return () => {
     const current = ++run
     const sessionID = params.id
-    void import("@/components/settings-v2").then((module) => {
+    void import("@/components/settings-kit").then((module) => {
       if (dead || run !== current) return
       void dialog.show(() => <module.DialogSettings sessionID={sessionID} defaultValue={defaultValue} />)
     })

@@ -4,7 +4,7 @@ import { parseResponse, selectProvider } from "@opencode-ai/core/tool/websearch"
 
 import { webSearchEnabled } from "@opencode-ai/core/tool/websearch"
 import { it } from "../lib/effect"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 
 function selectWebSearchProvider(sessionID: string, flags = { exa: false, parallel: false }) {
   return selectProvider(sessionID, { enableExa: flags.exa, enableParallel: flags.parallel })
@@ -53,10 +53,10 @@ describe("websearch provider", () => {
   })
 
   test("is only enabled for opencode or explicit websearch provider flags", () => {
-    expect(webSearchEnabled(ProviderV2.ID.opencode, { exa: false, parallel: false })).toBe(true)
-    expect(webSearchEnabled(ProviderV2.ID.openai, { exa: false, parallel: false })).toBe(false)
-    expect(webSearchEnabled(ProviderV2.ID.openai, { exa: true, parallel: false })).toBe(true)
-    expect(webSearchEnabled(ProviderV2.ID.openai, { exa: false, parallel: true })).toBe(true)
+    expect(webSearchEnabled(Provider.ID.opencode, { exa: false, parallel: false })).toBe(true)
+    expect(webSearchEnabled(Provider.ID.openai, { exa: false, parallel: false })).toBe(false)
+    expect(webSearchEnabled(Provider.ID.openai, { exa: true, parallel: false })).toBe(true)
+    expect(webSearchEnabled(Provider.ID.openai, { exa: false, parallel: true })).toBe(true)
   })
 
   test("uses branded labels", () => {

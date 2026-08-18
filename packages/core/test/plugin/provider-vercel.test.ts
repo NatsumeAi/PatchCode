@@ -2,18 +2,18 @@ import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { VercelPlugin } from "@opencode-ai/core/plugin/provider/vercel"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* () {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* Plugin.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
   yield* VercelPlugin.effect(host)
@@ -24,13 +24,13 @@ describe("VercelPlugin", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(ProviderV2.ID.make("vercel"), (provider) => {
+        catalog.provider.update(Provider.ID.make("vercel"), (provider) => {
           provider.api = { type: "aisdk", package: "@ai-sdk/vercel" }
           provider.request.headers.Existing = "1"
         })
       })
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("vercel")))?.request.headers).toEqual({
+      expect((yield* catalog.provider.get(Provider.ID.make("vercel")))?.request.headers).toEqual({
         Existing: "1",
         "http-referer": "https://opencode.ai/",
         "x-title": "opencode",
@@ -42,27 +42,27 @@ describe("VercelPlugin", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) =>
-        catalog.provider.update(ProviderV2.ID.make("vercel"), (provider) => {
+        catalog.provider.update(Provider.ID.make("vercel"), (provider) => {
           provider.api = { type: "aisdk", package: "@ai-sdk/vercel" }
         }),
       )
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("vercel")))?.request.headers).not.toHaveProperty(
+      expect((yield* catalog.provider.get(Provider.ID.make("vercel")))?.request.headers).not.toHaveProperty(
         "HTTP-Referer",
       )
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("vercel")))?.request.headers).not.toHaveProperty("X-Title")
+      expect((yield* catalog.provider.get(Provider.ID.make("vercel")))?.request.headers).not.toHaveProperty("X-Title")
     }),
   )
 
   it.effect("creates @ai-sdk/vercel SDKs for custom provider IDs", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
       const event = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("custom-vercel"), ModelV2.ID.make("v0-1.0-md")),
-          api: { id: ModelV2.ID.make("v0-1.0-md"), type: "aisdk", package: "@ai-sdk/vercel" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("custom-vercel"), Model.ID.make("v0-1.0-md")),
+          api: { id: Model.ID.make("v0-1.0-md"), type: "aisdk", package: "@ai-sdk/vercel" },
         }),
         package: "@ai-sdk/vercel",
         options: { name: "custom-vercel" },
@@ -75,9 +75,9 @@ describe("VercelPlugin", () => {
   it.effect("ignores non-Vercel providers", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      yield* catalog.transform((catalog) => catalog.provider.update(ProviderV2.ID.make("gateway"), () => {}))
+      yield* catalog.transform((catalog) => catalog.provider.update(Provider.ID.make("gateway"), () => {}))
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("gateway")))?.request.headers).toEqual({})
+      expect((yield* catalog.provider.get(Provider.ID.make("gateway")))?.request.headers).toEqual({})
     }),
   )
 })

@@ -2,15 +2,15 @@ import { describe, expect } from "bun:test"
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Question } from "@opencode-ai/core/question"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { testEffect } from "./lib/effect"
 
-const questions = AppNodeBuilder.build(LayerNode.group([EventV2.node, Question.node]))
+const questions = AppNodeBuilder.build(LayerNode.group([CoreEvent.node, Question.node]))
 const it = testEffect(questions)
 
-const sessionID = SessionV2.ID.make("ses_question_test")
+const sessionID = Session.ID.make("ses_question_test")
 const question: Question.Info = {
   question: "Which option?",
   header: "Option",
@@ -21,7 +21,7 @@ const waitForAsk = Effect.fn("QuestionTest.waitForAsk")(function* (
   service: Question.Interface,
   input: Question.AskInput,
 ) {
-  const events = yield* EventV2.Service
+  const events = yield* CoreEvent.Service
   const asked = yield* Deferred.make<Question.Request>()
   const unsubscribe = yield* events.listen((event) =>
     event.type === Question.Event.Asked.type
@@ -37,8 +37,8 @@ describe("Question", () => {
   it.effect("publishes lifecycle events and settles a pending reply", () =>
     Effect.gen(function* () {
       const service = yield* Question.Service
-      const events = yield* EventV2.Service
-      const published: EventV2.Payload[] = []
+      const events = yield* CoreEvent.Service
+      const published: CoreEvent.Payload[] = []
       const unsubscribe = yield* events.listen((event) =>
         Effect.sync(() => {
           if (event.type.startsWith("question.")) published.push(event)
@@ -63,8 +63,8 @@ describe("Question", () => {
   it.effect("publishes rejection, fails the ask, and rejects unknown IDs", () =>
     Effect.gen(function* () {
       const service = yield* Question.Service
-      const events = yield* EventV2.Service
-      const published: EventV2.Payload[] = []
+      const events = yield* CoreEvent.Service
+      const published: CoreEvent.Payload[] = []
       const unsubscribe = yield* events.listen((event) =>
         Effect.sync(() => {
           if (event.type === Question.Event.Rejected.type) published.push(event)

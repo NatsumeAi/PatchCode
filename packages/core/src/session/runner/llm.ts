@@ -12,15 +12,15 @@ import {
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
 import { hitRate } from "@opencode-ai/llm/cache-prefix"
 import { Cause, DateTime, Duration, Effect, FiberSet, Layer, Option, Schema, Scope, Semaphore, Stream } from "effect"
-import { AgentV2 } from "../../agent"
+import { Agent as CoreAgent } from "../../agent"
 import { Catalog } from "../../catalog"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
-import { EventV2 } from "../../event"
+import { Event as CoreEvent } from "../../event"
 import { Location } from "../../location"
-import { ModelV2 } from "../../model"
+import { Model } from "../../model"
 import { Permission } from "../../permission"
-import { ProviderV2 } from "../../provider"
+import { Provider as CoreProvider } from "../../provider"
 import { Question } from "../../question"
 import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
@@ -28,7 +28,7 @@ import { MemoryRecall } from "../../memory/recall"
 import { MemoryFlush } from "../../memory/flush"
 import { MemoryPreCompress } from "../../memory/pre-compress-wire"
 import { SkillGuidance } from "../../skill/guidance"
-import { SkillV2 } from "../../skill"
+import { Skill } from "../../skill"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
 import { StructuredOutput } from "../../tool/structured-output"
@@ -58,12 +58,12 @@ import { prewarmIfAllowed } from "./prewarm"
 import { Snapshot } from "../../snapshot"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
-import { SessionV1 } from "../../session-legacy"
+import { SessionWire } from "../../session-legacy"
 import { FSUtil } from "../../fs-util"
 import { SessionTable } from "../sql"
 import { eq } from "drizzle-orm"
 import { InstallationVersion } from "../../installation/version"
-import { WorkspaceV2 } from "../../workspace"
+import { Workspace } from "../../workspace"
 import { LoopControlHost, type LoopControlHooks } from "./loop-control-host"
 import { IterationBudget } from "../loop-control/iteration-budget"
 import { TimerDaemon } from "../loop-control/timer-daemon"
@@ -100,10 +100,10 @@ import { Flag } from "../../flag/flag"
  *   - [ ] Bound provider retries and repeated identical tool calls.
  *
  * - Runtime context assembly
- *   - Track V1 runtime-context parity canonically in `specs/v2/session.md`.
+ *   - Track legacy runtime-context parity canonically in `specs/v2/session.md`.
  *
  * - One provider turn
- *   - [x] Translate every projected V2 Session message variant into canonical
+ *   - [x] Translate every projected Session message variant into canonical
  *     `@opencode-ai/llm` messages.
  *   - [x] Resolve policy-filtered built-in, MCP, plugin, and structured-output tool definitions.
  *   - [x] Stream exactly one `llm.stream(request)` provider turn.
@@ -131,7 +131,7 @@ import { Flag } from "../../flag/flag"
  * Use `llm.stream(request)` for each provider turn. Keep tool execution and continuation here.
  * Durable continuation recovery remains a separate future slice with an explicit retry policy.
  *
- * The current slice loads V2 history, translates it, resolves a model through a core service, and persists one
+ * The current slice loads session history, translates it, resolves a model through a core service, and persists one
  * provider turn. Registry definitions are advertised, local tool calls are settled durably, and an
  * explicit loop starts the next provider turn after local settlement. Configured agent step limits bound the loop.
  */
@@ -145,7 +145,7 @@ import { Flag } from "../../flag/flag"
  */
 const costOf = (
   tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } },
-  model: ModelV2.Info | undefined,
+  model: Model.Info | undefined,
 ) => {
   if (!model || model.cost === undefined || model.cost.length === 0) return 0
   const contextTokens = tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write
@@ -238,9 +238,9 @@ const TITLE_TIMEOUT = Duration.seconds(15)
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const llm = yield* LLMClient.Service
-    const agents = yield* AgentV2.Service
+    const agents = yield* CoreAgent.Service
     const tools = yield* ToolRegistry.Service
     const models = yield* SessionRunnerModel.Service
     const catalog = yield* Catalog.Service
@@ -258,7 +258,7 @@ const layer = Layer.effect(
     const provideRunnerGlobals = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(
         Effect.provideService(Database.Service, database),
-        Effect.provideService(EventV2.Service, events),
+        Effect.provideService(CoreEvent.Service, events),
         Effect.provideService(SessionStore.Service, store),
         Effect.provideService(FSUtil.Service, fs),
       )
@@ -335,21 +335,21 @@ const layer = Layer.effect(
               diffs: row.summary_diffs ?? [],
             }
           : undefined
-      const info = SessionV1.SessionInfo.make({
+      const info = SessionWire.SessionInfo.make({
         id: row.id,
         slug: row.slug,
         version: row.version || InstallationVersion,
         projectID: row.project_id,
         directory: row.directory,
         path: row.path ?? undefined,
-        workspaceID: row.workspace_id ? WorkspaceV2.ID.make(row.workspace_id) : undefined,
+        workspaceID: row.workspace_id ? Workspace.ID.make(row.workspace_id) : undefined,
         parentID: row.parent_id ?? undefined,
         title: patch.title ?? row.title,
         agent: row.agent ?? undefined,
         model: row.model
           ? {
-              id: ModelV2.ID.make(row.model.id),
-              providerID: ProviderV2.ID.make(row.model.providerID),
+              id: Model.ID.make(row.model.id),
+              providerID: CoreProvider.ID.make(row.model.providerID),
               variant: row.model.variant,
             }
           : undefined,
@@ -370,23 +370,23 @@ const layer = Layer.effect(
         permission: row.permission ?? undefined,
         metadata: row.metadata ?? undefined,
         share: row.share_url ? { url: row.share_url } : undefined,
-        // Brands differ across V1/V2 message IDs; preserve payload for projector.
+        // Brands differ across legacy and current message IDs; preserve payload for projector.
         revert: row.revert
           ? ({
               messageID: row.revert.messageID,
               partID: row.revert.partID,
               snapshot: row.revert.snapshot,
               diff: row.revert.diff,
-            } as unknown as SessionV1.SessionInfo["revert"])
+            } as unknown as SessionWire.SessionInfo["revert"])
           : undefined,
       })
-      yield* events.publish(SessionV1.Event.Updated, { sessionID, info })
+      yield* events.publish(SessionWire.Event.Updated, { sessionID, info })
     })
 
     const resolveTitleModel = Effect.fn("SessionRunner.resolveTitleModel")(function* (session: SessionSchema.Info) {
       const providerID = session.model?.providerID
       if (!providerID) return yield* models.resolve(session)
-      const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
+      const titleAgent = yield* agents.get(CoreAgent.ID.make("title"))
       if (titleAgent?.model && titleAgent.model.providerID === providerID) {
         return yield* models.resolve({ ...session, model: titleAgent.model }).pipe(
           Effect.catch(() => models.resolve(session)),
@@ -399,7 +399,7 @@ const layer = Layer.effect(
       return yield* models
         .resolve({
           ...session,
-          model: ModelV2.Ref.make({ id: small.id, providerID: small.providerID }),
+          model: Model.Ref.make({ id: small.id, providerID: small.providerID }),
         })
         .pipe(Effect.catch(() => models.resolve(session)))
     })
@@ -418,7 +418,7 @@ const layer = Layer.effect(
       const userText = firstUser.text?.trim()
       if (!userText) return
 
-      const titleAgent = yield* agents.get(AgentV2.ID.make("title"))
+      const titleAgent = yield* agents.get(CoreAgent.ID.make("title"))
       const model = yield* resolveTitleModel(session).pipe(Effect.catch(() => Effect.succeed(undefined as undefined)))
       if (!model) return
 
@@ -510,7 +510,7 @@ const layer = Layer.effect(
     const awaitToolFibers = (fibers: FiberSet.FiberSet<void, ToolOutputStore.Error>) =>
       Effect.raceFirst(FiberSet.join(fibers), FiberSet.awaitEmpty(fibers))
 
-    // Match V1: declining a user prompt halts the loop instead of becoming model-facing tool output.
+    // Match legacy: declining a user prompt halts the loop instead of becoming model-facing tool output.
     // Official continue_loop_on_deny (default false) keeps the drain going after a deny.
     const isUserDeclined = (cause: Cause.Cause<unknown>) =>
       cause.reasons.some(
@@ -539,7 +539,7 @@ const layer = Layer.effect(
     const continueAfterOverflowCompaction = (step: number) =>
       new TurnTransitionError({ _tag: "ContinueAfterOverflowCompaction", step })
 
-    const loadSystemContext = (agent: AgentV2.Selection) =>
+    const loadSystemContext = (agent: CoreAgent.Selection) =>
       Effect.all([systemContext.load(), skillGuidance.load(agent), referenceGuidance.load()], {
         concurrency: "unbounded",
       }).pipe(Effect.map(SystemContext.combine))
@@ -547,7 +547,7 @@ const layer = Layer.effect(
     // Epoch-only relevance recall: appended as a static source once per context
     // epoch (initialize/prepare), preserving the prefix-cache invariant for
     // recall. Empty when the memory system is absent or yields nothing.
-    const loadSystemContextAndRecall = (agent: AgentV2.Selection, _sessionID: SessionSchema.ID) =>
+    const loadSystemContextAndRecall = (agent: CoreAgent.Selection, _sessionID: SessionSchema.ID) =>
       loadSystemContext(agent)
 
     /**
@@ -572,7 +572,7 @@ const layer = Layer.effect(
 
     /**
      * Flush a session's memory when memory is wired (location-scoped service).
-     * Mirrors the manual /compact hook in V2Session.compact: automatic
+     * Mirrors the manual /compact hook in Session.compact: automatic
      * compaction must persist the same session memory the manual path does.
      * Guarded + fire-and-forget so a memory failure never breaks the turn.
      */
@@ -587,10 +587,10 @@ const layer = Layer.effect(
         )
       })
 
-    const rehydrateAfterCompact = (sessionID: SessionSchema.ID, agent: AgentV2.Selection) =>
+    const rehydrateAfterCompact = (sessionID: SessionSchema.ID, agent: CoreAgent.Selection) =>
       Effect.gen(function* () {
         MemoryRecall.invalidateRecallCache()
-        const skills = yield* Effect.serviceOption(SkillV2.Service)
+        const skills = yield* Effect.serviceOption(Skill.Service)
         if (Option.isSome(skills)) yield* skills.value.reload().pipe(Effect.ignore)
         yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), sessionID).pipe(Effect.ignore)
       })
@@ -693,7 +693,7 @@ const layer = Layer.effect(
       message.role === "user" && !isSystemUpdateMessage(message) && !isVerifierFeedback(message)
 
     // ContextUpdated can be published after a queued user is already in
-    // history. V1 last-message was the user prompt; keep system-updates in
+    // history. Legacy last-message was the user prompt; keep system-updates in
     // front of that user so they do not steal the compiled tail.
     const preferPromptLast = (messages: PromptTape.ChatMessage[]) => {
       const updates = messages.filter(isSystemUpdateMessage)
@@ -741,7 +741,7 @@ const layer = Layer.effect(
       let needsContinuation = false
       let currentStep = step
       if (promotion) {
-        const cutoff = yield* EventV2.latestSequence(db, session.id)
+        const cutoff = yield* CoreEvent.latestSequence(db, session.id)
         let promoted = 0
         if (promotion === "steer") promoted = yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
         if (promotion === "queue") {
@@ -1136,8 +1136,8 @@ const layer = Layer.effect(
               sessionID: session.id,
               agent: agent.id,
               model: {
-                id: ModelV2.ID.make(model.id),
-                providerID: ProviderV2.ID.make(model.provider),
+                id: Model.ID.make(model.id),
+                providerID: CoreProvider.ID.make(model.provider),
                 ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
               },
               snapshot: startSnapshot,
@@ -1430,7 +1430,7 @@ const layer = Layer.effect(
               }
               return yield* Effect.die(continueAfterOverflowCompaction(currentStep))
             }
-            // V1 processor: overflow with auto-compact disabled (or compact
+            // Legacy processor: overflow with auto-compact disabled (or compact
             // declined) writes ContextOverflowError onto the assistant and
             // returns — it does not fail the drain.
             if (isContextOverflowFailure(overflowFailure ?? failure)) {
@@ -1629,8 +1629,8 @@ const layer = Layer.effect(
                 : undefined
             // Verifier audit only runs on a genuinely successful stream; a failed
             // provider stream must not audit a partial or empty claim. Skip when
-            // a later user (or pending steer/queue) is still unanswered — V1
-            // runLoop kept going, and the sidecar must not consume the next
+            // a later user (or pending steer/queue) is still unanswered — the
+            // legacy loop kept going, and the sidecar must not consume the next
             // worker mock / approve-stop before that user is answered.
             if (stream._tag === "Success" && !publisher.hasProviderError() && settled._tag === "Success") {
               const pendingSteer = yield* SessionInput.hasPending(db, session.id, "steer")
@@ -1653,8 +1653,8 @@ const layer = Layer.effect(
             // onStreamComplete may request a terminal state (verifier approval,
             // verifier failure, hard abort). When it does, no further provider
             // continuation should be offered even if the stream produced tool calls.
-            // Still publish Step.Ended first: V1 processor wrote finish onto the
-            // assistant before runLoop decided to break.
+            // Still publish Step.Ended first: the legacy processor wrote finish onto the
+            // assistant before the legacy loop decided to break.
             if (drain.hooks.shouldContinue && !(yield* drain.hooks.shouldContinue(session.id))) {
               needsContinuation = false
             }
@@ -1684,7 +1684,7 @@ const layer = Layer.effect(
                     : { copilotNanoAiu: stepSettlement.copilotNanoAiu }),
                 }),
               )
-              // Persist unified diffs onto session.summary for TUI diff panel (V1 parity).
+              // Persist unified diffs onto session.summary for TUI diff panel (legacy parity).
               yield* persistStepDiffs(session.id, startSnapshot, endSnapshot, files).pipe(Effect.ignore, Effect.forkScoped)
               if (stepSettlement.tokens.cache.read > 0 || stepSettlement.tokens.input > 0) {
                 const read = stepSettlement.tokens.cache.read
@@ -1699,7 +1699,7 @@ const layer = Layer.effect(
             if (stream._tag === "Success" && !publisher.hasProviderError())
               yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
             if (pendingTape) {
-              const seq = yield* EventV2.latestSequence(db, session.id)
+              const seq = yield* CoreEvent.latestSequence(db, session.id)
               PromptTapeStore.setLastSeq(session.id, system.baselineSeq, seq)
               if (pendingAdded > 0) {
                 PromptTapeStore.appendMessageSeqs(
@@ -1797,7 +1797,7 @@ const layer = Layer.effect(
 
       // Drive the same session.status events the TUI/App already consume (spinner,
       // interrupt enablement). Previously only the legacy prompt/processor path
-      // called SessionStatus.set, so V2 drains left the UI stuck on idle.
+      // called SessionStatus.set, so current drains left the UI stuck on idle.
       yield* events.publish(SessionStatusEvent.Status, {
         sessionID: input.sessionID,
         status: { type: "busy" },
@@ -1844,7 +1844,7 @@ const layer = Layer.effect(
               Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])),
             )
             const last = msgs.at(-1)
-            // V1 runLoop kept going after shellImpl (no finish on that assistant).
+            // The legacy loop kept going after shellImpl (no finish on that assistant).
             // A trailing shell message is unanswered work. Do not treat a user
             // without an assistant row as unanswered after an empty provider
             // body — that would re-issue the same turn up to `extra` times.
@@ -1919,8 +1919,8 @@ export const node = makeLocationNode({
   service: Service,
   layer,
   deps: [
-    EventV2.node,
-    AgentV2.node,
+    CoreEvent.node,
+    CoreAgent.node,
     ToolRegistry.node,
     SessionRunnerModel.node,
     Catalog.node,

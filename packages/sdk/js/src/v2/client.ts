@@ -41,7 +41,7 @@ function rewrite(request: Request, values: { directory?: string; workspace?: str
 
   if (!changed) return request
 
-  const next = new Request(url, request)
+  const next = new Request(url.href, request)
   next.headers.delete("x-opencode-directory")
   next.headers.delete("x-opencode-workspace")
   return next

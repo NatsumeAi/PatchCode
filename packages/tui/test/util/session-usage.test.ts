@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Part } from "@opencode-ai/sdk/api"
 import { cacheHitRate, firstTokenAt, formatSessionUsageLine } from "../../src/util/session-usage"
 
 const tokens = (input: number, output: number, read = 0, write = 0, reasoning = 0): AssistantMessage["tokens"] => ({

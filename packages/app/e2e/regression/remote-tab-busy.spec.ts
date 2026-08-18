@@ -32,11 +32,11 @@ test("tab busy indicator reflects the tab server's own session status", async ({
   // Session B is busy on server B while server A stays the active server, so the
   // busy indicator must come from the tab server's status, not the active server's.
   const tabB = page.locator(`[data-titlebar-tab-slot]:has(a[href="${hrefB}"])`)
-  await expect(tabB.locator('[data-component="session-progress-indicator-v2"]')).toBeVisible()
+  await expect(tabB.locator('[data-component="session-progress-indicator"]')).toBeVisible()
 
   const tabA = page.locator(`[data-titlebar-tab-slot]:has(a[href="${hrefA}"])`)
   await expect(tabA.locator("[data-titlebar-tab-title]")).toHaveText(sessionA.title)
-  await expect(tabA.locator('[data-component="session-progress-indicator-v2"]')).toHaveCount(0)
+  await expect(tabA.locator('[data-component="session-progress-indicator"]')).toHaveCount(0)
 })
 
 function session(id: string, directory: string, title: string) {

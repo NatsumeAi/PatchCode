@@ -20,9 +20,9 @@ export type ToolContext = {
 }
 
 type AskInput = {
-  permission: string
-  patterns: string[]
-  always: string[]
+  action: string
+  resources: string[]
+  save?: string[]
   metadata: { [key: string]: any }
 }
 

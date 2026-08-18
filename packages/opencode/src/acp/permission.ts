@@ -6,7 +6,7 @@ import type {
   ToolCallLocation,
   ToolCallUpdate,
 } from "@agentclientprotocol/sdk"
-import type { Event, OpencodeClient } from "@opencode-ai/sdk/v2"
+import type { Event, OpencodeClient } from "@opencode-ai/sdk/api"
 import { applyPatch } from "diff"
 import { exists, readText } from "@/util/filesystem"
 import type { ACPSession } from "./session"
@@ -18,33 +18,15 @@ type Reply = "once" | "always" | "reject"
 type Connection = Partial<Pick<AgentSideConnection, "requestPermission" | "writeTextFile">>
 
 function requestFromEvent(event: PermissionAskedEvent) {
-  const props = event.properties as {
-    id: string
-    sessionID: string
-    action?: string
-    permission?: string
-    resources?: string[]
-    patterns?: string[]
-    save?: string[]
-    always?: string[]
-    metadata?: Record<string, unknown>
-    source?: { type: string; messageID?: string; callID?: string }
-    tool?: { messageID: string; callID: string }
-  }
-  const resources = props.resources ?? props.patterns ?? []
-  const source = props.source
+  const props = event.properties
   return {
     id: props.id,
     sessionID: props.sessionID,
-    permission: props.action ?? props.permission ?? "",
-    patterns: resources,
+    action: props.action,
+    resources: props.resources ?? [],
     metadata: props.metadata ?? {},
-    always: props.save?.length ? [...props.save] : props.always?.length ? [...props.always] : [...resources],
-    ...(props.tool
-      ? { tool: props.tool }
-      : source?.type === "tool" && source.messageID && source.callID
-        ? { tool: { messageID: source.messageID, callID: source.callID } }
-        : {}),
+    save: props.save?.length ? [...props.save] : [...(props.resources ?? [])],
+    source: props.source,
   }
 }
 
@@ -93,8 +75,8 @@ export class Handler {
       .requestPermission({
         sessionId: permission.sessionID,
         toolCall: await permissionToolCall({
-          toolCallId: permission.tool?.callID ?? permission.id,
-          toolName: permission.permission,
+          toolCallId: permission.source?.callID ?? permission.id,
+          toolName: permission.action,
           input: permission.metadata,
         }),
         options: permissionOptions,
@@ -112,7 +94,7 @@ export class Handler {
       return
     }
 
-    if (permission.permission === "edit") {
+    if (permission.action === "edit") {
       await this.writeProposedEdit(session.id, permission.metadata).catch(() => {})
     }
 
@@ -120,7 +102,7 @@ export class Handler {
   }
 
   private async reply(sessionID: string, requestID: string, reply: Reply) {
-    await this.input.sdk.v2.session.permission.reply({
+    await this.input.sdk.api.session.permission.reply({
       sessionID,
       requestID,
       reply,

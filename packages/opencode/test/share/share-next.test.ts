@@ -8,7 +8,7 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 
 import { AccessToken, AccountID, OrgID, RefreshToken } from "../../src/account/schema"
 import { AccountRepo } from "../../src/account/repo"
-import { EventV2Bridge } from "../../src/event-bridge"
+import { EventBridge } from "../../src/event-bridge"
 import { Session } from "@/session/session"
 import type { SessionID } from "../../src/session/schema"
 import { ShareNext } from "@/share/share-next"
@@ -43,7 +43,7 @@ function integrationLayer(client: HttpClient.HttpClient) {
   return LayerNode.compile(
     LayerNode.group([
       ShareNext.node,
-      EventV2Bridge.node,
+      EventBridge.node,
       Session.node,
       SessionProjector.node,
       AccountRepo.node,
@@ -236,7 +236,7 @@ describe("ShareNext", () => {
         })
 
         return Effect.gen(function* () {
-          const events = yield* EventV2Bridge.Service
+          const events = yield* EventBridge.Service
           const share = yield* ShareNext.Service
           const session = yield* Session.Service
 

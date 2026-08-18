@@ -1,11 +1,11 @@
 import { EOL } from "os"
 import { basename } from "path"
 import { Effect } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent as CoreAgent } from "@opencode-ai/core/agent"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolRegistry as CoreToolRegistry } from "@opencode-ai/core/tool/registry"
 import { Agent } from "../../../agent/agent"
@@ -125,7 +125,7 @@ const executeTool = Effect.fn("Cli.debug.agent.executeTool")(function* (
   toolID: string,
   params: Record<string, unknown>,
 ) {
-  const v2 = yield* SessionV2.Service
+  const v2 = yield* Session.Service
   const session = yield* v2.create({
     title: `Debug tool run (${agent.name})`,
     location: Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) }),
@@ -137,7 +137,7 @@ const executeTool = Effect.fn("Cli.debug.agent.executeTool")(function* (
       const materialized = yield* registry.materialize()
       const settlement = yield* materialized.settle({
         sessionID: session.id,
-        agent: AgentV2.ID.make(agent.name),
+        agent: CoreAgent.ID.make(agent.name),
         assistantMessageID: SessionMessage.ID.create(),
         call: {
           type: "tool-call",

@@ -1,13 +1,13 @@
 import path from "path"
 import { describe, expect } from "bun:test"
 import { Effect, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigExternalPlugin } from "@opencode-ai/core/config/plugin/external"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
 import { Npm } from "@opencode-ai/core/npm"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Plugin as CorePlugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { testEffect } from "../lib/effect"
@@ -19,8 +19,8 @@ const decode = Schema.decodeUnknownSync(Config.Info)
 describe("ConfigExternalPlugin", () => {
   it.live("resolves and loads a configured Promise plugin with options", () =>
     Effect.gen(function* () {
-      const plugins = yield* PluginV2.Service
-      const agents = yield* AgentV2.Service
+      const plugins = yield* CorePlugin.Service
+      const agents = yield* Agent.Service
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const npm = yield* Npm.Service
@@ -28,7 +28,7 @@ describe("ConfigExternalPlugin", () => {
       const document = path.join(import.meta.dir, "opencode.json")
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(
-        Effect.provideService(PluginV2.Service, plugins),
+        Effect.provideService(CorePlugin.Service, plugins),
         Effect.provideService(FSUtil.Service, fs),
         Effect.provideService(Location.Service, location),
         Effect.provideService(Npm.Service, npm),
@@ -63,15 +63,15 @@ describe("ConfigExternalPlugin", () => {
 
   it.live("loads a configured Effect plugin with options", () =>
     Effect.gen(function* () {
-      const plugins = yield* PluginV2.Service
-      const agents = yield* AgentV2.Service
+      const plugins = yield* CorePlugin.Service
+      const agents = yield* Agent.Service
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const npm = yield* Npm.Service
       const host = yield* PluginHost.make(plugins)
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(
-        Effect.provideService(PluginV2.Service, plugins),
+        Effect.provideService(CorePlugin.Service, plugins),
         Effect.provideService(FSUtil.Service, fs),
         Effect.provideService(Location.Service, location),
         Effect.provideService(Npm.Service, npm),
@@ -106,15 +106,15 @@ describe("ConfigExternalPlugin", () => {
 
   it.live("ignores invalid plugins and continues loading", () =>
     Effect.gen(function* () {
-      const plugins = yield* PluginV2.Service
-      const agents = yield* AgentV2.Service
+      const plugins = yield* CorePlugin.Service
+      const agents = yield* Agent.Service
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const npm = yield* Npm.Service
       const host = yield* PluginHost.make(plugins)
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(
-        Effect.provideService(PluginV2.Service, plugins),
+        Effect.provideService(CorePlugin.Service, plugins),
         Effect.provideService(FSUtil.Service, fs),
         Effect.provideService(Location.Service, location),
         Effect.provideService(Npm.Service, npm),
@@ -150,8 +150,8 @@ describe("ConfigExternalPlugin", () => {
 
   it.live("installs and resolves npm plugin packages", () =>
     Effect.gen(function* () {
-      const plugins = yield* PluginV2.Service
-      const agents = yield* AgentV2.Service
+      const plugins = yield* CorePlugin.Service
+      const agents = yield* Agent.Service
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const host = yield* PluginHost.make(plugins)
@@ -170,7 +170,7 @@ describe("ConfigExternalPlugin", () => {
       })
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(
-        Effect.provideService(PluginV2.Service, plugins),
+        Effect.provideService(CorePlugin.Service, plugins),
         Effect.provideService(FSUtil.Service, fs),
         Effect.provideService(Location.Service, location),
         Effect.provideService(Npm.Service, npm),
@@ -204,15 +204,15 @@ describe("ConfigExternalPlugin", () => {
 
   it.live("loads plugin files from config directories", () =>
     Effect.gen(function* () {
-      const plugins = yield* PluginV2.Service
-      const agents = yield* AgentV2.Service
+      const plugins = yield* CorePlugin.Service
+      const agents = yield* Agent.Service
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const npm = yield* Npm.Service
       const host = yield* PluginHost.make(plugins)
 
       yield* ConfigExternalPlugin.Plugin.effect(host).pipe(
-        Effect.provideService(PluginV2.Service, plugins),
+        Effect.provideService(CorePlugin.Service, plugins),
         Effect.provideService(FSUtil.Service, fs),
         Effect.provideService(Location.Service, location),
         Effect.provideService(Npm.Service, npm),
@@ -238,9 +238,9 @@ describe("ConfigExternalPlugin", () => {
   )
 })
 
-const waitForAgent = Effect.fnUntraced(function* (agents: AgentV2.Interface, id: string) {
+const waitForAgent = Effect.fnUntraced(function* (agents: Agent.Interface, id: string) {
   for (let attempt = 0; attempt < 100; attempt++) {
-    const agent = yield* agents.get(AgentV2.ID.make(id))
+    const agent = yield* agents.get(Agent.ID.make(id))
     if (agent) return agent
     yield* Effect.sleep("10 millis")
   }

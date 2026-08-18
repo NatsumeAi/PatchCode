@@ -4,7 +4,7 @@ import { and, asc, eq, isNull, lte } from "drizzle-orm"
 import { DateTime, Effect, Schema } from "effect"
 import { Admitted, Delivery } from "@opencode-ai/schema/session-input"
 import type { Database } from "../database/database"
-import type { EventV2 } from "../event"
+import type { Event } from "../event"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { Prompt } from "./prompt"
@@ -41,7 +41,7 @@ export class LifecycleConflict extends Schema.TaggedErrorClass<LifecycleConflict
 
 export const admit = Effect.fn("SessionInput.admit")(function* (
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: Event.Interface,
   input: {
     readonly id: SessionMessage.ID
     readonly sessionID: SessionSchema.ID
@@ -217,7 +217,7 @@ const matchesProjection = (
 
 const publish = Effect.fn("SessionInput.publish")(function* (
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: Event.Interface,
   sessionID: SessionSchema.ID,
   rows: ReadonlyArray<typeof SessionInputTable.$inferSelect>,
 ) {
@@ -246,7 +246,7 @@ const publish = Effect.fn("SessionInput.publish")(function* (
 
 export const promoteSteers = Effect.fn("SessionInput.promoteSteers")(function* (
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: Event.Interface,
   sessionID: SessionSchema.ID,
   cutoff: number,
 ) {
@@ -269,7 +269,7 @@ export const promoteSteers = Effect.fn("SessionInput.promoteSteers")(function* (
 
 export const promoteNextQueued = Effect.fn("SessionInput.promoteNextQueued")(function* (
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: Event.Interface,
   sessionID: SessionSchema.ID,
 ) {
   const row = yield* db

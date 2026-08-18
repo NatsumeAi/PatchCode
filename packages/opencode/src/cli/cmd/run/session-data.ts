@@ -24,7 +24,7 @@
 //   `data.questions`. The footer shows whichever is first. When a reply
 //   event arrives, the queue entry is removed and the footer falls back
 //   to the next pending request or to the prompt view.
-import type { Event, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Event, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/api"
 import * as Locale from "@/util/locale"
 import { createLivePartState, leftoverPartsFromLive, liveSessionID, type LivePartState } from "@/session/live-legacy-parts"
 import { toolView } from "./tool"
@@ -318,37 +318,31 @@ export function toPermissionRequest(props: {
   id: string
   sessionID: string
   action?: string
-  permission?: string
   resources?: string[]
-  patterns?: string[]
   save?: string[]
-  always?: string[]
   metadata?: Record<string, unknown>
   source?: { type: string; messageID?: string; callID?: string }
-  tool?: { messageID: string; callID: string }
 }): PermissionRequest {
-  const resources = props.resources ?? props.patterns ?? []
+  const resources = props.resources ?? []
   return {
     id: props.id,
     sessionID: props.sessionID,
-    permission: props.action ?? props.permission ?? "",
-    patterns: resources,
+    action: props.action ?? "",
+    resources,
     metadata: { ...(props.metadata ?? {}) },
-    always: props.save?.length ? [...props.save] : props.always?.length ? [...props.always] : [...resources],
-    ...(props.tool
-      ? { tool: props.tool }
-      : props.source?.type === "tool" && props.source.messageID && props.source.callID
-        ? { tool: { messageID: props.source.messageID, callID: props.source.callID } }
-        : {}),
+    save: props.save?.length ? [...props.save] : [...resources],
+    ...(props.source?.type === "tool" && props.source.messageID && props.source.callID
+      ? { source: { type: "tool" as const, messageID: props.source.messageID, callID: props.source.callID } }
+      : {}),
   }
 }
 
 function enrichPermission(data: SessionData, request: PermissionRequest): PermissionRequest {
-  if (!request.tool) {
+  if (!request.source || request.source.type !== "tool") {
     return request
   }
 
-  const input = data.call.get(key(request.tool.messageID, request.tool.callID))
+  const input = data.call.get(key(request.source.messageID, request.source.callID))
   if (!input) {
     return request
   }
@@ -380,7 +374,11 @@ function syncPermission(data: SessionData, part: ToolPart): FooterOutput | undef
   let changed = false
   let active = false
   data.permissions = data.permissions.map((request, index) => {
-    if (!request.tool || request.tool.messageID !== part.messageID || request.tool.callID !== part.callID) {
+    if (
+      request.source?.type !== "tool" ||
+      request.source.messageID !== part.messageID ||
+      request.source.callID !== part.callID
+    ) {
       return request
     }
 
@@ -1159,8 +1157,6 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
   }
 
   if (
-    event.type === "question.replied" ||
-    event.type === "question.rejected" ||
     event.type === "question.replied" ||
     event.type === "question.rejected"
   ) {

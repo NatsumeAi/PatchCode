@@ -1,17 +1,17 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { Permission } from "@opencode-ai/core/permission"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { location } from "./fixture/location"
@@ -25,17 +25,17 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       Database.node,
-      EventV2.node,
+      Event.node,
       SessionStore.node,
       PermissionSaved.node,
-      AgentV2.node,
+      Agent.node,
       Permission.node,
     ]),
     [[Location.node, current]],
   ),
 )
 
-describe("missing AgentV2 is deny", () => {
+describe("missing Agent is deny", () => {
   it.effect("unknown agent assert is BlockedError", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
@@ -48,7 +48,7 @@ describe("missing AgentV2 is deny", () => {
       yield* db
         .insert(SessionTable)
         .values({
-          id: SessionV2.ID.make("ses_missing_agent"),
+          id: Session.ID.make("ses_missing_agent"),
           project_id: Project.ID.global,
           slug: "missing-agent",
           directory: "/project",
@@ -63,10 +63,10 @@ describe("missing AgentV2 is deny", () => {
       const service = yield* Permission.Service
       const blocked = yield* service
         .assert({
-          sessionID: SessionV2.ID.make("ses_missing_agent"),
+          sessionID: Session.ID.make("ses_missing_agent"),
           action: "read",
           resources: ["a.ts"],
-          agent: AgentV2.ID.make("ghost"),
+          agent: Agent.ID.make("ghost"),
         })
         .pipe(Effect.flip)
       expect(blocked).toBeInstanceOf(Permission.BlockedError)

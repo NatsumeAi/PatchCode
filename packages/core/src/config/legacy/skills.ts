@@ -1,4 +1,4 @@
-export * as ConfigSkillsV1 from "./skills"
+export * as ConfigSkillsInput from "./skills"
 
 import { Schema } from "effect"
 

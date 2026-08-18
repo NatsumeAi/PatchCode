@@ -19,7 +19,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { showToast } from "@/utils/toast"
 import { canStartTabDrag, isTabCloseTarget } from "./titlebar-tab-gesture"
 import { adjacentTabKey, mergeVisibleTabOrder } from "./titlebar-tab-order"
-import type { Session } from "@opencode-ai/sdk/v2"
+import type { Session } from "@opencode-ai/sdk/api"
 
 function SessionTabSlot(props: {
   tab: SessionTab
@@ -386,12 +386,12 @@ export function TitlebarTabStrip(props: {
       <div
         data-slot="titlebar-tabs-fade-left"
         aria-hidden="true"
-        class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--v2-background-bg-deep),transparent)]"
+        class="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-[linear-gradient(to_right,var(--kit-background-bg-deep),transparent)]"
       />
       <div
         data-slot="titlebar-tabs-fade-right"
         aria-hidden="true"
-        class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--v2-background-bg-deep),transparent)]"
+        class="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-[linear-gradient(to_left,var(--kit-background-bg-deep),transparent)]"
       />
     </div>
   )

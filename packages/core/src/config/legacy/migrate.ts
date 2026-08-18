@@ -1,11 +1,11 @@
-export * as ConfigMigrateV1 from "./migrate"
+export * as ConfigMigrate from "./migrate"
 
-import { ConfigV1 } from "./config"
-import { ConfigAgentV1 } from "./agent"
-import { ConfigMCPV1 } from "./mcp"
-import { ConfigPermissionV1 } from "./permission"
-import { ConfigProviderV1 } from "./provider"
-import { ConfigProviderOptionsV1 } from "./provider-options"
+import { ConfigInput } from "./config"
+import { ConfigAgentInput } from "./agent"
+import { ConfigMcpInput } from "./mcp"
+import { ConfigPermission } from "./permission"
+import { ConfigProviderInput } from "./provider"
+import { ConfigProviderOptionsInput } from "./provider-options"
 
 const keys = new Set([
   "logLevel",
@@ -32,7 +32,7 @@ export function isV1(input: unknown) {
   return Object.keys(input).some((key) => keys.has(key))
 }
 
-export function migrate(info: typeof ConfigV1.Info.Type) {
+export function migrate(info: typeof ConfigInput.Info.Type) {
   return {
     $schema: info.$schema,
     shell: info.shell,
@@ -71,8 +71,8 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
   }
 }
 
-function permissions(info?: ConfigPermissionV1.Info, tools?: Readonly<Record<string, boolean>>) {
-  const rules: Array<{ action: string; resource: string; effect: ConfigPermissionV1.Action }> = Object.entries(
+function permissions(info?: ConfigPermission.Info, tools?: Readonly<Record<string, boolean>>) {
+  const rules: Array<{ action: string; resource: string; effect: ConfigPermission.Action }> = Object.entries(
     tools ?? {},
   ).map(([action, enabled]) => ({
     action: normalizeAction(action),
@@ -94,7 +94,7 @@ function normalizeAction(action: string) {
   return action === "write" || action === "patch" ? "edit" : action
 }
 
-function agents(info: typeof ConfigV1.Info.Type) {
+function agents(info: typeof ConfigInput.Info.Type) {
   const entries = [
     ...Object.entries(info.agent ?? {}),
     ...Object.entries(info.mode ?? {}).map(([name, agent]) => [name, { ...agent, mode: "primary" as const }] as const),
@@ -103,7 +103,7 @@ function agents(info: typeof ConfigV1.Info.Type) {
   return Object.fromEntries(entries.flatMap(([name, agent]) => (agent ? [[name, migrateAgent(agent)]] : [])))
 }
 
-export function migrateAgent(info: ConfigAgentV1.Info) {
+export function migrateAgent(info: ConfigAgentInput.Info) {
   const body = {
     ...info.options,
     ...(info.temperature === undefined ? {} : { temperature: info.temperature }),
@@ -124,7 +124,7 @@ export function migrateAgent(info: ConfigAgentV1.Info) {
   }
 }
 
-function mcp(info: typeof ConfigV1.Info.Type) {
+function mcp(info: typeof ConfigInput.Info.Type) {
   const servers = Object.fromEntries(
     Object.entries(info.mcp ?? {}).flatMap(([name, server]) =>
       "type" in server ? [[name, migrateMcp(server)] as const] : [],
@@ -135,7 +135,7 @@ function mcp(info: typeof ConfigV1.Info.Type) {
   return { timeout: timeout === undefined ? undefined : { request: timeout }, servers }
 }
 
-function migrateMcp(info: ConfigMCPV1.Info) {
+function migrateMcp(info: ConfigMcpInput.Info) {
   const disabled = info.enabled === undefined ? undefined : !info.enabled
   if (info.type === "local")
     return {
@@ -162,13 +162,13 @@ function migrateMcp(info: ConfigMCPV1.Info) {
   }
 }
 
-function providers(info?: Readonly<Record<string, ConfigProviderV1.Info>>) {
+function providers(info?: Readonly<Record<string, ConfigProviderInput.Info>>) {
   if (!info) return undefined
   return Object.fromEntries(Object.entries(info).map(([name, provider]) => [name, migrateProvider(provider)]))
 }
 
-function migrateProvider(info: ConfigProviderV1.Info) {
-  const lowerer = ConfigProviderOptionsV1.get(info.npm)
+function migrateProvider(info: ConfigProviderInput.Info) {
+  const lowerer = ConfigProviderOptionsInput.get(info.npm)
   const options = lowerer.provider(info.options ?? {})
   const url = info.api ?? options.url
   return {
@@ -189,9 +189,9 @@ function migrateProvider(info: ConfigProviderV1.Info) {
   }
 }
 
-function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: string) {
+function migrateModel(info: typeof ConfigProviderInput.Model.Type, packageName?: string) {
   const packageID = info.provider?.npm ?? packageName
-  const lowerer = ConfigProviderOptionsV1.get(packageID)
+  const lowerer = ConfigProviderOptionsInput.get(packageID)
   const request = info.options && lowerer.request(info.options)
   const costs = info.cost && [
     {

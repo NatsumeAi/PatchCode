@@ -3,21 +3,21 @@ export * as AISDK from "./aisdk"
 import { makeLocationNode } from "./effect/app-node"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { Cause, Context, Effect, Layer, Schema, Scope } from "effect"
-import { ModelV2 } from "./model"
-import { ProviderV2 } from "./provider"
+import { Model } from "./model"
+import { Provider } from "./provider"
 import { State } from "./state"
 
 type SDK = any
 
 export interface SDKEvent {
-  readonly model: ModelV2.Info
+  readonly model: Model.Info
   readonly package: string
   readonly options: Record<string, any>
   sdk?: SDK
 }
 
 export interface LanguageEvent {
-  readonly model: ModelV2.Info
+  readonly model: Model.Info
   readonly sdk: SDK
   readonly options: Record<string, any>
   language?: LanguageModelV3
@@ -71,7 +71,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   })
 }
 
-function prepareOptions(model: ModelV2.Info, pkg: string) {
+function prepareOptions(model: Model.Info, pkg: string) {
   const options: Record<string, any> = {
     name: model.providerID,
     ...(model.api.type === "aisdk" ? (model.api.settings ?? {}) : {}),
@@ -122,11 +122,11 @@ function prepareOptions(model: ModelV2.Info, pkg: string) {
 }
 
 export class InitError extends Schema.TaggedErrorClass<InitError>()("AISDK.InitError", {
-  providerID: ProviderV2.ID,
+  providerID: Provider.ID,
   cause: Schema.Defect(),
 }) {}
 
-function initError(providerID: ProviderV2.ID) {
+function initError(providerID: Provider.ID) {
   return Effect.catchCause((cause) => Effect.fail(new InitError({ providerID, cause: Cause.squash(cause) })))
 }
 
@@ -141,10 +141,10 @@ export interface Interface {
   }
   readonly runSDK: (event: SDKEvent) => Effect.Effect<SDKEvent>
   readonly runLanguage: (event: LanguageEvent) => Effect.Effect<LanguageEvent>
-  readonly language: (model: ModelV2.Info) => Effect.Effect<LanguageModelV3, InitError>
+  readonly language: (model: Model.Info) => Effect.Effect<LanguageModelV3, InitError>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/AISDK") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/AISDK") {}
 
 export const locationLayer = Layer.effect(
   Service,

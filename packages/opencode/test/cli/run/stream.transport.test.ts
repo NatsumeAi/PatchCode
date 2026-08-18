@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
-import { OpencodeClient, type GlobalEvent } from "@opencode-ai/sdk/v2"
+import { OpencodeClient, type GlobalEvent } from "@opencode-ai/sdk/api"
 import { createSessionTransport } from "@/cli/cmd/run/stream.transport"
 import type { FooterApi, FooterEvent, LocalReplayRow, RunFilePart, StreamCommit } from "@/cli/cmd/run/types"
 
@@ -423,8 +423,8 @@ function sdk(
     status?: OpencodeClient["session"]["status"]
     messages?: OpencodeClient["session"]["messages"]
     children?: OpencodeClient["session"]["children"]
-    permissions?: OpencodeClient["v2"]["permission"]["request"]["list"]
-    questions?: OpencodeClient["v2"]["question"]["request"]["list"]
+    permissions?: OpencodeClient["api"]["permission"]["request"]["list"]
+    questions?: OpencodeClient["api"]["question"]["request"]["list"]
   } = {},
 ) {
   const client = new OpencodeClient()
@@ -436,9 +436,9 @@ function sdk(
   const status: OpencodeClient["session"]["status"] = input.status ?? (() => ok({}))
   const messages: OpencodeClient["session"]["messages"] = input.messages ?? (() => ok([]))
   const children: OpencodeClient["session"]["children"] = input.children ?? (() => ok([]))
-  const permissions: OpencodeClient["v2"]["permission"]["request"]["list"] =
+  const permissions: OpencodeClient["api"]["permission"]["request"]["list"] =
     input.permissions ?? (async () => ok({ location: {} as never, data: [] }))
-  const questions: OpencodeClient["v2"]["question"]["request"]["list"] =
+  const questions: OpencodeClient["api"]["question"]["request"]["list"] =
     input.questions ?? (async () => ok({ location: {} as never, data: [] }))
 
   spyOn(client.event, "subscribe").mockImplementation(subscribe)
@@ -447,8 +447,8 @@ function sdk(
   spyOn(client.session, "status").mockImplementation(status)
   spyOn(client.session, "messages").mockImplementation(messages)
   spyOn(client.session, "children").mockImplementation(children)
-  spyOn(client.v2.permission.request, "list").mockImplementation(permissions)
-  spyOn(client.v2.question.request, "list").mockImplementation(questions)
+  spyOn(client.api.permission.request, "list").mockImplementation(permissions)
+  spyOn(client.api.question.request, "list").mockImplementation(questions)
 
   return client
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { retry } from "@opencode-ai/core/util/retry"
 import type { OpenCodeEvent, SessionApi } from "@opencode-ai/client/promise"
-import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, OpencodeClient, Part, Session } from "@opencode-ai/sdk/api/client"
 import { createServerSession } from "./server-session"
 import type { ServerApi } from "@/utils/server"
 
@@ -162,7 +162,7 @@ function setup(sessions: Record<string, Session>) {
 }
 
 describe("server session", () => {
-  test("projects V2 session events into current and legacy message state", () => {
+  test("projects current session events into current and legacy message state", () => {
     const ctx = setup({ child: session("child") })
     ctx.store.remember(session("child"))
     ctx.store.set("session_message", "child", [
@@ -173,7 +173,7 @@ describe("server session", () => {
         time: { created: 1 },
       },
     ])
-    const apply = (input: object) => ctx.store.applyV2(input as OpenCodeEvent)
+    const apply = (input: object) => ctx.store.applyCurrent(input as OpenCodeEvent)
 
     apply({
       id: "evt_step",
@@ -309,7 +309,7 @@ describe("server session", () => {
     expect(assistants.map((item) => store.data.part[item.id]?.[0]?.type)).toEqual(["text", "text", "text"])
   })
 
-  test("indexes V1 messages for the current timeline projection", async () => {
+  test("indexes legacy messages for the current timeline projection", async () => {
     const user = userMessage("message-1", { sessionID: "root" })
     const assistant = assistantMessage("message-2", user.id, { sessionID: "root" })
     const client = messageClient(
@@ -324,7 +324,7 @@ describe("server session", () => {
       },
     } as unknown as MessageApi
     const store = createServerSession(client, {} as SessionApi, messageApi, {
-      protocol: Promise.resolve("v1"),
+      protocol: Promise.resolve("legacy"),
     })
     store.remember(session("root"))
 

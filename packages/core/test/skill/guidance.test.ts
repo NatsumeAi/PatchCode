@@ -1,42 +1,42 @@
 import path from "path"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SkillV2 } from "@opencode-ai/core/skill"
+import { Skill } from "@opencode-ai/core/skill"
 import { SystemContext } from "@opencode-ai/core/system-context"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { it } from "../lib/effect"
 
-const build = AgentV2.ID.make("build")
-const effect = SkillV2.Info.make({
+const build = Agent.ID.make("build")
+const effect = Skill.Info.make({
   name: "effect",
   description: "Build applications with Effect",
   location: AbsolutePath.make(path.resolve("/skills/effect/SKILL.md")),
   content: "Effect guidance",
 })
-const hidden = SkillV2.Info.make({
+const hidden = Skill.Info.make({
   name: "hidden",
   location: AbsolutePath.make(path.resolve("/skills/hidden/SKILL.md")),
   content: "Undescribed guidance",
 })
-const denied = SkillV2.Info.make({
+const denied = Skill.Info.make({
   name: "denied",
   description: "Must not be advertised",
   location: AbsolutePath.make(path.resolve("/skills/denied/SKILL.md")),
   content: "Denied guidance",
 })
 
-const layer = (list: () => SkillV2.Info[]) =>
+const layer = (list: () => Skill.Info[]) =>
   AppNodeBuilder.build(SkillGuidance.node, [
-    [SkillV2.node, Layer.mock(SkillV2.Service, { list: () => Effect.succeed(list()) })],
+    [Skill.node, Layer.mock(Skill.Service, { list: () => Effect.succeed(list()) })],
   ])
 
 describe("SkillGuidance", () => {
   it.effect("renders described agent skills and reconciles the complete available list", () => {
-    const agent = AgentV2.Info.make({
-      ...AgentV2.Info.empty(build),
+    const agent = Agent.Info.make({
+      ...Agent.Info.empty(build),
       permissions: [{ action: "skill", resource: "denied", effect: "deny" }],
     })
     let skills = [hidden, denied, effect]
@@ -72,8 +72,8 @@ describe("SkillGuidance", () => {
   })
 
   it.effect("omits guidance when the selected agent denies all skills", () => {
-    const agent = AgentV2.Info.make({
-      ...AgentV2.Info.empty(build),
+    const agent = Agent.Info.make({
+      ...Agent.Info.empty(build),
       permissions: [{ action: "skill", resource: "*", effect: "deny" }],
     })
     return Effect.gen(function* () {
@@ -88,8 +88,8 @@ describe("SkillGuidance", () => {
   })
 
   it.effect("omits guidance when a resource-specific denial follows the global denial", () => {
-    const agent = AgentV2.Info.make({
-      ...AgentV2.Info.empty(build),
+    const agent = Agent.Info.make({
+      ...Agent.Info.empty(build),
       permissions: [
         { action: "skill", resource: "*", effect: "deny" },
         { action: "skill", resource: "hidden", effect: "deny" },
@@ -107,8 +107,8 @@ describe("SkillGuidance", () => {
   })
 
   it.effect("retains specifically allowed skills after a global denial", () => {
-    const agent = AgentV2.Info.make({
-      ...AgentV2.Info.empty(build),
+    const agent = Agent.Info.make({
+      ...Agent.Info.empty(build),
       permissions: [
         { action: "skill", resource: "*", effect: "deny" },
         { action: "skill", resource: "effect", effect: "allow" },
@@ -123,8 +123,8 @@ describe("SkillGuidance", () => {
   })
 
   it.effect("omits guidance when a specifically allowed skill is denied again", () => {
-    const agent = AgentV2.Info.make({
-      ...AgentV2.Info.empty(build),
+    const agent = Agent.Info.make({
+      ...Agent.Info.empty(build),
       permissions: [
         { action: "skill", resource: "*", effect: "deny" },
         { action: "skill", resource: "effect", effect: "allow" },

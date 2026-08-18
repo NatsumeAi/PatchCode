@@ -1,5 +1,5 @@
 import { cmd } from "./cmd"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { effectCmd } from "../effect-cmd"
 import { Cause } from "effect"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -12,7 +12,7 @@ import { MCP } from "../../mcp"
 import { McpAuth } from "../../mcp/auth"
 import { McpOAuthProvider } from "../../mcp/oauth-provider"
 import { Config } from "@/config/config"
-import { ConfigMCPV1 } from "@opencode-ai/core/config/legacy/mcp"
+import { ConfigMcpInput } from "@opencode-ai/core/config/legacy/mcp"
 import { InstanceRef } from "@/effect/instance-ref"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import path from "path"
@@ -43,9 +43,9 @@ function getAuthStatusText(status: MCP.AuthStatus): string {
   }
 }
 
-type McpEntry = NonNullable<ConfigV1.Info["mcp"]>[string]
+type McpEntry = NonNullable<ConfigInput.Info["mcp"]>[string]
 
-type McpConfigured = ConfigMCPV1.Info
+type McpConfigured = ConfigMcpInput.Info
 function isMcpConfigured(config: McpEntry): config is McpConfigured {
   return typeof config === "object" && config !== null && "type" in config
 }
@@ -55,11 +55,11 @@ function isMcpRemote(config: McpEntry): config is McpRemote {
   return isMcpConfigured(config) && config.type === "remote"
 }
 
-function configuredServers(config: ConfigV1.Info) {
+function configuredServers(config: ConfigInput.Info) {
   return Object.entries(config.mcp ?? {}).filter((entry): entry is [string, McpConfigured] => isMcpConfigured(entry[1]))
 }
 
-function oauthServers(config: ConfigV1.Info) {
+function oauthServers(config: ConfigInput.Info) {
   return configuredServers(config).filter(
     (entry): entry is [string, McpRemote] => isMcpRemote(entry[1]) && entry[1].oauth !== false,
   )
@@ -409,7 +409,7 @@ async function resolveConfigPath(baseDir: string, global = false) {
   return candidates[0]
 }
 
-async function addMcpToConfig(name: string, mcpConfig: ConfigMCPV1.Info, configPath: string) {
+async function addMcpToConfig(name: string, mcpConfig: ConfigMcpInput.Info, configPath: string) {
   let text = "{}"
   if (await Filesystem.exists(configPath)) {
     text = await Filesystem.readText(configPath)
@@ -482,7 +482,7 @@ export const McpAddCommand = effectCmd({
           )
         const environment = entries(args.env ?? [], "environment variable")
         const headers = entries(args.header ?? [], "HTTP header")
-        const mcpConfig: ConfigMCPV1.Info = args.url
+        const mcpConfig: ConfigMcpInput.Info = args.url
           ? {
               type: "remote",
               url: args.url,
@@ -564,7 +564,7 @@ export const McpAddCommand = effectCmd({
         })
         if (prompts.isCancel(command)) throw new UI.CancelledError()
 
-        const mcpConfig: ConfigMCPV1.Info = {
+        const mcpConfig: ConfigMcpInput.Info = {
           type: "local",
           command: command.split(" "),
         }
@@ -594,7 +594,7 @@ export const McpAddCommand = effectCmd({
         })
         if (prompts.isCancel(useOAuth)) throw new UI.CancelledError()
 
-        let mcpConfig: ConfigMCPV1.Info
+        let mcpConfig: ConfigMcpInput.Info
 
         if (useOAuth) {
           const hasClientId = await prompts.confirm({

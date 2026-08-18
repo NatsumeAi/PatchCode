@@ -6,8 +6,8 @@ import { lazy } from "solid-js"
 import { DialogSelectDirectory } from "./dialog-select-directory"
 import { directoryPickerKind } from "./directory-picker-policy"
 
-const DialogSelectDirectoryV2 = lazy(() =>
-  import("./dialog-select-directory-v2").then((module) => ({ default: module.DialogSelectDirectoryV2 })),
+const DialogSelectDirectoryKit = lazy(() =>
+  import("./dialog-select-directory-kit").then((module) => ({ default: module.DialogSelectDirectory })),
 )
 
 type DirectoryPickerInput = {
@@ -37,7 +37,7 @@ export function useDirectoryPicker() {
       if (!selected) input.onSelect(null)
     }
     if (platform.platform === "desktop" && settings.general.newLayoutDesigns()) {
-      dialog.show(() => <DialogSelectDirectoryV2 {...input} onSelect={onSelect} />, cancel)
+      dialog.show(() => <DialogSelectDirectoryKit {...input} onSelect={onSelect} />, cancel)
       return
     }
     dialog.show(() => <DialogSelectDirectory {...input} onSelect={onSelect} />, cancel)

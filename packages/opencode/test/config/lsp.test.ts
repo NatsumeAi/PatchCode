@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { ConfigLSPV1 } from "@opencode-ai/core/config/legacy/lsp"
+import { ConfigLspInput } from "@opencode-ai/core/config/legacy/lsp"
 
 // The LSP config refinement enforces: any custom (non-builtin) LSP server
 // entry must declare an `extensions` array so the client knows which files
@@ -8,8 +8,8 @@ import { ConfigLSPV1 } from "@opencode-ai/core/config/legacy/lsp"
 // entries are exempt.
 //
 // `typescript` is a builtin server id (see src/lsp/server.ts).
-describe("ConfigLSPV1.Info refinement", () => {
-  const decodeEffect = Schema.decodeUnknownSync(ConfigLSPV1.Info)
+describe("ConfigLspInput.Info refinement", () => {
+  const decodeEffect = Schema.decodeUnknownSync(ConfigLspInput.Info)
 
   describe("accepted inputs", () => {
     test("true and false pass (top-level toggle)", () => {

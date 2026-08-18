@@ -1,0 +1,225 @@
+[data-component="inline-input"] {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  padding: 0;
+  width: 280px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  background:
+    linear-gradient(180deg, var(--kit-alpha-light-2) 0%, var(--kit-alpha-light-0) 100%), var(--kit-background-bg-base);
+  box-shadow: var(--kit-elevation-button-neutral);
+  flex: none;
+  align-self: stretch;
+  overflow: hidden;
+  transition:
+    background 85ms ease-out,
+    outline-color 85ms ease-out,
+    box-shadow 85ms ease-out;
+}
+
+[data-component="inline-input"][data-appearance="large"] {
+  height: 32px;
+}
+
+[data-component="inline-input"]:where(:hover):not([data-disabled], [data-invalid]):not(:focus-within) {
+  background:
+    linear-gradient(0deg, var(--kit-overlay-simple-overlay-hover), var(--kit-overlay-simple-overlay-hover)),
+    linear-gradient(180deg, var(--kit-alpha-light-2) 0%, var(--kit-alpha-light-0) 100%), var(--kit-background-bg-base);
+}
+
+[data-component="inline-input"]:where(:hover):not([data-disabled], [data-invalid]):not(:focus-within)
+  [data-slot="inline-input-kit-prefix"] {
+  background: transparent;
+}
+
+[data-component="inline-input"]:where(:focus-within):not([data-disabled], [data-invalid]) {
+  outline-color: var(--kit-border-border-focus);
+  box-shadow: none;
+}
+
+[data-component="inline-input"]:where([data-invalid]):not([data-disabled]) {
+  outline-color: var(--kit-state-fg-danger);
+  box-shadow: none;
+}
+
+[data-component="inline-input"]:where([data-disabled]) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-prefix"] {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  flex: none;
+  align-self: stretch;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  gap: 4px;
+  background: var(--kit-background-bg-layer-01);
+  border-radius: 4px 0 0 4px;
+  cursor: default;
+  transition: background 85ms ease-out;
+}
+
+[data-component="inline-input"]:where([data-disabled]) [data-slot="inline-input-kit-prefix"] {
+  cursor: not-allowed;
+}
+
+[data-component="inline-input"][data-label-width] [data-slot="inline-input-kit-prefix"] {
+  width: var(--inline-input-kit-label-width);
+  min-width: var(--inline-input-kit-label-width);
+  max-width: var(--inline-input-kit-label-width);
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-prefix-text"] {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-weight: 440;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -0.04px;
+  color: var(--kit-text-text-muted);
+  font-variation-settings: "slnt" 0;
+  user-select: none;
+}
+
+[data-component="inline-input"][data-numeric] [data-slot="inline-input-kit-prefix-text"] {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-divider"] {
+  flex: none;
+  align-self: stretch;
+  width: 0.5px;
+  min-width: 0.5px;
+  background: var(--kit-border-border-base);
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-field"] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  gap: 8px;
+}
+
+[data-component="inline-input"][data-appearance="large"] [data-slot="inline-input-kit-field"] {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-value"] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-input"] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-style: normal;
+  font-weight: 440;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -0.04px;
+  color: var(--kit-text-text-base);
+  font-variation-settings: "slnt" 0;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-input"]::placeholder {
+  color: var(--kit-text-text-faint);
+  user-select: none;
+}
+
+[data-component="inline-input"][data-numeric] [data-slot="inline-input-kit-input"] {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-icon-button"] {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  gap: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--kit-icon-icon-muted);
+  cursor: pointer;
+  outline: none;
+}
+
+[data-component="inline-input"]
+  [data-slot="inline-input-kit-icon-button"]:is(:hover, [data-state="hover"]):not(:disabled) {
+  background-color: var(--kit-overlay-simple-overlay-hover);
+}
+
+[data-component="inline-input"]
+  [data-slot="inline-input-kit-icon-button"]:is(:active, [data-state="pressed"]):not(:disabled) {
+  background-color: var(--kit-overlay-simple-overlay-pressed);
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-icon-button"]:focus {
+  outline: none;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-icon-button"]:focus-visible {
+  outline: 2px solid var(--kit-border-border-focus);
+  outline-offset: 1px;
+}
+
+[data-component="inline-input"]:where([data-disabled]) [data-slot="inline-input-kit-icon-button"] {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+[data-component="inline-input"] [data-slot="inline-input-kit-icon-button"] [data-slot="icon-svg"] {
+  display: block;
+  flex: none;
+  color: currentColor;
+}
+
+[data-component="inline-input"][data-invalid]:not([data-disabled]) [data-slot="inline-input-kit-prefix-text"] {
+  color: var(--kit-text-text-muted);
+}
+
+[data-component="inline-input"][data-invalid]:not([data-disabled]) [data-slot="inline-input-kit-input"] {
+  color: var(--kit-state-fg-danger);
+  caret-color: var(--kit-state-fg-danger);
+}
+
+[data-component="inline-input"][data-invalid]:not([data-disabled]) [data-slot="inline-input-kit-input"]::placeholder {
+  color: var(--kit-state-fg-danger);
+  opacity: 1;
+}

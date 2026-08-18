@@ -10,7 +10,7 @@
 }
 
 [data-titlebar-tab] {
-  --tab-base: var(--v2-background-bg-deep);
+  --tab-base: var(--kit-background-bg-deep);
   --tab-overlay: transparent;
   background: linear-gradient(var(--tab-overlay), var(--tab-overlay)), var(--tab-base);
 }
@@ -18,13 +18,13 @@
 [data-titlebar-tab]:is(:hover, :has(> [data-slot="tab-link"]:focus-visible)):not([data-state="pressed"]):not(
     [data-dragging="true"]
   ):not([data-editing="true"]) {
-  --tab-base: var(--v2-background-bg-layer-02);
-  --tab-overlay: var(--v2-overlay-simple-overlay-hover);
+  --tab-base: var(--kit-background-bg-layer-02);
+  --tab-overlay: var(--kit-overlay-simple-overlay-hover);
 }
 
 [data-titlebar-tab]:is([data-state="pressed"], [data-dragging="true"], [data-editing="true"]) {
-  --tab-base: var(--v2-background-bg-layer-02);
-  --tab-overlay: var(--v2-overlay-simple-overlay-pressed);
+  --tab-base: var(--kit-background-bg-layer-02);
+  --tab-overlay: var(--kit-overlay-simple-overlay-pressed);
 }
 
 [data-titlebar-tab]:is(:hover, [data-state="pressed"]) [data-slot="tab-close"] {
@@ -40,12 +40,12 @@
 }
 
 [data-titlebar-tab-slot] {
-  --tab-separator: var(--v2-background-bg-layer-03);
+  --tab-separator: var(--kit-background-bg-layer-03);
   position: relative;
 }
 
 [data-color-scheme="dark"] [data-titlebar-tab-slot] {
-  --tab-separator: var(--v2-background-bg-layer-02);
+  --tab-separator: var(--kit-background-bg-layer-02);
 }
 
 [data-titlebar-tab-slot]:not(:first-child):not([data-active="true"])::before {

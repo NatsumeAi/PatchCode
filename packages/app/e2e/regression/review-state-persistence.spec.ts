@@ -55,7 +55,7 @@ async function selectFile(page: Page, file: string) {
 }
 
 async function expectSelectedFile(page: Page, file: string) {
-  await expect(page.locator('[data-slot="session-review-v2-file-name"]')).toHaveText(file)
+  await expect(page.locator('[data-slot="session-review-kit-file-name"]')).toHaveText(file)
 }
 
 async function switchSession(page: Page, title: string) {
@@ -65,7 +65,7 @@ async function switchSession(page: Page, title: string) {
 
 async function setup(page: Page) {
   await mockOpenCodeServer(page, {
-    protocol: "v1",
+    protocol: "legacy",
     directory,
     project: {
       id: projectID,

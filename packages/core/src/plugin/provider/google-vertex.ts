@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
 function resolveProject(options: Record<string, any>) {
   // models.dev advertises GOOGLE_VERTEX_PROJECT for Vertex, while Google SDKs
@@ -64,7 +64,7 @@ export const GoogleVertexPlugin = define({
           if (
             item.provider.api.package !== "@ai-sdk/google-vertex" &&
             !(
-              item.provider.id === ProviderV2.ID.googleVertex &&
+              item.provider.id === Provider.ID.googleVertex &&
               item.provider.api.package.includes("@ai-sdk/openai-compatible")
             )
           )
@@ -86,7 +86,7 @@ export const GoogleVertexPlugin = define({
     )
     yield* ctx.aisdk.sdk(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID === ProviderV2.ID.googleVertex && evt.package.includes("@ai-sdk/openai-compatible")) {
+        if (evt.model.providerID === Provider.ID.googleVertex && evt.package.includes("@ai-sdk/openai-compatible")) {
           evt.options.fetch = authFetch(evt.options.fetch)
           return
         }
@@ -105,7 +105,7 @@ export const GoogleVertexPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.googleVertex) return
+        if (evt.model.providerID !== Provider.ID.googleVertex) return
         evt.language = evt.sdk.languageModel(String(evt.model.api.id).trim())
       }),
     )
@@ -165,7 +165,7 @@ export const GoogleVertexAnthropicPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.make("google-vertex-anthropic")) return
+        if (evt.model.providerID !== Provider.ID.make("google-vertex-anthropic")) return
         evt.language = evt.sdk.languageModel(String(evt.model.api.id).trim())
       }),
     )

@@ -7,7 +7,7 @@ import { NewSessionStatus, NewSessionView } from "./new-session/new-session-view
 import { createNewSessionWorkspaceController } from "./new-session/new-session-workspace-controller"
 import { useNewSessionCommands } from "./new-session/use-new-session-commands"
 
-/** The draft-only V2 session page. Submitting promotes the draft into a real session. */
+/** The draft-only kit session page. Submitting promotes the draft into a real session. */
 export default function NewSessionPage() {
   const settings = useSettings()
   const rightMount = useTitlebarRightMount()

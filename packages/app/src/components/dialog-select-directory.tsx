@@ -9,7 +9,7 @@ import { useLanguage } from "@/context/language"
 import { ServerConnection } from "@/context/server"
 import { useGlobal } from "@/context/global"
 import { cleanPickerInput, createDirectorySearch, displayPickerPath } from "./directory-picker-domain"
-import type { Path } from "@opencode-ai/sdk/v2/client"
+import type { Path } from "@opencode-ai/sdk/api/client"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -61,7 +61,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const [fallbackPath] = createResource(
     () => (missingBase() ? true : undefined),
     async (): Promise<Path | undefined> => {
-      if ((await sdk.protocol) !== "v1") return
+      if ((await sdk.protocol) !== "legacy") return
       return sdk.client.path
         .get()
         .then((result) => result.data)

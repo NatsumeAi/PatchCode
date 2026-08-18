@@ -155,9 +155,17 @@
             "$ref": "#/definitions/ColorValue"
           }
         },
+        "kitOverrides": {
+          "type": "object",
+          "description": "Optional direct overrides for any kit CSS variable (without -- prefix)",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "v2Overrides": {
           "type": "object",
-          "description": "Optional direct overrides for any v2 CSS variable (without -- prefix)",
+          "description": "Deprecated alias of kitOverrides. Still accepted when loading theme JSON.",
+          "deprecated": true,
           "additionalProperties": {
             "type": "string"
           }

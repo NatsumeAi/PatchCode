@@ -1,6 +1,6 @@
-import type { PromptInputV2HistoryEntry, PromptInputV2PersistedState, PromptInputV2Suggestion } from "./types"
+import type { PromptInputHistoryEntry, PromptInputPersistedState, PromptInputSuggestion } from "./types"
 
-export type PromptInputV2InteractionState = {
+export type PromptInputInteractionState = {
   mode: "normal" | "shell"
   popover:
     | { type: "closed" }
@@ -11,10 +11,10 @@ export type PromptInputV2InteractionState = {
   focus: "editor" | "command-search" | "external"
   activeContextID?: string
   historyIndex: number
-  savedHistory?: PromptInputV2HistoryEntry
+  savedHistory?: PromptInputHistoryEntry
 }
 
-export type PromptInputV2InteractionEvent =
+export type PromptInputInteractionEvent =
   | { type: "input.changed"; value: string; persist?: boolean }
   | { type: "commands.open" }
   | { type: "context.open" }
@@ -22,7 +22,7 @@ export type PromptInputV2InteractionEvent =
   | { type: "popover.results"; ids: string[] }
   | { type: "popover.active"; id: string }
   | { type: "popover.close" }
-  | { type: "popover.select"; item: PromptInputV2Suggestion }
+  | { type: "popover.select"; item: PromptInputSuggestion }
   | { type: "key.down"; key: string; ctrl: boolean; composing: boolean; ids: string[]; empty?: boolean }
   | { type: "mode.shell" }
   | { type: "mode.normal" }
@@ -32,21 +32,21 @@ export type PromptInputV2InteractionEvent =
   | { type: "focus.external" }
   | { type: "context.active"; id: string }
 
-export type PromptInputV2InteractionCommand =
+export type PromptInputInteractionCommand =
   | { type: "draft.setText"; value: string }
-  | { type: "mention.add"; item: PromptInputV2Suggestion }
+  | { type: "mention.add"; item: PromptInputSuggestion }
   | { type: "popover.filter"; popover: "command" | "context"; query: string }
   | { type: "suggestion.select"; id: string }
   | { type: "focus.editor" }
   | { type: "focus.command-search" }
 
-export type PromptInputV2Transition = {
-  state: PromptInputV2InteractionState
-  commands: PromptInputV2InteractionCommand[]
+export type PromptInputTransition = {
+  state: PromptInputInteractionState
+  commands: PromptInputInteractionCommand[]
   handled: boolean
 }
 
-export function createPromptInputV2InteractionState(): PromptInputV2InteractionState {
+export function createPromptInputInteractionState(): PromptInputInteractionState {
   return {
     mode: "normal",
     popover: { type: "closed" },
@@ -56,11 +56,11 @@ export function createPromptInputV2InteractionState(): PromptInputV2InteractionS
   }
 }
 
-export function transitionPromptInputV2(
-  state: PromptInputV2InteractionState,
-  event: PromptInputV2InteractionEvent,
-  persisted: PromptInputV2PersistedState,
-): PromptInputV2Transition {
+export function transitionPromptInput(
+  state: PromptInputInteractionState,
+  event: PromptInputInteractionEvent,
+  persisted: PromptInputPersistedState,
+): PromptInputTransition {
   if (event.type === "input.changed") return inputChanged(state, event.value, event.persist !== false, persisted.cursor)
   if (event.type === "commands.open") return openCommands(state, persisted)
   if (event.type === "context.open") return openContext(state, persisted)
@@ -82,12 +82,12 @@ export function transitionPromptInputV2(
 }
 
 function inputChanged(
-  state: PromptInputV2InteractionState,
+  state: PromptInputInteractionState,
   value: string,
   persist: boolean,
   cursor: number | undefined,
-): PromptInputV2Transition {
-  const setText: PromptInputV2InteractionCommand[] = persist ? [{ type: "draft.setText", value }] : []
+): PromptInputTransition {
+  const setText: PromptInputInteractionCommand[] = persist ? [{ type: "draft.setText", value }] : []
   if (state.mode === "normal" && value === "!") {
     return changed({ ...state, mode: "shell", popover: { type: "closed" }, focus: "editor" }, [
       { type: "draft.setText", value: "" },
@@ -118,9 +118,9 @@ function inputChanged(
 }
 
 function openCommands(
-  state: PromptInputV2InteractionState,
-  persisted: PromptInputV2PersistedState,
-): PromptInputV2Transition {
+  state: PromptInputInteractionState,
+  persisted: PromptInputPersistedState,
+): PromptInputTransition {
   if (!populated(persisted)) {
     return changed({ ...state, popover: { type: "command-inline", query: "" }, focus: "editor" }, [
       { type: "draft.setText", value: promptText(persisted) + "/" },
@@ -135,9 +135,9 @@ function openCommands(
 }
 
 function openContext(
-  state: PromptInputV2InteractionState,
-  persisted: PromptInputV2PersistedState,
-): PromptInputV2Transition {
+  state: PromptInputInteractionState,
+  persisted: PromptInputPersistedState,
+): PromptInputTransition {
   return changed({ ...state, popover: { type: "context", query: "" }, focus: "editor" }, [
     { type: "draft.setText", value: promptText(persisted) + "@" },
     { type: "popover.filter", popover: "context", query: "" },
@@ -145,7 +145,7 @@ function openContext(
   ])
 }
 
-function queryChanged(state: PromptInputV2InteractionState, query: string): PromptInputV2Transition {
+function queryChanged(state: PromptInputInteractionState, query: string): PromptInputTransition {
   if (state.popover.type === "closed") return unchanged(state)
   const popover = state.popover.type === "context" ? "context" : "command"
   return changed({ ...state, popover: { ...state.popover, query, activeID: undefined } }, [
@@ -153,25 +153,25 @@ function queryChanged(state: PromptInputV2InteractionState, query: string): Prom
   ])
 }
 
-function resultsChanged(state: PromptInputV2InteractionState, ids: string[]): PromptInputV2Transition {
+function resultsChanged(state: PromptInputInteractionState, ids: string[]): PromptInputTransition {
   if (state.popover.type === "closed") return unchanged(state)
   const activeID = state.popover.activeID && ids.includes(state.popover.activeID) ? state.popover.activeID : ids[0]
   if (activeID === state.popover.activeID) return unchanged(state)
   return changed({ ...state, popover: { ...state.popover, activeID } })
 }
 
-function activeChanged(state: PromptInputV2InteractionState, id: string): PromptInputV2Transition {
+function activeChanged(state: PromptInputInteractionState, id: string): PromptInputTransition {
   if (state.popover.type === "closed" || state.popover.activeID === id) return unchanged(state)
   return changed({ ...state, popover: { ...state.popover, activeID: id } })
 }
 
 function suggestionSelected(
-  state: PromptInputV2InteractionState,
-  item: PromptInputV2Suggestion,
-  persisted: PromptInputV2PersistedState,
-): PromptInputV2Transition {
+  state: PromptInputInteractionState,
+  item: PromptInputSuggestion,
+  persisted: PromptInputPersistedState,
+): PromptInputTransition {
   const current = promptText(persisted)
-  const commands: PromptInputV2InteractionCommand[] = []
+  const commands: PromptInputInteractionCommand[] = []
   if (item.kind === "command") {
     commands.push({
       type: "draft.setText",
@@ -190,9 +190,9 @@ function suggestionSelected(
 }
 
 function keyDown(
-  state: PromptInputV2InteractionState,
-  event: Extract<PromptInputV2InteractionEvent, { type: "key.down" }>,
-): PromptInputV2Transition {
+  state: PromptInputInteractionState,
+  event: Extract<PromptInputInteractionEvent, { type: "key.down" }>,
+): PromptInputTransition {
   if (event.ctrl && event.key.toLowerCase() === "g") {
     if (state.popover.type === "closed") return unchanged(state)
     return changed({ ...state, popover: { type: "closed" }, focus: "editor" }, [{ type: "focus.editor" }], true)
@@ -227,11 +227,11 @@ function keyDown(
   return changed({ ...state, popover: { ...state.popover, activeID: event.ids[index] } }, [], true)
 }
 
-function promptText(persisted: PromptInputV2PersistedState) {
+function promptText(persisted: PromptInputPersistedState) {
   return persisted.prompt.map((part) => (part.type === "text" ? part.content : "")).join("")
 }
 
-function populated(persisted: PromptInputV2PersistedState) {
+function populated(persisted: PromptInputPersistedState) {
   return (
     !!promptText(persisted).trim() ||
     persisted.context.items.length > 0 ||
@@ -245,17 +245,17 @@ function replaceTrigger(value: string, trigger: "@" | "/", replacement: string) 
 }
 
 function changed(
-  state: PromptInputV2InteractionState,
-  commands: PromptInputV2InteractionCommand[] = [],
+  state: PromptInputInteractionState,
+  commands: PromptInputInteractionCommand[] = [],
   handled = false,
-): PromptInputV2Transition {
+): PromptInputTransition {
   return { state, commands, handled }
 }
 
 function unchanged(
-  state: PromptInputV2InteractionState,
+  state: PromptInputInteractionState,
   handled = false,
-  commands: PromptInputV2InteractionCommand[] = [],
-): PromptInputV2Transition {
+  commands: PromptInputInteractionCommand[] = [],
+): PromptInputTransition {
   return { state, commands, handled }
 }

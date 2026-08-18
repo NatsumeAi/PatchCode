@@ -2,8 +2,8 @@ import { describe, expect } from "bun:test"
 import { Directory } from "@/acp/directory"
 import { Command } from "@/command"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
 import { Provider } from "@/provider/provider"
 import { Effect, Layer } from "effect"
 import { it } from "../lib/effect"
@@ -15,8 +15,8 @@ const command = (name: string): Command.Info => ({
   hints: [],
 })
 
-const model = (providerID: ProviderV2.ID, id: string, variants?: Directory.ModelVariants): Provider.Model => ({
-  id: ModelV2.ID.make(id),
+const model = (providerID: CoreProvider.ID, id: string, variants?: Directory.ModelVariants): Provider.Model => ({
+  id: CoreModel.ID.make(id),
   providerID,
   api: {
     id,
@@ -51,8 +51,8 @@ const model = (providerID: ProviderV2.ID, id: string, variants?: Directory.Model
 })
 
 const snapshot = (directory: string) => {
-  const providerID = ProviderV2.ID.make(`provider-${directory}`)
-  const modelID = ModelV2.ID.make(`model-${directory}`)
+  const providerID = CoreProvider.ID.make(`provider-${directory}`)
+  const modelID = CoreModel.ID.make(`model-${directory}`)
   const providers = {
     [providerID]: {
       id: providerID,
@@ -65,10 +65,10 @@ const snapshot = (directory: string) => {
           low: { reasoningEffort: "low" },
           high: { reasoningEffort: "high" },
         }),
-        [ModelV2.ID.make(`plain-${directory}`)]: model(providerID, `plain-${directory}`),
+        [CoreModel.ID.make(`plain-${directory}`)]: model(providerID, `plain-${directory}`),
       },
     },
-  } satisfies Record<ProviderV2.ID, Provider.Info>
+  } satisfies Record<CoreProvider.ID, Provider.Info>
 
   return Directory.build({
     directory,
@@ -151,7 +151,7 @@ describe("ACP directory snapshot", () => {
         low: { reasoningEffort: "low" },
         high: { reasoningEffort: "high" },
       })
-      expect(directory.variants(alpha, { ...model, modelID: ModelV2.ID.make("missing") })).toBeUndefined()
+      expect(directory.variants(alpha, { ...model, modelID: CoreModel.ID.make("missing") })).toBeUndefined()
     }).pipe(Effect.provide(fakeLayer([]))),
   )
 

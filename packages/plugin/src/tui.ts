@@ -15,7 +15,7 @@ import type {
   SessionStatus,
   TextPart,
   Config as SdkConfig,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import type { CliRenderer, KeyEvent, RGBA, Renderable, SlotMode } from "@opentui/core"
 import type { Binding, Keymap } from "@opentui/keymap"
 import {
@@ -84,7 +84,7 @@ export type TuiModeApi = {
 }
 
 /**
- * Legacy `api.command` shape kept so v1 plugins can initialize. Remove in v2.
+ * Legacy `api.command` shape kept so older plugins can initialize.
  *
  * @deprecated Use `api.keymap.registerLayer({ commands, bindings })` instead.
  */
@@ -105,7 +105,7 @@ export type TuiCommand = {
 }
 
 /**
- * Legacy `api.command` API kept so v1 plugins can initialize. Remove in v2.
+ * Legacy `api.command` API kept so older plugins can initialize.
  *
  * @deprecated Use `api.keymap.registerLayer`, `api.keymap.dispatchCommand`, and
  * `api.keymap.dispatchCommand("command.palette.show")` instead.
@@ -583,7 +583,7 @@ export type TuiPluginApi = {
   app: TuiApp
   attention: TuiAttention
   /**
-   * Legacy `api.command` API kept so v1 plugins can initialize. Remove in v2.
+   * Legacy `api.command` API kept so older plugins can initialize.
    *
    * @deprecated Use `api.keymap.registerLayer`, `api.keymap.dispatchCommand`, and
    * `api.keymap.dispatchCommand("command.palette.show")` instead.

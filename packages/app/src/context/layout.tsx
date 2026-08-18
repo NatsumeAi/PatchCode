@@ -7,7 +7,7 @@ import { useServerSync } from "./server-sync"
 import { useServerSDK } from "./server-sdk"
 import { RECENTLY_CLOSED_DISPLAY_LIMIT, ServerConnection, useServer } from "./server"
 import { usePlatform } from "./platform"
-import { Project } from "@opencode-ai/sdk/v2"
+import { Project } from "@opencode-ai/sdk/api"
 import { normalizeProjectInfo } from "./global-sync/utils"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { pathKey } from "@/utils/path-key"
@@ -15,7 +15,7 @@ import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
-import type { ProjectAvatarVariant } from "@opencode-ai/ui/v2/project-avatar-v2"
+import type { ProjectAvatarVariant } from "@opencode-ai/ui/kit/project-avatar"
 import { migrateLegacySessionStateKeys, ServerScope, SessionStateKey } from "@/utils/server-scope"
 import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout-helpers"
 import { requireServerKey } from "@/utils/session-route"
@@ -573,7 +573,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const projectID = project.id
         void (async () => {
           const sdk = serverSdk()
-          if ((await sdk.protocol) !== "v1") return
+          if ((await sdk.protocol) !== "legacy") return
           return sdk.client.project
             .update({ projectID, directory: worktree, icon: { color } })
             .then((response) => response.data)

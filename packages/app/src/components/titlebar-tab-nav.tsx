@@ -2,13 +2,13 @@ import { createEffect, createMemo, createSignal, onCleanup, Show, type Ref } fro
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createMutation } from "@tanstack/solid-query"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { IconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 import { useGlobal } from "@/context/global"
 import { ServerConnection, serverName } from "@/context/server"
 import { displayName, projectForSession } from "@/pages/layout/helpers"
 import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
-import type { Session } from "@opencode-ai/sdk/v2"
+import type { Session } from "@opencode-ai/sdk/api"
 import { canOpenTabRename, forwardTabRef } from "./titlebar-tab-gesture"
 import { TabPreviewPopover } from "./titlebar-tab-popover"
 import "./titlebar-tab-nav.css"
@@ -219,13 +219,13 @@ export function TabNavItem(props: {
           if (props.suppressNavigation?.()) return
           props.onNavigate()
         }}
-        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 text-[13px] font-medium text-v2-text-text-faint group-data-[active='true']:text-v2-text-text-base group-data-[editing='true']:text-v2-text-text-base [-webkit-user-drag:none]"
+        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 text-[13px] font-medium text-kit-text-text-faint group-data-[active='true']:text-kit-text-text-base group-data-[editing='true']:text-kit-text-text-base [-webkit-user-drag:none]"
       >
         <span data-slot="project-avatar-slot" class="flex size-4 shrink-0 items-center justify-center">
           <Show
             when={props.session()}
             fallback={
-              <span class="block size-4 rounded-[3px] border border-v2-border-border-muted" aria-hidden="true" />
+              <span class="block size-4 rounded-[3px] border border-kit-border-border-muted" aria-hidden="true" />
             }
           >
             {(session) => (
@@ -277,7 +277,7 @@ export function TabNavItem(props: {
       </a>
 
       <div data-slot="tab-close">
-        <IconButtonV2
+        <IconButton
           size="small"
           variant="ghost-muted"
           class="hover-reveal relative z-10 group-hover:opacity-100 group-data-[active=true]:opacity-100 group-data-[editing=true]:opacity-100"
@@ -286,7 +286,7 @@ export function TabNavItem(props: {
             event.stopPropagation()
           }}
           onClick={closeTab}
-          icon={<IconV2 name="xmark-small" />}
+          icon={<KitIcon name="xmark-small" />}
         />
       </div>
     </div>
@@ -369,10 +369,10 @@ export function DraftTabItem(props: {
           if (props.suppressNavigation?.()) return
           props.onNavigate()
         }}
-        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 text-[13px] font-medium text-v2-text-text-faint group-data-[active='true']:text-v2-text-text-base [-webkit-user-drag:none]"
+        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 text-[13px] font-medium text-kit-text-text-faint group-data-[active='true']:text-kit-text-text-base [-webkit-user-drag:none]"
       >
         <span class="flex size-4 shrink-0 items-center justify-center">
-          <IconV2 name="edit" />
+          <KitIcon name="edit" />
         </span>
         <span
           data-titlebar-tab-title
@@ -382,7 +382,7 @@ export function DraftTabItem(props: {
         </span>
       </a>
       <div data-slot="tab-close">
-        <IconButtonV2
+        <IconButton
           size="small"
           variant="ghost-muted"
           onPointerDown={(event) => {
@@ -395,7 +395,7 @@ export function DraftTabItem(props: {
           }}
           class="hover-reveal relative z-10 group-hover:opacity-100 group-data-[active=true]:opacity-100 group-data-[editing=true]:opacity-100"
           onClick={closeTab}
-          icon={<IconV2 name="xmark-small" />}
+          icon={<KitIcon name="xmark-small" />}
           aria-label="Close tab"
         />
       </div>

@@ -2,7 +2,7 @@ export * as ConfigCommand from "./command"
 
 import { Schema } from "effect"
 
-export class Info extends Schema.Class<Info>("ConfigV2.Command")({
+export class Info extends Schema.Class<Info>("Config.Command")({
   template: Schema.String,
   description: Schema.String.pipe(Schema.optional),
   agent: Schema.String.pipe(Schema.optional),

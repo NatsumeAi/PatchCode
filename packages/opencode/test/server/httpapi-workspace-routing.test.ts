@@ -16,7 +16,7 @@ import Http from "node:http"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { registerAdapter } from "../../src/control-plane/adapters"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "@opencode-ai/core/control-plane/workspace.sql"
@@ -165,7 +165,7 @@ const insertRemoteWorkspaceWithoutSync = (input: {
   url: string
 }) =>
   Effect.gen(function* () {
-    const id = WorkspaceV2.ID.ascending()
+    const id = CoreWorkspace.ID.ascending()
     registerAdapter(input.projectID, input.type, remoteAdapter(path.join(input.dir, `.${input.type}`), input.url))
     const { db } = yield* Database.Service
     yield* db
@@ -331,9 +331,9 @@ describe("HttpApi workspace routing middleware", () => {
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })
       const project = yield* Project.use.fromDirectory(dir)
-      const workspaceID = WorkspaceV2.ID.ascending()
+      const workspaceID = CoreWorkspace.ID.ascending()
       const type = "remote-http-fence-target"
-      const waited = yield* Ref.make<{ workspaceID: WorkspaceV2.ID; state: Record<string, number> } | undefined>(
+      const waited = yield* Ref.make<{ workspaceID: CoreWorkspace.ID; state: Record<string, number> } | undefined>(
         undefined,
       )
 
@@ -444,7 +444,7 @@ describe("HttpApi workspace routing middleware", () => {
 
   it.live("returns a missing workspace response for unknown workspace ids", () =>
     Effect.gen(function* () {
-      const workspaceID = WorkspaceV2.ID.ascending("wrk_missing")
+      const workspaceID = CoreWorkspace.ID.ascending("wrk_missing")
       // If the middleware resolves the workspace first, this handler is never
       // reached and the response should be the middleware error response.
       yield* serveProbe

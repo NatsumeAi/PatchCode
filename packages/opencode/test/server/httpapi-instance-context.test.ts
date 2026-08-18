@@ -7,7 +7,7 @@ import * as Socket from "effect/unstable/socket/Socket"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { registerAdapter } from "../../src/control-plane/adapters"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
 import { InstanceRef, WorkspaceRef } from "../../src/effect/instance-ref"
@@ -226,7 +226,7 @@ describe("HttpApi instance context middleware", () => {
 
   it.live("uses configured workspace id instead of routing to the requested workspace", () =>
     Effect.gen(function* () {
-      const fixedWorkspaceID = WorkspaceV2.ID.ascending()
+      const fixedWorkspaceID = CoreWorkspace.ID.ascending()
       yield* withFixedWorkspaceID(fixedWorkspaceID)
 
       const dir = yield* tmpdirScoped({ git: true })
@@ -254,7 +254,7 @@ describe("HttpApi instance context middleware", () => {
 
   it.live("falls through to local instead of MissingWorkspace when configured workspace id is set", () =>
     Effect.gen(function* () {
-      const fixedWorkspaceID = WorkspaceV2.ID.ascending()
+      const fixedWorkspaceID = CoreWorkspace.ID.ascending()
       yield* withFixedWorkspaceID(fixedWorkspaceID)
 
       const dir = yield* tmpdirScoped({ git: true })
@@ -266,7 +266,7 @@ describe("HttpApi instance context middleware", () => {
       // MissingWorkspace response. With the env set, planRequest must skip the
       // MissingWorkspace branch and fall through to Local with the configured
       // workspace id.
-      const unknownWorkspaceID = WorkspaceV2.ID.ascending()
+      const unknownWorkspaceID = CoreWorkspace.ID.ascending()
       const response = yield* HttpClientRequest.get(`/probe?workspace=${unknownWorkspaceID}`).pipe(
         HttpClientRequest.setHeader("x-opencode-directory", dir),
         HttpClient.execute,
@@ -282,7 +282,7 @@ describe("HttpApi instance context middleware", () => {
 
   it.live("keeps configured workspace id on control-plane routes without remote routing", () =>
     Effect.gen(function* () {
-      const fixedWorkspaceID = WorkspaceV2.ID.ascending()
+      const fixedWorkspaceID = CoreWorkspace.ID.ascending()
       yield* withFixedWorkspaceID(fixedWorkspaceID)
 
       const dir = yield* tmpdirScoped({ git: true })

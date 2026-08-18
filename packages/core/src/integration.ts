@@ -18,7 +18,7 @@ import {
 import { Integration } from "@opencode-ai/schema/integration"
 import { Credential } from "./credential"
 import { State } from "./state"
-import { EventV2 } from "./event"
+import { Event as CoreEvent } from "./event"
 import { IntegrationConnection } from "./integration/connection"
 import { registerSecretValue } from "./secret-redaction"
 
@@ -194,7 +194,7 @@ export interface Interface extends State.Transformable<Draft> {
   }
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Integration") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Integration") {}
 
 const attemptLifetime = Duration.toMillis(Duration.minutes(10))
 const terminalRetention = Duration.toMillis(Duration.minutes(1))
@@ -223,7 +223,7 @@ export const locationLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const credentials = yield* Credential.Service
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const scope = yield* Scope.Scope
     const attempts = SynchronizedRef.makeUnsafe(new Map<AttemptID, AttemptEntry>())
     const state = State.create<Data, Draft>({
@@ -519,4 +519,4 @@ export const locationLayer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [Credential.node, EventV2.node] })
+export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [Credential.node, CoreEvent.node] })

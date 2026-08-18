@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { Exit, Schema } from "effect"
-import { MessageV2 } from "../../src/session/session-message-wire"
+import { MessageWire } from "../../src/session/session-message-wire"
 import { SessionID, MessageID } from "../../src/session/schema"
 
-const decodeFormat = Schema.decodeUnknownExit(SessionV1.Format)
-const decodeUser = Schema.decodeUnknownExit(SessionV1.User)
-const decodeAssistant = Schema.decodeUnknownExit(SessionV1.Assistant)
+const decodeFormat = Schema.decodeUnknownExit(SessionWire.Format)
+const decodeUser = Schema.decodeUnknownExit(SessionWire.User)
+const decodeAssistant = Schema.decodeUnknownExit(SessionWire.Assistant)
 
 describe("structured-output.OutputFormat", () => {
   test("parses text format", () => {
@@ -65,7 +65,7 @@ describe("structured-output.OutputFormat", () => {
 
 describe("structured-output.StructuredOutputError", () => {
   test("creates error with message and retries", () => {
-    const error = new SessionV1.StructuredOutputError({
+    const error = new SessionWire.StructuredOutputError({
       message: "Failed to validate",
       retries: 3,
     })
@@ -76,7 +76,7 @@ describe("structured-output.StructuredOutputError", () => {
   })
 
   test("converts to object correctly", () => {
-    const error = new SessionV1.StructuredOutputError({
+    const error = new SessionWire.StructuredOutputError({
       message: "Test error",
       retries: 2,
     })
@@ -88,13 +88,13 @@ describe("structured-output.StructuredOutputError", () => {
   })
 
   test("isInstance correctly identifies error", () => {
-    const error = new SessionV1.StructuredOutputError({
+    const error = new SessionWire.StructuredOutputError({
       message: "Test",
       retries: 1,
     })
 
-    expect(SessionV1.StructuredOutputError.isInstance(error)).toBe(true)
-    expect(SessionV1.StructuredOutputError.isInstance({ name: "other" })).toBe(false)
+    expect(SessionWire.StructuredOutputError.isInstance(error)).toBe(true)
+    expect(SessionWire.StructuredOutputError.isInstance({ name: "other" })).toBe(false)
   })
 })
 

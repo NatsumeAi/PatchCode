@@ -248,7 +248,7 @@ function createWorkspaceTerminalSession(
       setStore("all", index, (item) => ({ ...item, ...pty }))
     }
     const doUpdate = async () => {
-      if ((await sdk.protocol) === "v1") {
+      if ((await sdk.protocol) === "legacy") {
         await sdk.client.pty.update({
           ptyID: pty.id,
           title: pty.title,
@@ -277,7 +277,7 @@ function createWorkspaceTerminalSession(
     const pty = store.all[index]
     if (!pty) return
     const data = await (async () => {
-      if ((await sdk.protocol) === "v1") {
+      if ((await sdk.protocol) === "legacy") {
         return (await sdk.client.pty.create({ title: pty.title })).data
       }
       return (
@@ -326,7 +326,7 @@ function createWorkspaceTerminalSession(
       const focusRequest = options?.focus ? requestFocus(undefined, true) : undefined
 
       const doCreate = async () => {
-        if ((await sdk.protocol) === "v1") {
+        if ((await sdk.protocol) === "legacy") {
           return (await sdk.client.pty.create({ title: defaultTitle(nextNumber) })).data
         }
         return (await sdk.api.pty.create({ location, title: defaultTitle(nextNumber) })).data
@@ -434,7 +434,7 @@ function createWorkspaceTerminalSession(
       }
 
       const removePromise =
-        (await sdk.protocol) === "v1"
+        (await sdk.protocol) === "legacy"
           ? sdk.client.pty.remove({ ptyID: id })
           : sdk.api.pty.remove({ ptyID: id, location })
       await removePromise.catch((error: unknown) => {

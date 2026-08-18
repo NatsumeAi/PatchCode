@@ -76,7 +76,7 @@ export interface Effects {
   readonly afterCommit: (input: AfterCommitInput) => Effect.Effect<AfterCommitResult>
 }
 
-export class EffectsService extends Context.Service<EffectsService, Effects>()("@opencode/v2/FileMutation.Effects") {}
+export class EffectsService extends Context.Service<EffectsService, Effects>()("@opencode/FileMutation.Effects") {}
 
 export interface RemoveResult {
   readonly operation: "remove"
@@ -108,7 +108,7 @@ export interface Interface {
   ) => Effect.Effect<RenameResult, TargetExistsError | StaleContentError | HardlinkDenied | FSUtil.Error>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileMutation") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/FileMutation") {}
 
 /**
  * Serialize file changes by canonical target. Conditional writes compare and

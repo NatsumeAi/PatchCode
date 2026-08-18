@@ -12,8 +12,8 @@ import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
-import { SkillV2 } from "@opencode-ai/core/skill"
+import { Session } from "@opencode-ai/core/session"
+import { Skill } from "@opencode-ai/core/skill"
 import { SkillLock } from "@opencode-ai/core/skill/lock"
 import { Trust } from "@opencode-ai/core/trust"
 import { SkillInstallTool } from "@opencode-ai/core/tool/skill-install"
@@ -26,7 +26,7 @@ import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_skill_lock")
+const sessionID = Session.ID.make("ses_skill_lock")
 const CLEAN = `---
 name: clean_skill
 description: hello
@@ -86,7 +86,7 @@ describe("W8h skills lock", () => {
           SkillInstallTool.node,
           SkillTrustTool.node,
           SkillTool.node,
-          SkillV2.node,
+          Skill.node,
         ]),
         [
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
@@ -129,7 +129,7 @@ describe("W8h skills lock", () => {
         expect(lock.skills[0]?.state).toBe("quarantine")
         expect(lock.skills[0]?.name).toBe("clean_skill")
 
-        const skills = yield* SkillV2.Service
+        const skills = yield* Skill.Service
         expect((yield* skills.list()).map((item) => item.name)).not.toContain("clean_skill")
 
         const load = yield* executeTool(registry, {
@@ -178,7 +178,7 @@ describe("W8h skills lock", () => {
           ToolRegistry.toolsNode,
           SkillInstallTool.node,
           SkillTrustTool.node,
-          SkillV2.node,
+          Skill.node,
         ]),
         [
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
@@ -278,13 +278,13 @@ description: hidden until trusted
         Location.Service,
         Location.Service.of(location({ directory: AbsolutePath.make(repo) })),
       )
-      const graph = AppNodeBuilder.build(LayerNode.group([SkillV2.node]), [
+      const graph = AppNodeBuilder.build(LayerNode.group([Skill.node]), [
         [Location.node, active],
         [Global.node, global],
         [FSUtil.node, LayerNode.compile(FSUtil.node)],
       ])
       yield* Effect.gen(function* () {
-        const skills = yield* SkillV2.Service
+        const skills = yield* Skill.Service
         yield* skills.transform((editor) =>
           editor.source({ type: "directory", path: AbsolutePath.make(path.join(repo, ".opencode", "skills")) }),
         )

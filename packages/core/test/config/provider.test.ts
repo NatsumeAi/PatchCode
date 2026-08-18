@@ -4,17 +4,17 @@ import { Catalog } from "@opencode-ai/core/catalog"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigProviderPlugin } from "@opencode-ai/core/config/plugin/provider"
 import { Integration } from "@opencode-ai/core/integration"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Plugin as CorePlugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* (config: Config.Interface) {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* CorePlugin.Service
   const host = yield* PluginHost.make(plugin)
   yield* ConfigProviderPlugin.Plugin.effect(host).pipe(Effect.provideService(Config.Service, config))
 })
@@ -58,8 +58,8 @@ describe("ConfigProviderPlugin.Plugin", () => {
   it.effect("keeps configured model variant bodies unchanged", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.opencode
-      const modelID = ModelV2.ID.make("alpha-gpt-next")
+      const providerID = Provider.ID.opencode
+      const modelID = Model.ID.make("alpha-gpt-next")
       const config = Config.Service.of({
         entries: () =>
           Effect.succeed([
@@ -109,8 +109,8 @@ describe("ConfigProviderPlugin.Plugin", () => {
   it.effect("keeps layered model variant bodies unchanged", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
-      const providerID = ProviderV2.ID.opencode
-      const modelID = ModelV2.ID.make("alpha-gpt-next")
+      const providerID = Provider.ID.opencode
+      const modelID = Model.ID.make("alpha-gpt-next")
       const config = Config.Service.of({
         entries: () =>
           Effect.succeed([
@@ -156,8 +156,8 @@ describe("ConfigProviderPlugin.Plugin", () => {
       Effect.gen(function* () {
         const catalog = yield* Catalog.Service
         const integrations = yield* Integration.Service
-        const providerID = ProviderV2.ID.make("custom")
-        const modelID = ModelV2.ID.make("chat")
+        const providerID = Provider.ID.make("custom")
+        const modelID = Model.ID.make("chat")
         const config = Config.Service.of({
           entries: () =>
             Effect.succeed([
@@ -239,7 +239,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
 
         const provider = required(yield* catalog.provider.get(providerID))
         const model = required(yield* catalog.model.get(providerID, modelID))
-        expect((yield* catalog.model.default())?.id).toBe(ModelV2.ID.make("default"))
+        expect((yield* catalog.model.default())?.id).toBe(Model.ID.make("default"))
         expect(provider.name).toBe("Renamed")
         expect((yield* integrations.get(Integration.ID.make("custom")))?.methods).toContainEqual({
           type: "env",
@@ -249,7 +249,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         expect(provider.disabled).toBeUndefined()
         expect(provider.api).toEqual({ type: "aisdk", package: "custom-sdk", url: "https://example.test" })
         expect(provider.request.headers).toEqual({ first: "first", shared: "last", last: "last" })
-        expect(model.api.id).toBe(ModelV2.ID.make("api-chat"))
+        expect(model.api.id).toBe(Model.ID.make("api-chat"))
         expect(model.name).toBe("Last")
         expect(model.capabilities).toEqual({ tools: true, input: ["text"], output: ["text"] })
         expect(model.enabled).toBe(false)
@@ -258,8 +258,8 @@ describe("ConfigProviderPlugin.Plugin", () => {
         expect(model.request.headers).toEqual({ first: "first", shared: "last", last: "last" })
         expect(model.request.variant).toBe("retained")
         expect(model.variants.map((variant) => variant.id)).toEqual([
-          ModelV2.VariantID.make("fast"),
-          ModelV2.VariantID.make("slow"),
+          Model.VariantID.make("fast"),
+          Model.VariantID.make("slow"),
         ])
         expect(model.variants[0]?.headers).toEqual({ first: "first", shared: "last", last: "last" })
         expect(model.variants[1]?.headers).toEqual({ slow: "slow" })

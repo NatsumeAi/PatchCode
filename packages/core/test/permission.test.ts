@@ -1,18 +1,19 @@
 import { describe, expect } from "bun:test"
 import { Cause, Deferred, Effect, Fiber, Layer } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { Permission } from "@opencode-ai/core/permission"
+import { PluginHooks } from "@opencode-ai/core/plugin-hooks"
 import { PermissionTable } from "@opencode-ai/core/permission/sql"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { eq } from "drizzle-orm"
@@ -27,10 +28,10 @@ const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       Database.node,
-      EventV2.node,
+      CoreEvent.node,
       SessionStore.node,
       PermissionSaved.node,
-      AgentV2.node,
+      Agent.node,
       Permission.node,
     ]),
     [[Location.node, current]],
@@ -49,7 +50,7 @@ function setup(rules: Permission.Ruleset = []) {
     yield* db
       .insert(SessionTable)
       .values({
-        id: SessionV2.ID.make("ses_test"),
+        id: CoreSession.ID.make("ses_test"),
         project_id: Project.ID.global,
         slug: "test",
         directory: "/project",
@@ -66,9 +67,9 @@ function setup(rules: Permission.Ruleset = []) {
 
 function setRules(rules: Permission.Ruleset) {
   return Effect.gen(function* () {
-    const agents = yield* AgentV2.Service
+    const agents = yield* Agent.Service
     yield* agents.transform((editor) =>
-      editor.update(AgentV2.ID.make("test"), (agent) => {
+      editor.update(Agent.ID.make("test"), (agent) => {
         agent.permissions = [...rules]
       }),
     )
@@ -78,7 +79,7 @@ function setRules(rules: Permission.Ruleset) {
 function assertion(input: Partial<Permission.AssertInput> = {}) {
   return {
     id: Permission.ID.create("per_test"),
-    sessionID: SessionV2.ID.make("ses_test"),
+    sessionID: CoreSession.ID.make("ses_test"),
     action: "read",
     resources: ["src/index.ts"],
     ...input,
@@ -88,7 +89,7 @@ function assertion(input: Partial<Permission.AssertInput> = {}) {
 function waitForRequest() {
   return Effect.gen(function* () {
     const service = yield* Permission.Service
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const asked = yield* Deferred.make<Permission.Request>()
     const unsubscribe = yield* events.listen((event) =>
       event.type === Permission.Event.Asked.type
@@ -121,22 +122,22 @@ describe("Permission", () => {
   it.effect("evaluates against an explicit provider-turn agent", () =>
     Effect.gen(function* () {
       yield* setup([{ action: "read", resource: "*", effect: "allow" }])
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) =>
-        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+        editor.update(Agent.ID.make("reviewer"), (agent) => {
           agent.permissions.push({ action: "read", resource: "*", effect: "deny" })
         }),
       )
       const service = yield* Permission.Service
 
       expect(yield* service.ask(assertion())).toMatchObject({ effect: "allow" })
-      expect(yield* service.ask(assertion({ agent: AgentV2.ID.make("reviewer") }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.ask(assertion({ agent: Agent.ID.make("reviewer") }))).toMatchObject({ effect: "deny" })
       yield* agents.transform((editor) =>
-        editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+        editor.update(Agent.ID.make("reviewer"), (agent) => {
           agent.permissions = []
         }),
       )
-      expect(yield* service.ask(assertion({ agent: AgentV2.ID.make("reviewer") }))).toMatchObject({ effect: "ask" })
+      expect(yield* service.ask(assertion({ agent: Agent.ID.make("reviewer") }))).toMatchObject({ effect: "ask" })
       expect(yield* service.get(Permission.ID.create("per_test"))).not.toHaveProperty("agent")
     }),
   )
@@ -175,12 +176,12 @@ describe("Permission", () => {
       yield* db
         .update(SessionTable)
         .set({ agent: null })
-        .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+        .where(eq(SessionTable.id, CoreSession.ID.make("ses_test")))
         .run()
         .pipe(Effect.orDie)
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) =>
-        editor.update(AgentV2.ID.make("build"), (agent) => {
+        editor.update(Agent.ID.make("build"), (agent) => {
           agent.permissions = [{ action: "todowrite", resource: "*", effect: "allow" }]
         }),
       )
@@ -201,13 +202,13 @@ describe("Permission", () => {
       yield* db
         .update(SessionTable)
         .set({ agent: null })
-        .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+        .where(eq(SessionTable.id, CoreSession.ID.make("ses_test")))
         .run()
         .pipe(Effect.orDie)
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((editor) => {
-        editor.remove(AgentV2.ID.make("test"))
-        editor.remove(AgentV2.ID.make("build"))
+        editor.remove(Agent.ID.make("test"))
+        editor.remove(Agent.ID.make("build"))
       })
 
       const service = yield* Permission.Service
@@ -258,7 +259,7 @@ describe("Permission", () => {
       const { service, fiber, request } = yield* waitForRequest()
       expect(yield* service.list()).toEqual([request])
       expect(yield* service.forSession(request.sessionID)).toEqual([request])
-      expect(yield* service.forSession(SessionV2.ID.make("ses_other"))).toEqual([])
+      expect(yield* service.forSession(CoreSession.ID.make("ses_other"))).toEqual([])
       expect(yield* service.get(request.id)).toEqual(request)
       yield* service.reply({ requestID: request.id, reply: "once" })
       yield* Fiber.join(fiber)
@@ -290,7 +291,7 @@ describe("Permission", () => {
       yield* setup()
       const service = yield* Permission.Service
       const asked = yield* Deferred.make<Permission.Request>()
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const unsubscribe = yield* events.listen((event) =>
         event.type === Permission.Event.Asked.type
           ? Deferred.succeed(asked, event.data as Permission.Request).pipe(Effect.asVoid)
@@ -312,6 +313,55 @@ describe("Permission", () => {
       yield* service.assert(assertion({ id: Permission.ID.create("per_next"), resources: ["src/next.ts"] }))
       yield* saved.remove(id)
       expect(yield* saved.list()).toEqual([])
+    }),
+  )
+
+  it.effect("plugin permission.ask can deny an allow", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "allow" }])
+      const service = yield* Permission.Service
+      const result = yield* service.ask(assertion()).pipe(
+        Effect.provideService(
+          PluginHooks.PermissionAskService,
+          PluginHooks.PermissionAskService.of({
+            intercept: () => Effect.succeed("deny"),
+          }),
+        ),
+      )
+      expect(result.effect).toBe("deny")
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("plugin permission.ask errors fail closed to deny", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "allow" }])
+      const service = yield* Permission.Service
+      const result = yield* service.ask(assertion()).pipe(
+        Effect.provideService(
+          PluginHooks.PermissionAskService,
+          PluginHooks.PermissionAskService.of({
+            intercept: () => Effect.die("plugin crashed"),
+          }),
+        ),
+      )
+      expect(result.effect).toBe("deny")
+    }),
+  )
+
+  it.effect("plugin permission.ask cannot override a configured deny", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "deny" }])
+      const service = yield* Permission.Service
+      const result = yield* service.ask(assertion()).pipe(
+        Effect.provideService(
+          PluginHooks.PermissionAskService,
+          PluginHooks.PermissionAskService.of({
+            intercept: () => Effect.succeed("allow"),
+          }),
+        ),
+      )
+      expect(result.effect).toBe("deny")
     }),
   )
 })

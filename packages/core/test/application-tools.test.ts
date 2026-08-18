@@ -3,9 +3,9 @@ import { Tool } from "@opencode-ai/core/tool/tool"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { executeTool, settleTool, toolDefinitions } from "./lib/tool"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -19,8 +19,8 @@ const it = testEffect(
   ]),
 )
 
-const sessionID = SessionV2.ID.make("ses_application_tool")
-const agent = AgentV2.ID.make("build")
+const sessionID = CoreSession.ID.make("ses_application_tool")
+const agent = Agent.ID.make("build")
 const assistantMessageID = SessionMessage.ID.make("msg_application_tool")
 const contextual = (contexts: Tool.Context[]) =>
   Tool.make({

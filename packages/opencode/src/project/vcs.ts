@@ -4,8 +4,8 @@ import { formatPatch, structuredPatch } from "diff"
 import { InstanceState } from "@/effect/instance-state"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Git } from "@/git"
-import { EventV2Bridge } from "@/event-bridge"
-import { EventV2 } from "@opencode-ai/core/event"
+import { EventBridge } from "@/event-bridge"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { VcsEvent } from "@opencode-ai/schema/vcs-event"
 
 const PATCH_CONTEXT_LINES = 2_147_483_647
@@ -295,11 +295,11 @@ interface State {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Vcs") {}
 
-const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Service> = Layer.effect(
+const layer: Layer.Layer<Service, never, Git.Service | EventBridge.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const git = yield* Git.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const scope = yield* Scope.Scope
 
     const state = yield* InstanceState.make<State>(
@@ -319,7 +319,7 @@ const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Service> = 
         const unsubscribe = yield* events.listen((event) => {
           if (event.type !== Watcher.Event.Updated.type || event.location?.directory !== ctx.directory)
             return Effect.void
-          const data = event.data as EventV2.Data<typeof Watcher.Event.Updated>
+          const data = event.data as CoreEvent.Data<typeof Watcher.Event.Updated>
           if (!data.file.endsWith("HEAD")) return Effect.void
           return Effect.gen(function* () {
             const next = yield* get()
@@ -418,6 +418,6 @@ const layer: Layer.Layer<Service, never, Git.Service | EventV2Bridge.Service> = 
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [Git.node, EventV2Bridge.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [Git.node, EventBridge.node] })
 
 export * as Vcs from "./vcs"

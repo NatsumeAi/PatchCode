@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { pathToFileURL } from "url"
 import { define } from "../internal"
 import { Npm } from "../../npm"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 
 export const SapAICorePlugin = define({
   id: "sap-ai-core",
@@ -10,7 +10,7 @@ export const SapAICorePlugin = define({
     const npm = yield* Npm.Service
     yield* ctx.aisdk.sdk(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.make("sap-ai-core")) return
+        if (evt.model.providerID !== Provider.ID.make("sap-ai-core")) return
         const serviceKey =
           process.env.AICORE_SERVICE_KEY ??
           (typeof evt.options.serviceKey === "string" ? evt.options.serviceKey : undefined)
@@ -38,7 +38,7 @@ export const SapAICorePlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.make("sap-ai-core")) return
+        if (evt.model.providerID !== Provider.ID.make("sap-ai-core")) return
         evt.language = evt.sdk(evt.model.api.id)
       }),
     )

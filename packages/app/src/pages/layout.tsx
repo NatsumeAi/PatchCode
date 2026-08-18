@@ -20,13 +20,13 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Button } from "@opencode-ai/ui/button"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/core/util/path"
-import { Session } from "@opencode-ai/sdk/v2/client"
+import { Session } from "@opencode-ai/sdk/api/client"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -34,7 +34,7 @@ import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, close
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { toaster } from "@opencode-ai/ui/toast"
-import { setV2Toast, showToast, ToastRegion } from "@/utils/toast"
+import { setKitToast, showToast, ToastRegion } from "@/utils/toast"
 import { useServerSDK } from "@/context/server-sdk"
 import { normalizeProjectInfo } from "@/context/global-sync/utils"
 import { clearWorkspaceTerminals } from "@/context/terminal"
@@ -124,7 +124,7 @@ export default function LegacyLayout(props: ParentProps) {
   const command = useCommand()
   const theme = useTheme()
   const language = useLanguage()
-  createEffect(() => setV2Toast(false))
+  createEffect(() => setKitToast(false))
   const initialDirectory = decode64(params.dir)
   const route = createMemo(() => {
     const slug = params.dir
@@ -872,7 +872,7 @@ export default function LegacyLayout(props: ParentProps) {
   }
 
   async function archiveSession(session: Session) {
-    if ((await serverSDK().protocol) !== "v1") return
+    if ((await serverSDK().protocol) !== "legacy") return
     const [store, setStore] = serverSync().child(session.directory)
     const sessions = store.session ?? []
     const index = sessions.findIndex((s) => s.id === session.id)
@@ -1116,7 +1116,7 @@ export default function LegacyLayout(props: ParentProps) {
   function openSettings() {
     const run = ++dialogRun
     const module = settings.general.newLayoutDesigns()
-      ? import("@/components/settings-v2")
+      ? import("@/components/settings-kit")
       : import("@/components/dialog-settings")
     void module.then((x) => {
       if (dialogDead || dialogRun !== run) return
@@ -1302,7 +1302,7 @@ export default function LegacyLayout(props: ParentProps) {
 
     if (project.id && project.id !== "global") {
       const sdk = serverSDK()
-      if ((await sdk.protocol) !== "v1") return
+      if ((await sdk.protocol) !== "legacy") return
       const result = await sdk.client.project
         .update({ projectID: project.id, directory: project.worktree, name })
         .then((response) => response.data)
@@ -1490,7 +1490,7 @@ export default function LegacyLayout(props: ParentProps) {
       return
     }
 
-    if ((await serverSDK().protocol) === "v1")
+    if ((await serverSDK().protocol) === "legacy")
       await Promise.all(
         sessions
           .filter((session) => session.time.archived === undefined)
@@ -2125,7 +2125,7 @@ export default function LegacyLayout(props: ParentProps) {
                             navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
                           }}
                         >
-                          <IconV2 name="edit" size="small" />
+                          <KitIcon name="edit" size="small" />
                           {language.t("command.session.new")}
                         </Button>
                       </div>
@@ -2417,7 +2417,7 @@ export default function LegacyLayout(props: ParentProps) {
         {import.meta.env.DEV && import.meta.env.VITE_DISABLE_DEBUG_BAR !== "1" && state.debugTools && <DebugBar />}
       </div>
       <TabsInfoPopup />
-      <ToastRegion v2={false} />
+      <ToastRegion kit={false} />
     </div>
   )
 }

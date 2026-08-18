@@ -2,18 +2,18 @@ import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect } from "bun:test"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { Effect } from "effect"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { TogetherAIPlugin } from "@opencode-ai/core/plugin/provider/togetherai"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* () {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* Plugin.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
   yield* TogetherAIPlugin.effect(host)
@@ -35,13 +35,13 @@ function fakeSelectorSdk(calls: string[]) {
 describe("TogetherAIPlugin", () => {
   it.effect("creates a TogetherAI SDK for @ai-sdk/togetherai", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("togetherai"), ModelV2.ID.make("model")),
-          api: { id: ModelV2.ID.make("model"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("togetherai"), Model.ID.make("model")),
+          api: { id: Model.ID.make("model"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/togetherai",
         options: { name: "togetherai" },
@@ -52,14 +52,14 @@ describe("TogetherAIPlugin", () => {
 
   it.effect("matches the old bundled provider package exactly", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
 
       const ignored = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("togetherai"), ModelV2.ID.make("model")),
-          api: { id: ModelV2.ID.make("model"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("togetherai"), Model.ID.make("model")),
+          api: { id: Model.ID.make("model"), type: "aisdk", package: "test-provider" },
         }),
         package: "file:///tmp/@ai-sdk/togetherai-provider.js",
         options: { name: "togetherai" },
@@ -67,9 +67,9 @@ describe("TogetherAIPlugin", () => {
       expect(ignored.sdk).toBeUndefined()
 
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("togetherai"), ModelV2.ID.make("model")),
-          api: { id: ModelV2.ID.make("model"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("togetherai"), Model.ID.make("model")),
+          api: { id: Model.ID.make("model"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/togetherai",
         options: { name: "togetherai" },
@@ -80,14 +80,14 @@ describe("TogetherAIPlugin", () => {
 
   it.effect("creates bundled TogetherAI SDKs for custom provider IDs", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       yield* addPlugin()
 
       const result = yield* aisdk.runSDK({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(ProviderV2.ID.make("custom-togetherai"), ModelV2.ID.make("model")),
-          api: { id: ModelV2.ID.make("model"), type: "aisdk", package: "test-provider" },
+        model: Model.Info.make({
+          ...Model.Info.empty(Provider.ID.make("custom-togetherai"), Model.ID.make("model")),
+          api: { id: Model.ID.make("model"), type: "aisdk", package: "test-provider" },
         }),
         package: "@ai-sdk/togetherai",
         options: { name: "custom-togetherai" },
@@ -99,19 +99,19 @@ describe("TogetherAIPlugin", () => {
 
   it.effect("defaults language selection to sdk.languageModel with the model API ID", () =>
     Effect.gen(function* () {
-      const plugin = yield* PluginV2.Service
+      const plugin = yield* Plugin.Service
       const aisdk = yield* AISDK.Service
       const calls: string[] = []
       yield* addPlugin()
 
       const result = yield* aisdk.runLanguage({
-        model: ModelV2.Info.make({
-          ...ModelV2.Info.empty(
-            ProviderV2.ID.make("togetherai"),
-            ModelV2.ID.make("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        model: Model.Info.make({
+          ...Model.Info.empty(
+            Provider.ID.make("togetherai"),
+            Model.ID.make("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
           ),
           api: {
-            id: ModelV2.ID.make("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+            id: Model.ID.make("meta-llama/Llama-3.3-70B-Instruct-Turbo"),
             type: "aisdk",
             package: "test-provider",
           },

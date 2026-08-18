@@ -1,22 +1,22 @@
 import { Duration, Effect, Schema, Semaphore, Stream } from "effect"
 import type { Scope } from "effect"
-import type { IntegrationOAuthMethodRegistration } from "@opencode-ai/plugin/v2/effect/integration"
-import { define } from "@opencode-ai/plugin/v2/effect/plugin"
-import type { CredentialValue } from "@opencode-ai/sdk/v2/types"
+import type { IntegrationOAuthMethodRegistration } from "@opencode-ai/plugin/effect/integration"
+import { define } from "@opencode-ai/plugin/effect/plugin"
+import type { CredentialValue } from "@opencode-ai/sdk/api/types"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
-import { EventV2 } from "../../event"
+import { Event as CoreEvent } from "../../event"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
-import { ModelV2 } from "../../model"
-import { ProviderV2 } from "../../provider"
-import { ConfigProviderV1 } from "../../config/legacy/provider"
-import { ConfigProviderOptionsV1 } from "../../config/legacy/provider-options"
-import { ConfigV1 } from "../../config/legacy/config"
+import { Model as CoreModel } from "../../model"
+import { Provider } from "../../provider"
+import { ConfigProviderInput } from "../../config/legacy/provider"
+import { ConfigProviderOptionsInput } from "../../config/legacy/provider-options"
+import { ConfigInput } from "../../config/legacy/config"
 
 const defaultServer = "https://console.opencode.ai"
 const clientID = "opencode-cli"
 const methodID = Integration.MethodID.make("device")
-const RemoteResponse = Schema.Struct({ config: ConfigV1.Info })
+const RemoteResponse = Schema.Struct({ config: ConfigInput.Info })
 const Device = Schema.Struct({
   device_code: Schema.String,
   user_code: Schema.String,
@@ -74,14 +74,14 @@ function oauth(http: HttpClient.HttpClient) {
   } satisfies IntegrationOAuthMethodRegistration
 }
 
-export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | Scope.Scope>({
+export const OpencodePlugin = define<HttpClient.HttpClient | CoreEvent.Service | Scope.Scope>({
   id: "opencode",
   effect: Effect.fn(function* (ctx) {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const http = yield* HttpClient.HttpClient
     const loading = Semaphore.makeUnsafe(1)
     let connected = false
-    let providers: typeof ConfigV1.Info.Type.provider | undefined
+    let providers: typeof ConfigInput.Info.Type.provider | undefined
 
     const load = Effect.fn("OpencodePlugin.load")(function* () {
       const connection = yield* ctx.integration.connection.active("opencode")
@@ -138,12 +138,12 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
             if (config.modalities?.input !== undefined) model.capabilities.input = [...config.modalities.input]
             if (config.modalities?.output !== undefined) model.capabilities.output = [...config.modalities.output]
             const packageName = config.provider?.npm ?? item.npm
-            const lowerer = ConfigProviderOptionsV1.get(packageName)
+            const lowerer = ConfigProviderOptionsInput.get(packageName)
             Object.assign(model.request.headers, config.headers)
             Object.assign(model.request.body, lowerer.request(withoutCredentials(config.options)))
             if (config.variants !== undefined) {
               model.variants = Object.entries(config.variants).map(([id, options]) => ({
-                id: ModelV2.VariantID.make(id),
+                id: CoreModel.VariantID.make(id),
                 headers: { ...(options.headers ?? {}) },
                 body: lowerer.request(withoutCredentials(options)),
               }))
@@ -162,7 +162,7 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
         }
       }
 
-      const item = catalog.provider.get(ProviderV2.ID.opencode)
+      const item = catalog.provider.get(Provider.ID.opencode)
       if (!item) return
       const hasKey = Boolean(process.env.OPENCODE_API_KEY || connected || item.provider.request.body.apiKey)
       catalog.provider.update(item.provider.id, (provider) => {
@@ -215,7 +215,7 @@ function withoutCredentials(body: Readonly<Record<string, unknown>> | undefined)
   return Object.fromEntries(Object.entries(body ?? {}).filter(([key]) => key !== "apiKey" && key !== "headers"))
 }
 
-function remoteCost(input: NonNullable<(typeof ConfigProviderV1.Model.Type)["cost"]>) {
+function remoteCost(input: NonNullable<(typeof ConfigProviderInput.Model.Type)["cost"]>) {
   const base = {
     input: input.input,
     output: input.output,

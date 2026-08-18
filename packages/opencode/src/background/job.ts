@@ -1,7 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { BackgroundJob as CoreBackgroundJob } from "@opencode-ai/core/background-job"
 import { Database } from "@opencode-ai/core/database/database"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { InstanceState } from "@/effect/instance-state"
 import { Effect, Layer, Option } from "effect"
 
@@ -23,11 +23,11 @@ const layer = Layer.effect(
     // Capture Database at layer build so per-instance `make()` still has SQL
     // even if the instance cache lookup fiber would otherwise miss the service.
     const database = yield* Effect.serviceOption(Database.Service)
-    const events = yield* Effect.serviceOption(EventV2.Service)
+    const events = yield* Effect.serviceOption(Event.Service)
     const state = yield* InstanceState.make(() => {
       let make = CoreBackgroundJob.make
       if (Option.isSome(database)) make = make.pipe(Effect.provideService(Database.Service, database.value))
-      if (Option.isSome(events)) make = make.pipe(Effect.provideService(EventV2.Service, events.value))
+      if (Option.isSome(events)) make = make.pipe(Effect.provideService(Event.Service, events.value))
       return make
     })
     return CoreBackgroundJob.Service.of({
@@ -47,7 +47,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: CoreBackgroundJob.Service,
   layer,
-  deps: [Database.node, EventV2.node],
+  deps: [Database.node, Event.node],
 })
 
 export * as BackgroundJob from "./job"

@@ -3,7 +3,7 @@ import path from "node:path"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -18,17 +18,17 @@ const current = Layer.succeed(
 )
 
 const events = Layer.succeed(
-  EventV2.Service,
+  Event.Service,
   {
     publish: () => Effect.succeed({ durable: { aggregateID: "ses", seq: 1, version: 1 } }),
-  } as unknown as EventV2.Interface,
+  } as unknown as Event.Interface,
 )
 
 const it = testEffect(
   Layer.provideMerge(
     AppNodeBuilder.build(Hooks.node, [
       [Location.node, current],
-      [EventV2.node, events],
+      [Event.node, events],
     ]),
     events,
   ),

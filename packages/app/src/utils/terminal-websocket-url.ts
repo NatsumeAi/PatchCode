@@ -1,7 +1,7 @@
 import { authTokenFromCredentials } from "@/utils/server"
 
 export function terminalWebSocketURL(input: {
-  protocol?: "v1" | "v2"
+  protocol?: "legacy" | "current"
   url: string
   id: string
   directory: string
@@ -12,7 +12,7 @@ export function terminalWebSocketURL(input: {
   password?: string
   authToken?: boolean
 }) {
-  const isV1 = input.protocol === "v1"
+  const isV1 = input.protocol === "legacy"
   const next = new URL(`${input.url}${isV1 ? `/pty/${input.id}/connect` : `/api/pty/${input.id}/connect`}`)
   if (isV1) {
     next.searchParams.set("directory", input.directory)

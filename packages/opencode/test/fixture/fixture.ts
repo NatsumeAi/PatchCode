@@ -1,5 +1,5 @@
 import { $ } from "bun"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import * as fs from "fs/promises"
 import os from "os"
 import path from "path"
@@ -77,7 +77,7 @@ async function stop(dir: string) {
 
 type TmpDirOptions<T> = {
   git?: boolean
-  config?: Partial<ConfigV1.Info>
+  config?: Partial<ConfigInput.Info>
   init?: (dir: string) => Promise<T>
   dispose?: (dir: string) => Promise<T>
 }
@@ -121,7 +121,7 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
 /** Effectful scoped tmpdir. Cleaned up when the scope closes. Make sure these stay in sync */
 export function tmpdirScoped<E = never, R = never>(options?: {
   git?: boolean
-  config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
+  config?: Partial<ConfigInput.Info> | ((url?: string) => Partial<ConfigInput.Info>)
   init?: (directory: string) => Effect.Effect<void, E, R>
 }) {
   return Effect.gen(function* () {
@@ -155,10 +155,10 @@ export function tmpdirScoped<E = never, R = never>(options?: {
       const resolved =
         typeof raw === "function"
           ? raw.length >= 1
-            ? (raw as (url: string) => Partial<ConfigV1.Info>)(
+            ? (raw as (url: string) => Partial<ConfigInput.Info>)(
                 llm._tag === "Some" ? llm.value.url : "http://localhost:1/v1",
               )
-            : (raw as () => Partial<ConfigV1.Info>)()
+            : (raw as () => Partial<ConfigInput.Info>)()
           : raw
       // Live drain reads Catalog at location open. Write the TestLLMServer URL
       // before provideInstance so SessionRunnerModel does not hit localhost:1.
@@ -226,7 +226,7 @@ export const disposeAllInstancesEffect = InstanceStore.Service.use((store) => st
 
 export function provideTmpdirInstance<A, E, R>(
   self: (path: string) => Effect.Effect<A, E, R>,
-  options?: { git?: boolean; config?: Partial<ConfigV1.Info> | (() => Partial<ConfigV1.Info>) },
+  options?: { git?: boolean; config?: Partial<ConfigInput.Info> | (() => Partial<ConfigInput.Info>) },
 ) {
   return Effect.gen(function* () {
     const path = yield* tmpdirScoped(options)
@@ -245,7 +245,7 @@ export const requireInstance = Effect.gen(function* () {
 export const withTmpdirInstance =
   <E2 = never, R2 = never>(options?: {
     git?: boolean
-    config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
+    config?: Partial<ConfigInput.Info> | ((url?: string) => Partial<ConfigInput.Info>)
     init?: (directory: string) => Effect.Effect<void, E2, R2>
   }) =>
   <A, E, R>(self: Effect.Effect<A, E, R>) =>
@@ -256,7 +256,7 @@ export const withTmpdirInstance =
 
 export function provideTmpdirServer<A, E, R>(
   self: (input: { dir: string; llm: TestLLMServer["Service"] }) => Effect.Effect<A, E, R>,
-  options?: { git?: boolean; config?: (url: string) => Partial<ConfigV1.Info> },
+  options?: { git?: boolean; config?: (url: string) => Partial<ConfigInput.Info> },
 ): Effect.Effect<
   A,
   E | PlatformError.PlatformError,

@@ -1,26 +1,26 @@
 import { expect, test } from "bun:test"
 import { Effect, Schema, Stream } from "effect"
 import { LLMEvent } from "@opencode-ai/llm"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Session } from "@opencode-ai/core/session"
+import { Model } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
 import { createLLMEventPublisher } from "@opencode-ai/core/session/runner/publish-llm-event"
 
-const sessionID = SessionV2.ID.make("ses_tool_event_test")
+const sessionID = Session.ID.make("ses_tool_event_test")
 const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
 
 const capture = () => {
   const published: Array<{ readonly type: string; readonly data: unknown }> = []
-  const events = EventV2.Service.of({
+  const events = Event.Service.of({
     publish: (definition, data) =>
       Effect.sync(() => {
-        const event = { id: EventV2.ID.create(), type: definition.type, data } as EventV2.Payload<typeof definition>
+        const event = { id: Event.ID.create(), type: definition.type, data } as Event.Payload<typeof definition>
         published.push({
           type: definition.durable
-            ? EventV2.versionedType(definition.type, definition.durable.version)
+            ? Event.versionedType(definition.type, definition.durable.version)
             : definition.type,
           data,
         })
@@ -42,8 +42,8 @@ const capture = () => {
       sessionID,
       agent: "build",
       model: {
-        id: ModelV2.ID.make("model"),
-        providerID: ProviderV2.ID.make("provider"),
+        id: Model.ID.make("model"),
+        providerID: Provider.ID.make("provider"),
       },
     }),
   }

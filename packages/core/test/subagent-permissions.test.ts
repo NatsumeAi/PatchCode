@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { AgentV2 } from "../src/agent"
-import { deriveSubagentPermission, toLegacyRule, toCurrentRule } from "../src/session/subagent-permissions"
+import { Agent } from "../src/agent"
+import { deriveSubagentPermission } from "../src/session/subagent-permissions"
 import { Permission } from "@opencode-ai/schema/permission"
-import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
 
-const agent = (permissions: Permission.Ruleset): AgentV2.Info =>
-  AgentV2.Info.make({
-    id: AgentV2.ID.make("test-agent"),
+const agent = (permissions: Permission.Ruleset): Agent.Info =>
+  Agent.Info.make({
+    id: Agent.ID.make("test-agent"),
     request: { headers: {}, body: {} },
     mode: "subagent",
     hidden: false,
@@ -67,22 +66,5 @@ describe("deriveSubagentPermission", () => {
     expect(rules.some((r) => r.action === "edit" && r.effect === "deny")).toBe(false)
     expect(rules.some((r) => r.action === "bash" && r.effect === "deny")).toBe(false)
     expect(rules.some((r) => r.action === "write" && r.effect === "deny")).toBe(false)
-  })
-})
-
-describe("V1 ↔ V2 rule conversion", () => {
-  test("toCurrentRule maps permission/pattern/action → action/resource/effect", () => {
-    const v1: PermissionV1.Rule = { permission: "edit", pattern: "*.ts", action: "deny" }
-    expect(toCurrentRule(v1)).toEqual({ action: "edit", resource: "*.ts", effect: "deny" })
-  })
-
-  test("toLegacyRule maps back", () => {
-    const v2: Permission.Rule = { action: "bash", resource: "*", effect: "ask" }
-    expect(toLegacyRule(v2)).toEqual({ permission: "bash", pattern: "*", action: "ask" })
-  })
-
-  test("round trip preserves rule", () => {
-    const original: PermissionV1.Rule = { permission: "read", pattern: "src/**", action: "allow" }
-    expect(toLegacyRule(toCurrentRule(original))).toEqual(original)
   })
 })

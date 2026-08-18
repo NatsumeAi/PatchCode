@@ -13,7 +13,7 @@ import { Command } from "@/command"
 import { Config } from "@/config/config"
 import { Workspace } from "@/control-plane/workspace"
 import { Env } from "@/env"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { Format } from "@/format"
 import { Git } from "@/git"
 import { Installation } from "@/installation"
@@ -46,16 +46,16 @@ import { AppNodeBuilderInstance } from "@/effect/instance-app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { httpClient, llmClient } from "@opencode-ai/core/effect/app-node-platform"
 import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Npm } from "@opencode-ai/core/npm"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { ProjectCopy } from "@opencode-ai/core/project/copy"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { lazy } from "@/util/lazy"
@@ -227,7 +227,7 @@ const app = LayerNode.group([
   SessionStatus.node,
   BackgroundJob.node,
   RuntimeFlags.node,
-  EventV2Bridge.node,
+  EventBridge.node,
   SessionRunState.node,
   SessionSummary.node,
 
@@ -247,11 +247,11 @@ const app = LayerNode.group([
   InstanceStore.node,
   httpClient,
   llmClient,
-  EventV2.node,
-  ProjectV2.node,
+  Event.node,
+  CoreProject.node,
   ProjectCopy.node,
   PtyTicket.node,
-  SessionV2.node,
+  CoreSession.node,
   SubagentRegistry.node,
   ToolHostBridges.node,
 ])
@@ -282,7 +282,7 @@ export function createRoutes(
     Layer.provide(locationLayer),
     Layer.provide(PtyEnvironment.layer),
     Layer.provide(
-      AppNodeBuilderInstance.build(SessionV2.node, [
+      AppNodeBuilderInstance.build(CoreSession.node, [
         [LocationServiceMap.node, appLocationServiceMap],
         [SessionExecution.node, SessionExecutionLocal.node],
       ]),

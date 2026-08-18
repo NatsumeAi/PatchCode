@@ -3,11 +3,11 @@ import { Cause, Effect, Exit, Layer } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionStore } from "@opencode-ai/core/session/store"
@@ -16,18 +16,18 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { testEffect } from "../lib/effect"
 
 const projects = Layer.succeed(
-  ProjectV2.Service,
-  ProjectV2.Service.of({
-    resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }),
+  Project.Service,
+  Project.Service.of({
+    resolve: (directory) => Effect.succeed({ id: Project.ID.global, directory }),
     directories: () => Effect.succeed([]),
     commit: () => Effect.void,
   }),
 )
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([Database.node, EventV2.node, SessionProjector.node, SessionStore.node, SessionV2.node]),
+    LayerNode.group([Database.node, Event.node, SessionProjector.node, SessionStore.node, Session.node]),
     [
-      [ProjectV2.node, projects],
+      [Project.node, projects],
       [SessionExecution.node, SessionExecution.noopLayer],
     ],
   ),
@@ -43,7 +43,7 @@ afterEach(() => {
 describe("session sandbox pin", () => {
   it.effect("explicit off is stored", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const created = yield* session.create({ location, sandboxProfile: "off" })
       expect(created.sandboxProfile).toBe("off")
     }),
@@ -52,7 +52,7 @@ describe("session sandbox pin", () => {
   it.effect("OPENCODE_SANDBOX=off is stored", () =>
     Effect.gen(function* () {
       process.env.OPENCODE_SANDBOX = "off"
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const created = yield* session.create({ location })
       expect(created.sandboxProfile).toBe("off")
     }),
@@ -61,7 +61,7 @@ describe("session sandbox pin", () => {
   it.effect("OPENCODE_SANDBOX=workspace is stored", () =>
     Effect.gen(function* () {
       process.env.OPENCODE_SANDBOX = "workspace"
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const created = yield* session.create({ location })
       expect(created.sandboxProfile).toBe("workspace")
     }),
@@ -71,7 +71,7 @@ describe("session sandbox pin", () => {
     Effect.gen(function* () {
       delete process.env.OPENCODE_SANDBOX
       if (process.platform === "win32") return
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const created = yield* session.create({ location })
       expect(created.sandboxProfile).toBe("strict")
     }),
@@ -79,7 +79,7 @@ describe("session sandbox pin", () => {
 
   it.effect("child copies parent profile", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const parent = yield* session.create({ location, sandboxProfile: "workspace" })
       const child = yield* session.create({
         location,
@@ -92,7 +92,7 @@ describe("session sandbox pin", () => {
 
   it.effect("resume with a different OPENCODE_SANDBOX fails ProfileMismatch", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* Session.Service
       const created = yield* session.create({ location, sandboxProfile: "off" })
       process.env.OPENCODE_SANDBOX = "workspace"
       const exit = yield* session.resume(created.id).pipe(Effect.exit)
@@ -109,17 +109,17 @@ describe("session sandbox pin", () => {
       delete process.env.OPENCODE_SANDBOX
       const { db } = yield* Database.Service
       const store = yield* SessionStore.Service
-      const id = SessionV2.ID.make("ses_legacy_off")
+      const id = Session.ID.make("ses_legacy_off")
       yield* db
         .insert(ProjectTable)
-        .values({ id: ProjectV2.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
         .onConflictDoNothing()
         .run()
       yield* db
         .insert(SessionTable)
         .values({
           id,
-          project_id: ProjectV2.ID.global,
+          project_id: Project.ID.global,
           slug: "legacy-off",
           directory: "/project",
           title: "legacy-off",
@@ -129,7 +129,7 @@ describe("session sandbox pin", () => {
         .run()
       const loaded = yield* store.get(id)
       expect(loaded?.sandboxProfile).toBe("strict")
-      const explicit = yield* (yield* SessionV2.Service).create({ location, sandboxProfile: "off" })
+      const explicit = yield* (yield* Session.Service).create({ location, sandboxProfile: "off" })
       expect((yield* store.get(explicit.id))?.sandboxProfile).toBe("off")
     }),
   )

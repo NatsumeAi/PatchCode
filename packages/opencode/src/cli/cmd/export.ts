@@ -1,6 +1,6 @@
 import { Session } from "@/session/session"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
-import { MessageV2 } from "../../session/session-message-wire"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
+import { MessageWire } from "../../session/session-message-wire"
 import { SessionID } from "../../session/schema"
 import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
@@ -33,7 +33,7 @@ function diff(kind: string, diffs: { file?: string; patch?: string }[] | undefin
   }))
 }
 
-function source(part: SessionV1.FilePart) {
+function source(part: SessionWire.FilePart) {
   if (!part.source) return part.source
   if (part.source.type === "symbol") {
     return {
@@ -58,7 +58,7 @@ function source(part: SessionV1.FilePart) {
   }
 }
 
-function filepart(part: SessionV1.FilePart): SessionV1.FilePart {
+function filepart(part: SessionWire.FilePart): SessionWire.FilePart {
   return {
     ...part,
     url: redact("file-url", part.id, part.url),
@@ -67,7 +67,7 @@ function filepart(part: SessionV1.FilePart): SessionV1.FilePart {
   }
 }
 
-function part(part: SessionV1.Part): SessionV1.Part {
+function part(part: SessionWire.Part): SessionWire.Part {
   switch (part.type) {
     case "text":
       return {
@@ -161,7 +161,7 @@ function part(part: SessionV1.Part): SessionV1.Part {
 
 const partFn = part
 
-function sanitize(data: { info: Session.Info; messages: SessionV1.WithParts[] }) {
+function sanitize(data: { info: Session.Info; messages: SessionWire.WithParts[] }) {
   return {
     info: {
       ...data.info,

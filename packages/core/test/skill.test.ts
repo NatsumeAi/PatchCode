@@ -2,13 +2,13 @@ import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SkillV2 } from "@opencode-ai/core/skill"
+import { Skill } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
 import { SkillLock } from "@opencode-ai/core/skill/lock"
 import { tempLocationLayer } from "./fixture/location"
@@ -27,7 +27,7 @@ const discovery = Layer.succeed(
   }),
 )
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [
+  AppNodeBuilder.build(LayerNode.group([Skill.node, Agent.node]), [
     [SkillDiscovery.node, discovery],
     [Location.node, tempLocationLayer],
   ]),
@@ -45,7 +45,7 @@ description: ${description}
   )
 }
 
-describe("SkillV2", () => {
+describe("Skill", () => {
   it.live("registers sources and resolves later source precedence", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -63,7 +63,7 @@ describe("SkillV2", () => {
             await fs.writeFile(path.join(first, "foo.md"), "---\nslash: true\n---\n# foo")
           })
 
-          const skill = yield* SkillV2.Service
+          const skill = yield* Skill.Service
           yield* skill.transform((editor) => {
             editor.source({ type: "directory", path: AbsolutePath.make(first) })
             editor.source({ type: "directory", path: AbsolutePath.make(first) })
@@ -79,7 +79,7 @@ describe("SkillV2", () => {
             { type: "directory", path: AbsolutePath.make(second) },
           ])
           expect(yield* skill.list()).toEqual([
-            SkillV2.Info.make({
+            Skill.Info.make({
               name: "foo",
               slash: true,
               location: AbsolutePath.make(path.join(first, "foo.md")),
@@ -111,21 +111,21 @@ describe("SkillV2", () => {
           pulls = 0
           urls.set("https://example.test/skills/", [AbsolutePath.make(tmp.path)])
 
-          const graph = AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [
+          const graph = AppNodeBuilder.build(LayerNode.group([Skill.node, Agent.node]), [
             [SkillDiscovery.node, discovery],
             [Location.node, tempLocationLayer],
             [Global.node, Global.layerWith({ config: tmp.path, cache: tmp.path })],
           ])
 
           yield* Effect.gen(function* () {
-            const agents = yield* AgentV2.Service
+            const agents = yield* Agent.Service
             yield* agents.transform((editor) =>
-              editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+              editor.update(Agent.ID.make("reviewer"), (agent) => {
                 agent.permissions.push({ action: "skill", resource: "deploy", effect: "deny" })
               }),
             )
 
-            const skill = yield* SkillV2.Service
+            const skill = yield* Skill.Service
             yield* skill.transform((editor) => editor.source({ type: "url", url: "https://example.test/skills/" }))
 
             expect((yield* skill.list()).map((item) => item.name)).toEqual([])
@@ -137,7 +137,7 @@ describe("SkillV2", () => {
             yield* Effect.promise(() => SkillLock.upsert({ ...row!, state: "active" }, tmp.path))
             expect((yield* skill.list()).map((item) => item.name)).toEqual(["deploy"])
             expect(pulls).toBe(1)
-            expect(SkillV2.available(yield* skill.list(), (yield* agents.get(AgentV2.ID.make("reviewer")))!)).toEqual([])
+            expect(Skill.available(yield* skill.list(), (yield* agents.get(Agent.ID.make("reviewer")))!)).toEqual([])
           }).pipe(Effect.provide(graph))
         }),
       ),

@@ -10,7 +10,7 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { BuiltInTools } from "@opencode-ai/core/tool/builtins"
 import { ListDirTool } from "@opencode-ai/core/tool/list-dir"
 import { ReadToolFileSystem } from "@opencode-ai/core/tool/read-filesystem"
@@ -21,7 +21,7 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, toolDefinitions } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_list_dir_tool_test")
+const sessionID = Session.ID.make("ses_list_dir_tool_test")
 const assertions: Permission.AssertInput[] = []
 const listCalls: ReadToolFileSystem.PageInput[] = []
 let allow = true

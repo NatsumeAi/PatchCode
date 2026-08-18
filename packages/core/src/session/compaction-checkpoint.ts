@@ -171,7 +171,7 @@ const persistRestoredTape = (sessionID: string) =>
     }).pipe(Effect.ignore)
   })
 
-/** Restore tape + messages from a checkpoint. Does not call SessionV2.prompt. */
+/** Restore tape + messages from a checkpoint. Does not call Session.prompt. */
 export const restore = (sessionID: string, checkpointID?: string) =>
   Effect.gen(function* () {
     const dbOpt = yield* Effect.serviceOption(Database.Service)

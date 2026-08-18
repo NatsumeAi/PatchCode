@@ -2,7 +2,7 @@ export * as SandboxService from "./service"
 
 import { Context, Effect, Layer, Option } from "effect"
 import { makeLocationNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { Global } from "../global"
 import { Location } from "../location"
 import { SessionEvent } from "../session/event"
@@ -47,7 +47,7 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Sandbox") {}
 
 const publish = (
-  events: EventV2.Interface | undefined,
+  events: Event.Interface | undefined,
   data: { profile: string; class?: string; reason: string; backend?: string; sessionID?: string },
 ) => {
   if (!events || !data.sessionID) return Effect.void
@@ -66,7 +66,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const location = yield* Location.Service
-    const maybeEvents = yield* Effect.serviceOption(EventV2.Service)
+    const maybeEvents = yield* Effect.serviceOption(Event.Service)
     const eventService = Option.isSome(maybeEvents) ? maybeEvents.value : undefined
 
     const resolve = Effect.fn("Sandbox.resolve")(function* (sessionID: string) {

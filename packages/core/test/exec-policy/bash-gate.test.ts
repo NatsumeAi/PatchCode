@@ -4,13 +4,13 @@ import { readFile } from "node:fs/promises"
 import path from "path"
 import { ChildProcess } from "effect/unstable/process"
 import { Deferred, Effect, Fiber, Layer, Stream } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { Config } from "@opencode-ai/core/config"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
@@ -20,7 +20,7 @@ import { AppProcess } from "@opencode-ai/core/process"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { BashTool } from "@opencode-ai/core/tool/bash"
@@ -32,7 +32,7 @@ import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolIdentity } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_bash_gate_w2")
+const sessionID = Session.ID.make("ses_bash_gate_w2")
 const spawns: Array<{ readonly command: string }> = []
 
 const appProcess = Layer.succeed(
@@ -74,10 +74,10 @@ const withTool = <A, E, R>(directory: string, body: (registry: ToolRegistry.Inte
       AppNodeBuilder.build(
         LayerNode.group([
           Database.node,
-          EventV2.node,
+          CoreEvent.node,
           SessionStore.node,
           PermissionSaved.node,
-          AgentV2.node,
+          Agent.node,
           Permission.node,
           ToolRegistry.node,
           ToolRegistry.toolsNode,
@@ -125,9 +125,9 @@ function setup(directory: string) {
       })
       .run()
       .pipe(Effect.orDie)
-    const agents = yield* AgentV2.Service
+    const agents = yield* Agent.Service
     yield* agents.transform((editor) =>
-      editor.update(AgentV2.ID.make("build"), (agent) => {
+      editor.update(Agent.ID.make("build"), (agent) => {
         agent.mode = "primary"
         agent.permissions = [{ action: "*", resource: "*", effect: "allow" }]
       }),
@@ -184,7 +184,7 @@ describe("bash exec-policy gate", () => {
           Effect.gen(function* () {
             yield* setup(tmp.path)
             const permission = yield* Permission.Service
-            const events = yield* EventV2.Service
+            const events = yield* CoreEvent.Service
             const asked = yield* Deferred.make<Permission.Request>()
             const unsubscribe = yield* events.listen((event) =>
               event.type === Permission.Event.Asked.type
@@ -240,7 +240,7 @@ describe("bash exec-policy gate", () => {
             const { db } = yield* Database.Service
             yield* db.delete(PermissionTable).where(eq(PermissionTable.project_id, Project.ID.global)).run().pipe(Effect.orDie)
             const permission = yield* Permission.Service
-            const events = yield* EventV2.Service
+            const events = yield* CoreEvent.Service
             const asked = yield* Deferred.make<Permission.Request>()
             const unsubscribe = yield* events.listen((event) =>
               event.type === Permission.Event.Asked.type

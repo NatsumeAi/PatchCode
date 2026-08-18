@@ -266,7 +266,7 @@ export function useServerManagementController(options: { onSelect?: () => void; 
       }
       if (
         !settings.general.newLayoutDesigns() &&
-        (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "v2"
+        (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "current"
       ) {
         setStore("addServer", { error: language.t("dialog.server.add.error") })
         return
@@ -317,7 +317,7 @@ export function useServerManagementController(options: { onSelect?: () => void; 
       }
       if (
         !settings.general.newLayoutDesigns() &&
-        (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "v2"
+        (await detectServerProtocol(conn.http, platform.fetch ?? globalThis.fetch)) === "current"
       ) {
         setStore("editServer", { error: language.t("dialog.server.add.error") })
         return
@@ -362,7 +362,7 @@ export function useServerManagementController(options: { onSelect?: () => void; 
     const raw = items()
     const list = settings.general.newLayoutDesigns()
       ? raw
-      : raw.filter((x) => global.ensureServerCtx(x).sdk.protocolKind() !== "v2")
+      : raw.filter((x) => global.ensureServerCtx(x).sdk.protocolKind() !== "current")
     if (!list.length) return list
     const active = current()
     const order = new Map(list.map((url, index) => [url, index] as const))

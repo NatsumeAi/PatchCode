@@ -20,10 +20,10 @@ import {
   uniqueCommandPaletteEntries,
   type CommandPaletteEntry,
 } from "./command-palette"
-import { DialogCommandPaletteV2 } from "./dialog-command-palette-v2"
+import { DialogCommandPalette as DialogCommandPaletteKit } from "./dialog-command-palette-kit"
 
-const DialogSelectFileV2 = lazy(() =>
-  import("./dialog-select-directory-v2").then((module) => ({ default: module.DialogSelectDirectoryV2 })),
+const DialogSelectFileKit = lazy(() =>
+  import("./dialog-select-directory-kit").then((module) => ({ default: module.DialogSelectDirectory })),
 )
 type DialogSelectFileMode = "all" | "files"
 
@@ -33,17 +33,17 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const filesOnly = () => props.mode === "files"
 
   if (!filesOnly() && settings.general.newLayoutDesigns()) {
-    return <DialogCommandPaletteV2 onOpenFile={props.onOpenFile} />
+    return <DialogCommandPaletteKit onOpenFile={props.onOpenFile} />
   }
 
   if (filesOnly() && platform.platform === "desktop" && settings.general.newLayoutDesigns()) {
-    return <DialogSelectFileDesktopV2 onOpenFile={props.onOpenFile} />
+    return <DialogSelectFileDesktopKit onOpenFile={props.onOpenFile} />
   }
 
   return <DialogSelectFileLegacy filesOnly={filesOnly} onOpenFile={props.onOpenFile} />
 }
 
-function DialogSelectFileDesktopV2(props: { onOpenFile?: (path: string) => void }) {
+function DialogSelectFileDesktopKit(props: { onOpenFile?: (path: string) => void }) {
   const language = useLanguage()
   const serverSDK = useServerSDK()
   const { params } = useSessionLayout()
@@ -51,7 +51,7 @@ function DialogSelectFileDesktopV2(props: { onOpenFile?: (path: string) => void 
   const openFile = createCommandPaletteFileOpener(props.onOpenFile)
 
   return (
-    <DialogSelectFileV2
+    <DialogSelectFileKit
       server={serverSDK().server}
       mode="file"
       start={projectDirectory()}

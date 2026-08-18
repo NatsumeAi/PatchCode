@@ -6,7 +6,7 @@ import { SessionSchema } from "./schema"
 import { SessionInput } from "./input"
 import { Prompt } from "./prompt"
 import { SessionMessage } from "./message"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { SessionExecution } from "./execution"
 import type { Database } from "../database/database"
 
@@ -16,7 +16,7 @@ import type { Database } from "../database/database"
  */
 export const deliver = (input: {
   readonly db: Database.Interface["db"]
-  readonly events: EventV2.Interface
+  readonly events: Event.Interface
   readonly fromSessionID: SessionSchema.ID
   readonly toAddress: string
   readonly text: string

@@ -1,4 +1,4 @@
-export * as ConfigServerV1 from "./server"
+export * as ConfigServerInput from "./server"
 
 import { Schema } from "effect"
 import { PositiveInt } from "../../schema"

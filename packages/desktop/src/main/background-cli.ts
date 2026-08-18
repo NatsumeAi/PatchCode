@@ -20,7 +20,7 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
   const bundled = app.isPackaged
     ? join(process.resourcesPath, executableName())
     : join(root, "../../resources", executableName())
-  logger.log("v2 CLI executable resolved", { bundled, packaged: app.isPackaged })
+  logger.log("CLI executable resolved", { bundled, packaged: app.isPackaged })
   const version = await run(bundled, ["--version"], logger)
   const binary = app.isPackaged ? await installCli(bundled, version, logger) : bundled
 
@@ -34,7 +34,7 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
     })),
   )
   const found = discovered.find((candidate) => candidate.url !== undefined)
-  logger.log("v2 CLI background instance checked", {
+  logger.log("CLI background instance checked", {
     detected: Boolean(found),
     ...endpoint(found?.url),
   })
@@ -45,7 +45,7 @@ export async function startBackgroundCli(logger: Logger, shellStateHome?: string
     redact: true,
     stateHome: daemonStateHome,
   })
-  logger.log("v2 CLI background service ready", {
+  logger.log("CLI background service ready", {
     existing: Boolean(found),
     username: "opencode",
     ...endpoint(url),
@@ -61,7 +61,7 @@ async function installCli(source: string, version: string, logger: Logger) {
   const directory = join(app.getPath("userData"), "cli", version.replace(/[^a-zA-Z0-9._-]/g, "-"))
   const destination = join(directory, executableName())
   if (existsSync(destination)) {
-    logger.log("v2 CLI staged executable reused", { path: destination, version })
+    logger.log("CLI staged executable reused", { path: destination, version })
     return destination
   }
 
@@ -73,7 +73,7 @@ async function installCli(source: string, version: string, logger: Logger) {
     await rm(temp, { force: true })
     throw error
   })
-  logger.log("v2 CLI executable staged", { source, path: destination, version })
+  logger.log("CLI executable staged", { source, path: destination, version })
   return destination
 }
 
@@ -83,7 +83,7 @@ async function run(
   logger: Logger,
   options: { redact?: boolean; stateHome?: string } = {},
 ) {
-  logger.log("v2 CLI command started", { binary, args })
+  logger.log("CLI command started", { binary, args })
   const env = { ...process.env }
   if (options.stateHome === undefined) delete env.XDG_STATE_HOME
   else env.XDG_STATE_HOME = options.stateHome
@@ -91,12 +91,12 @@ async function run(
     (result) => {
       const stdout = result.stdout.trim()
       const stderr = result.stderr.trim()
-      logger.log("v2 CLI command completed", { args, stdout: options.redact ? "[redacted]" : stdout, stderr })
+      logger.log("CLI command completed", { args, stdout: options.redact ? "[redacted]" : stdout, stderr })
       return stdout
     },
     (error: unknown) => {
       const output = error as { stdout?: string; stderr?: string }
-      logger.error("v2 CLI command failed", {
+      logger.error("CLI command failed", {
         args,
         error: error instanceof Error ? error.message : String(error),
         stdout: options.redact && output.stdout ? "[redacted]" : (output.stdout?.trim() ?? ""),

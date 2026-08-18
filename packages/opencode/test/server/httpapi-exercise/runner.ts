@@ -1,18 +1,18 @@
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { Cause, Duration, Effect, Layer, Scope } from "effect"
 import { TestLLMServer } from "../../lib/llm-server"
 import type { Config } from "../../../src/config/config"
 
-import type { MessageV2 } from "../../../src/session/session-message-wire"
+import type { MessageWire } from "../../../src/session/session-message-wire"
 import { MessageID, PartID } from "../../../src/session/schema"
 import { call, callAuthProbe, disposeApps } from "./backend"
 import { original } from "./environment"
 import { runtime } from "./runtime"
 import type { ActiveScenario, Options, ProjectOptions, Result, Scenario, ScenarioContext, SeededContext } from "./types"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
 
 export function runScenario(options: Options) {
   return (scenario: Scenario) => {
@@ -146,18 +146,18 @@ function withContext<A, E>(
             }),
           message: (sessionID, input) =>
             Effect.gen(function* () {
-              const info: SessionV1.User = {
+              const info: SessionWire.User = {
                 id: MessageID.ascending(),
                 sessionID,
                 role: "user",
                 time: { created: Date.now() },
                 agent: "build",
                 model: {
-                  providerID: ProviderV2.ID.opencode,
-                  modelID: ModelV2.ID.make("test"),
+                  providerID: Provider.ID.opencode,
+                  modelID: CoreModel.ID.make("test"),
                 },
               }
-              const part: SessionV1.TextPart = {
+              const part: SessionWire.TextPart = {
                 id: PartID.ascending(),
                 sessionID,
                 messageID: info.id,
@@ -207,7 +207,7 @@ function trace(options: Options, scenario: ActiveScenario, phase: string) {
 function projectOptions(
   project: ProjectOptions,
   llmUrl: string | undefined,
-): { git?: boolean; config?: Partial<ConfigV1.Info> } {
+): { git?: boolean; config?: Partial<ConfigInput.Info> } {
   if (!project.llm || !llmUrl) return { git: project.git, config: project.config }
   const fake = fakeLlmConfig(llmUrl)
   return {
@@ -223,7 +223,7 @@ function projectOptions(
   }
 }
 
-function fakeLlmConfig(url: string): Partial<ConfigV1.Info> {
+function fakeLlmConfig(url: string): Partial<ConfigInput.Info> {
   return {
     model: "test/test-model",
     small_model: "test/test-model",

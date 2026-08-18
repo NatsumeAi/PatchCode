@@ -80,7 +80,7 @@ const fromInputParts = (input: PromptInput.Prompt): NonNullable<Prompt["parts"]>
 
 const assemble = (parts: NonNullable<Prompt["parts"]>): Resolved => {
   // Include synthetic Read/agent-coaching text so the live tape sees the same
-  // body V1 text parts used to concatenate for the model.
+  // body legacy text parts used to concatenate for the model.
   const text = parts
     .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
     .map((part) => part.text)

@@ -60,7 +60,7 @@ export function TabPreviewPopover(props: {
         <Kobalte.Content
           ref={(el) => {
             // Portalled content lives outside the themed subtree, so mirror the
-            // active theme like the v2 tooltip does.
+            // active theme like the kit tooltip does.
             const theme = triggerEl?.closest("[data-theme]")?.getAttribute("data-theme")
             if (theme) el.setAttribute("data-theme", theme)
           }}

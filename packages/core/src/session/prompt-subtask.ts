@@ -3,7 +3,7 @@ export * as PromptSubtask from "./prompt-subtask"
 import { DateTime, Effect, Option } from "effect"
 import { eq } from "drizzle-orm"
 import { Database } from "../database/database"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { SessionEvent } from "./event"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
@@ -11,8 +11,8 @@ import { SessionStore } from "./store"
 import { PartTable } from "./sql"
 import { TaskTool } from "../tool/task"
 import { Identifier } from "../id/id"
-import { ModelV2 } from "../model"
-import { ProviderV2 } from "../provider"
+import { Model } from "../model"
+import { Provider } from "../provider"
 
 const spawnedKeys = new Set<string>()
 
@@ -84,7 +84,7 @@ export const spawnPending = Effect.fn("PromptSubtask.spawnPending")(function* (i
   const database = yield* Database.Service
   const db = database.db
   const store = yield* SessionStore.Service
-  const events = yield* EventV2.Service
+  const events = yield* Event.Service
   const hostOpt = yield* Effect.serviceOption(TaskTool.HostService)
   const session = yield* store.get(sessionID)
   const messages = yield* store.context(sessionID).pipe(Effect.catch(() => Effect.succeed([] as SessionMessage.Message[])))
@@ -147,9 +147,9 @@ export const spawnPending = Effect.fn("PromptSubtask.spawnPending")(function* (i
 
   const model =
     session?.model ??
-    ModelV2.Ref.make({
-      id: ModelV2.ID.make("unknown"),
-      providerID: ProviderV2.ID.make("opencode"),
+    Model.Ref.make({
+      id: Model.ID.make("unknown"),
+      providerID: Provider.ID.make("opencode"),
     })
 
   for (const task of pending) {

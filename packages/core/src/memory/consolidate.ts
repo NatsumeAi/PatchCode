@@ -10,9 +10,9 @@ import { Global } from "../global"
 import { Location } from "../location"
 import { makeLocationNode } from "../effect/app-node"
 import { SessionRunnerModel } from "../session/runner/model"
-import { SessionV2 } from "../session"
+import { Session } from "../session"
 import { SessionSchema } from "../session/schema"
-import { ProjectV2 } from "../project"
+import { Project } from "../project"
 import { AbsolutePath } from "../schema"
 import { resolveRoots } from "./storage"
 import { readTextSafe, writeTextAtomic, type MemoryRoots } from "./storage"
@@ -480,9 +480,9 @@ const layer = Layer.effect(
     const models = yield* SessionRunnerModel.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
-    const syntheticSession = SessionV2.Info.make({
+    const syntheticSession = Session.Info.make({
       id: SessionSchema.ID.make("ses_memory_consolidation"),
-      projectID: ProjectV2.ID.global,
+      projectID: Project.ID.global,
       title: "memory-consolidation",
       cost: 0,
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },

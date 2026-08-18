@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { createStore } from "solid-js/store"
-import { PromptInputV2, type PromptInputV2PersistedState, type PromptInputV2Suggestion } from "."
-import { createPromptInputV2Controller } from "./interaction"
-import { createPromptInputV2Store } from "./store"
+import { PromptInput, type PromptInputPersistedState, type PromptInputSuggestion } from "."
+import { createPromptInputController } from "./interaction"
+import { createPromptInputStore } from "./store"
 import { createEffect } from "solid-js"
 
 const agents = [
@@ -23,7 +23,7 @@ const models = [
   { id: "gemini-pro", name: "Gemini Pro", providerID: "google" },
 ]
 
-const contextSuggestions: PromptInputV2Suggestion[] = [
+const contextSuggestions: PromptInputSuggestion[] = [
   {
     id: "file-prompt",
     kind: "file",
@@ -41,12 +41,12 @@ const contextSuggestions: PromptInputV2Suggestion[] = [
   {
     id: "file-story",
     kind: "file",
-    label: "prompt-input-v2.stories.tsx",
-    path: "src/components/prompt-input-v2.stories.tsx",
+    label: "prompt-input.stories.tsx",
+    path: "src/components/prompt-input.stories.tsx",
     mention: {
       type: "file",
-      path: "src/components/prompt-input-v2.stories.tsx",
-      content: "@src/components/prompt-input-v2.stories.tsx",
+      path: "src/components/prompt-input.stories.tsx",
+      content: "@src/components/prompt-input.stories.tsx",
       start: 0,
       end: 0,
     },
@@ -76,7 +76,7 @@ const contextSuggestions: PromptInputV2Suggestion[] = [
   },
 ]
 
-const commandSuggestions: PromptInputV2Suggestion[] = [
+const commandSuggestions: PromptInputSuggestion[] = [
   {
     id: "command-fix",
     kind: "command",
@@ -113,7 +113,7 @@ function ControlledPromptInput() {
   })
 
   // This matches the v1 PromptStore and can use the same persistence boundary.
-  const state = createStore<PromptInputV2PersistedState>({
+  const state = createStore<PromptInputPersistedState>({
     prompt: [
       { type: "text", content: "", start: 0, end: 0 },
       {
@@ -138,9 +138,9 @@ function ControlledPromptInput() {
       ],
     },
   })
-  const store = createPromptInputV2Store(state)
+  const store = createPromptInputStore(state)
 
-  const controller = createPromptInputV2Controller({
+  const controller = createPromptInputController({
     store: state,
     commands: () => commandSuggestions,
     context: () => contextSuggestions,
@@ -205,15 +205,15 @@ function ControlledPromptInput() {
 
   return (
     <div class="mx-auto flex max-w-[760px] flex-col gap-4 pt-32">
-      <PromptInputV2 controller={controller} />
+      <PromptInput controller={controller} />
     </div>
   )
 }
 
 export default {
-  title: "Session UI/PromptInputV2",
-  id: "session-ui-prompt-input-v2",
-  component: PromptInputV2,
+  title: "Session UI/PromptInput",
+  id: "session-ui-prompt-input-kit",
+  component: PromptInput,
 }
 
 export const ControlledComposition = {

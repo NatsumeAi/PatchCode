@@ -6,7 +6,7 @@ import { Identifier } from "./id/id"
 import { makeGlobalNode } from "./effect/app-node"
 import { Database } from "./database/database"
 import { BackgroundJobTable } from "./background-job/sql"
-import { EventV2 } from "./event"
+import { Event } from "./event"
 import { SessionEvent } from "./session/event"
 import { SessionSchema } from "./session/schema"
 
@@ -185,7 +185,7 @@ export const make = Effect.gen(function* () {
   }
   const databaseOpt = yield* Effect.serviceOption(Database.Service)
   const db = Option.isSome(databaseOpt) ? databaseOpt.value.db : undefined
-  const eventsOpt = yield* Effect.serviceOption(EventV2.Service)
+  const eventsOpt = yield* Effect.serviceOption(Event.Service)
 
   const touchDurable = (info: Info, heartbeat = true): Effect.Effect<void> => {
     if (!db) return Effect.void
@@ -643,4 +643,4 @@ export const make = Effect.gen(function* () {
 const layer = Layer.effect(Service, make)
 
 /** Production node: Database required so crash durability is on by default. */
-export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, EventV2.node] })
+export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, Event.node] })

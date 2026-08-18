@@ -13,7 +13,7 @@ import {
   TestInstance,
   tmpdirScoped,
 } from "../fixture/fixture"
-import { EventV2Bridge } from "../../src/event-bridge"
+import { EventBridge } from "../../src/event-bridge"
 import { Watcher } from "@opencode-ai/core/filesystem/watcher"
 import { Git } from "../../src/git"
 import { Vcs } from "@/project/vcs"
@@ -26,7 +26,7 @@ import { testEffect } from "../lib/effect"
 const weird = process.platform === "win32" ? "space file.txt" : "tab\tfile.txt"
 
 const layer = LayerNode.compile(
-  LayerNode.group([Vcs.node, Git.node, EventV2Bridge.node, FSUtil.node, CrossSpawnSpawner.node]),
+  LayerNode.group([Vcs.node, Git.node, EventBridge.node, FSUtil.node, CrossSpawnSpawner.node]),
 )
 const it = testEffect(layer)
 const worktreeIt = testEffect(Layer.mergeAll(layer, testInstanceStoreLayer))
@@ -53,7 +53,7 @@ const init = Effect.fn("VcsTest.init")(function* () {
 })
 
 const nextBranchUpdate = Effect.fn("VcsTest.nextBranchUpdate")(function* () {
-  const events = yield* EventV2Bridge.Service
+  const events = yield* EventBridge.Service
   const updated = yield* Deferred.make<string | undefined>()
 
   const off = yield* events.listen((event) => {
@@ -70,7 +70,7 @@ const publishHeadChangeUntil = Effect.fn("VcsTest.publishHeadChangeUntil")(funct
   pending: Deferred.Deferred<string | undefined>,
   head: string,
 ) {
-  const events = yield* EventV2Bridge.Service
+  const events = yield* EventBridge.Service
   for (let i = 0; i < 50; i++) {
     yield* events.publish(Watcher.Event.Updated, { file: head, event: "change" })
     if (yield* Deferred.isDone(pending)) return

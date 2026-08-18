@@ -29,7 +29,7 @@ export interface Host {
   }>
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/GitLabWorkflow.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/GitLabWorkflow.Host") {}
 
 const hosts = new Map<string, Host>()
 

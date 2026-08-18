@@ -13,7 +13,7 @@
 //
 // permissionInfo() extracts display info (icon, title, lines, diff) from
 // the request, delegating to tool.ts for tool-specific formatting.
-import type { PermissionRequest } from "@opencode-ai/sdk/v2"
+import type { PermissionRequest } from "@opencode-ai/sdk/api"
 import type { PermissionReply } from "./types"
 import { toolPath, toolPermissionInfo } from "./tool"
 
@@ -64,7 +64,7 @@ function data(request: PermissionRequest): Dict {
 }
 
 function patterns(request: PermissionRequest): string[] {
-  return request.patterns.filter((item): item is string => typeof item === "string")
+  return (request.resources ?? []).filter((item): item is string => typeof item === "string")
 }
 
 export function createPermissionBodyState(requestID: string): PermissionBodyState {
@@ -92,12 +92,12 @@ export function permissionOptions(stage: PermissionStage): PermissionOption[] {
 export function permissionInfo(request: PermissionRequest): PermissionInfo {
   const pats = patterns(request)
   const input = data(request)
-  const info = toolPermissionInfo(request.permission, input, dict(request.metadata), pats)
+  const info = toolPermissionInfo(request.action, input, dict(request.metadata), pats)
   if (info) {
     return info
   }
 
-  if (request.permission === "external_directory") {
+  if (request.action === "external_directory") {
     const meta = dict(request.metadata)
     const raw = text(meta.parentDir) || text(meta.filepath) || pats[0] || ""
     const dir = raw.includes("*") ? raw.slice(0, raw.indexOf("*")).replace(/[\\/]+$/, "") : raw
@@ -108,7 +108,7 @@ export function permissionInfo(request: PermissionRequest): PermissionInfo {
     }
   }
 
-  if (request.permission === "doom_loop") {
+  if (request.action === "doom_loop") {
     return {
       icon: "⟳",
       title: "Continue after repeated failures",
@@ -118,19 +118,19 @@ export function permissionInfo(request: PermissionRequest): PermissionInfo {
 
   return {
     icon: "⚙",
-    title: `Call tool ${request.permission}`,
-    lines: [`Tool: ${request.permission}`],
+    title: `Call tool ${request.action}`,
+    lines: [`Tool: ${request.action}`],
   }
 }
 
 export function permissionAlwaysLines(request: PermissionRequest): string[] {
-  if (request.always.length === 1 && request.always[0] === "*") {
-    return [`This will allow ${request.permission} until OpenCode is restarted.`]
+  if ((request.save ?? []).length === 1 && request.save?.[0] === "*") {
+    return [`This will allow ${request.action} until OpenCode is restarted.`]
   }
 
   return [
     "This will allow the following patterns until OpenCode is restarted.",
-    ...request.always.map((item) => `- ${item}`),
+    ...(request.save ?? []).map((item) => `- ${item}`),
   ]
 }
 

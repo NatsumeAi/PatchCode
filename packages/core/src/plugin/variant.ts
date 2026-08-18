@@ -1,6 +1,6 @@
 export * as VariantPlugin from "./variant"
 
-import type { ModelV2Info } from "@opencode-ai/sdk/v2/types"
+import type { ModelInfo } from "@opencode-ai/sdk/api/types"
 import { Effect } from "effect"
 import { define } from "./internal"
 
@@ -18,6 +18,6 @@ export const Plugin = define({
 })
 
 /** @deprecated Variants come from models.dev reasoning_options; always returns []. */
-export function generate(_model: ModelV2Info): ModelV2Info["variants"] {
+export function generate(_model: ModelInfo): ModelInfo["variants"] {
   return []
 }

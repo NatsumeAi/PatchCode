@@ -4,24 +4,24 @@ import { EventManifest } from "../src/event-manifest"
 import { IdeEvent } from "../src/ide-event"
 import { SessionEvent } from "../src/session-event"
 import { SessionTodo } from "../src/session-todo"
-import { SessionV1 } from "../src/session-legacy"
+import { SessionWire } from "../src/session-legacy"
 import { WorkspaceEvent } from "../src/workspace-event"
 
 describe("public event manifest", () => {
   test("owns the complete public event surface", () => {
     expect(EventManifest.ServerDefinitions.length).toBeGreaterThan(0)
     expect(EventManifest.Definitions.length).toBeGreaterThan(EventManifest.ServerDefinitions.length)
-    expect(SessionV1.Event.Definitions).toEqual([
-      SessionV1.Event.Created,
-      SessionV1.Event.Updated,
-      SessionV1.Event.Deleted,
-      SessionV1.Event.MessageUpdated,
-      SessionV1.Event.MessageRemoved,
-      SessionV1.Event.PartUpdated,
-      SessionV1.Event.PartRemoved,
-      SessionV1.Event.PartDelta,
-      SessionV1.Event.Diff,
-      SessionV1.Event.Error,
+    expect(SessionWire.Event.Definitions).toEqual([
+      SessionWire.Event.Created,
+      SessionWire.Event.Updated,
+      SessionWire.Event.Deleted,
+      SessionWire.Event.MessageUpdated,
+      SessionWire.Event.MessageRemoved,
+      SessionWire.Event.PartUpdated,
+      SessionWire.Event.PartRemoved,
+      SessionWire.Event.PartDelta,
+      SessionWire.Event.Diff,
+      SessionWire.Event.Error,
     ])
     expect(EventManifest.Latest.size).toBe(EventManifest.Definitions.length)
     // shell.progress and tool.progress are live-only (not durable); full

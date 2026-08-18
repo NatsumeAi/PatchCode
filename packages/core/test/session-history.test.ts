@@ -3,12 +3,12 @@ import { Effect, Layer, Schema } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionStore } from "@opencode-ai/core/session/store"
@@ -16,46 +16,46 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { testEffect } from "./lib/effect"
 
 const projects = Layer.succeed(
-  ProjectV2.Service,
-  ProjectV2.Service.of({
-    resolve: (directory) => Effect.succeed({ id: ProjectV2.ID.global, directory }),
+  Project.Service,
+  Project.Service.of({
+    resolve: (directory) => Effect.succeed({ id: Project.ID.global, directory }),
     directories: () => Effect.succeed([]),
     commit: () => Effect.void,
   }),
 )
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([Database.node, EventV2.node, SessionProjector.node, SessionStore.node, SessionV2.node]),
+    LayerNode.group([Database.node, Event.node, SessionProjector.node, SessionStore.node, CoreSession.node]),
     [
-      [ProjectV2.node, projects],
+      [Project.node, projects],
       [SessionExecution.node, SessionExecution.noopLayer],
     ],
   ),
 )
 const location = Location.Ref.make({ directory: AbsolutePath.make("/project") })
 
-const GapEvent = EventV2.define({
+const GapEvent = Event.define({
   type: "test.session.history.gap",
   durable: { aggregate: "sessionID", version: 1 },
-  schema: { sessionID: SessionV2.ID, value: Schema.String },
+  schema: { sessionID: CoreSession.ID, value: Schema.String },
 })
 
-describe("SessionV2.history", () => {
+describe("CoreSession.history", () => {
   it.effect("returns an exhausted page for a migrated Session with no event sequence", () =>
     Effect.gen(function* () {
       const db = (yield* Database.Service).db
-      const session = yield* SessionV2.Service
-      const sessionID = SessionV2.ID.make("ses_empty_history")
+      const session = yield* CoreSession.Service
+      const sessionID = CoreSession.ID.make("ses_empty_history")
       yield* db
         .insert(ProjectTable)
-        .values({ id: ProjectV2.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
         .onConflictDoNothing()
         .run()
       yield* db
         .insert(SessionTable)
         .values({
           id: sessionID,
-          project_id: ProjectV2.ID.global,
+          project_id: Project.ID.global,
           slug: "empty-history",
           directory: "/project",
           title: "Empty history",
@@ -71,7 +71,7 @@ describe("SessionV2.history", () => {
 
   it.effect("treats after as an exclusive aggregate sequence", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const created = yield* session.create({ location })
       yield* session.switchAgent({ sessionID: created.id, agent: "one" })
       yield* session.switchAgent({ sessionID: created.id, agent: "two" })
@@ -85,8 +85,8 @@ describe("SessionV2.history", () => {
 
   it.effect("paginates public events in aggregate order across filtered gaps without duplicates", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
-      const events = yield* EventV2.Service
+      const session = yield* CoreSession.Service
+      const events = yield* Event.Service
       const created = yield* session.create({ location })
       yield* session.switchAgent({ sessionID: created.id, agent: "one" })
       yield* events.publish(GapEvent, { sessionID: created.id, value: "filtered" })
@@ -111,7 +111,7 @@ describe("SessionV2.history", () => {
 
   it.effect("includes events committed between pages", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const created = yield* session.create({ location })
       yield* session.switchAgent({ sessionID: created.id, agent: "one" })
       yield* session.switchAgent({ sessionID: created.id, agent: "two" })
@@ -132,7 +132,7 @@ describe("SessionV2.history", () => {
 
   it.effect("reports exhaustion for exact-limit and limit-plus-one pages", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
+      const session = yield* CoreSession.Service
       const created = yield* session.create({ location })
       yield* session.switchAgent({ sessionID: created.id, agent: "one" })
       yield* session.switchAgent({ sessionID: created.id, agent: "two" })
@@ -156,8 +156,8 @@ describe("SessionV2.history", () => {
 
   it.effect("fails with NotFoundError for a missing Session", () =>
     Effect.gen(function* () {
-      const session = yield* SessionV2.Service
-      const error = yield* session.history({ sessionID: SessionV2.ID.make("ses_missing"), limit: 10 }).pipe(Effect.flip)
+      const session = yield* CoreSession.Service
+      const error = yield* session.history({ sessionID: CoreSession.ID.make("ses_missing"), limit: 10 }).pipe(Effect.flip)
 
       expect(error._tag).toBe("Session.NotFoundError")
     }),

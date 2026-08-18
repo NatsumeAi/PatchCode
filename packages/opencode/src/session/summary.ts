@@ -1,7 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer, Context, Schema } from "effect"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
-import { EventV2Bridge } from "@/event-bridge"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
+import { EventBridge } from "@/event-bridge"
 import { Snapshot } from "@/snapshot"
 import { Session } from "./session"
 import { SessionID, MessageID } from "./schema"
@@ -66,7 +66,7 @@ function unquoteGitPath(input: string) {
 export interface Interface {
   readonly summarize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
   readonly diff: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Snapshot.FileDiff[]>
-  readonly computeDiff: (input: { messages: SessionV1.WithParts[] }) => Effect.Effect<Snapshot.FileDiff[]>
+  readonly computeDiff: (input: { messages: SessionWire.WithParts[] }) => Effect.Effect<Snapshot.FileDiff[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionSummary") {}
@@ -76,10 +76,10 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const snapshot = yield* Snapshot.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const config = yield* Config.Service
 
-    const computeDiff = Effect.fn("SessionSummary.computeDiff")(function* (input: { messages: SessionV1.WithParts[] }) {
+    const computeDiff = Effect.fn("SessionSummary.computeDiff")(function* (input: { messages: SessionWire.WithParts[] }) {
       let from: string | undefined
       let to: string | undefined
       for (const item of input.messages) {
@@ -154,7 +154,7 @@ export type DiffInput = Schema.Schema.Type<typeof DiffInput>
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Session.node, Snapshot.node, EventV2Bridge.node, Config.node],
+  deps: [Session.node, Snapshot.node, EventBridge.node, Config.node],
 })
 
 export * as SessionSummary from "./summary"

@@ -1,6 +1,6 @@
 import { SessionID, MessageID } from "./schema"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
 import {
   APIError,
   AbortedError,
@@ -53,11 +53,11 @@ function truncateToolOutput(text: string, maxChars?: number) {
 }
 
 export const Event = {
-  Updated: SessionV1.Event.MessageUpdated,
-  Removed: SessionV1.Event.MessageRemoved,
-  PartUpdated: SessionV1.Event.PartUpdated,
-  PartDelta: SessionV1.Event.PartDelta,
-  PartRemoved: SessionV1.Event.PartRemoved,
+  Updated: SessionWire.Event.MessageUpdated,
+  Removed: SessionWire.Event.MessageRemoved,
+  PartUpdated: SessionWire.Event.PartUpdated,
+  PartDelta: SessionWire.Event.PartDelta,
+  PartRemoved: SessionWire.Event.PartRemoved,
 }
 
 const Cursor = Schema.Struct({
@@ -422,7 +422,7 @@ export function toModelMessages(
   return Effect.runPromise(toModelMessagesEffect(input, model, options))
 }
 
-export const page = Effect.fn("MessageV2.page")(function* (input: {
+export const page = Effect.fn("MessageWire.page")(function* (input: {
   sessionID: SessionID
   limit: number
   before?: string
@@ -503,7 +503,7 @@ export function parts(messageID: MessageID) {
   })
 }
 
-export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: SessionID; messageID: MessageID }) {
+export const get = Effect.fn("MessageWire.get")(function* (input: { sessionID: SessionID; messageID: MessageID }) {
   const { db } = yield* Database.Service
   const row = yield* db
     .select()
@@ -602,7 +602,7 @@ export function latest(msgs: WithParts[]) {
 
 export function fromError(
   e: unknown,
-  ctx: { providerID: ProviderV2.ID; aborted?: boolean },
+  ctx: { providerID: CoreProvider.ID; aborted?: boolean },
 ): NonNullable<Assistant["error"]> {
   switch (true) {
     case e instanceof DOMException && e.name === "AbortError":
@@ -730,5 +730,5 @@ export function fromError(
   }
 }
 
-export * as MessageV2 from "./session-message-wire"
+export * as MessageWire from "./session-message-wire"
 export const node = LayerNode.group([Database.node])

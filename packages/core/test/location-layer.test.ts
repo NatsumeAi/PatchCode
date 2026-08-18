@@ -3,19 +3,19 @@ import path from "path"
 import { describe, expect } from "bun:test"
 import { DateTime, Effect, Equal, Hash, Schema } from "effect"
 import { Tool } from "@opencode-ai/core/tool/tool"
-import { define } from "@opencode-ai/plugin/v2/effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { define } from "@opencode-ai/plugin/effect"
+import { Agent } from "@opencode-ai/core/agent"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { Location } from "@opencode-ai/core/location"
-import { PluginV2 } from "@opencode-ai/core/plugin"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { ProjectV2 } from "@opencode-ai/core/project"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Plugin } from "@opencode-ai/core/plugin"
+import { Model } from "@opencode-ai/core/model"
+import { Project as CoreProject } from "@opencode-ai/core/project"
+import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -23,7 +23,7 @@ import { toolDefinitions } from "./lib/tool"
 import { FSUtil } from "../src/fs-util"
 import { Credential } from "../src/credential"
 import { Database } from "../src/database/database"
-import { EventV2 } from "../src/event"
+import { Event } from "../src/event"
 import { Global } from "../src/global"
 import { ModelsDev } from "../src/models-dev"
 import { Npm } from "../src/npm"
@@ -66,7 +66,7 @@ const LIVE_ADVERTISED_TOOLS = [
 ]
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([ApplicationTools.node, Database.node, EventV2.node, LocationServiceMap.node])),
+  AppNodeBuilder.build(LayerNode.group([ApplicationTools.node, Database.node, Event.node, LocationServiceMap.node])),
 )
 
 describe("LocationServiceMap", () => {
@@ -122,7 +122,7 @@ describe("LocationServiceMap", () => {
             Effect.gen(function* () {
               yield* Reference.Service
               const catalog = yield* Catalog.Service
-              yield* catalog.transform((editor) => editor.provider.update(ProviderV2.ID.make("test"), () => {}))
+              yield* catalog.transform((editor) => editor.provider.update(Provider.ID.make("test"), () => {}))
               return {
                 providers: yield* catalog.provider.all(),
                 tools: yield* toolDefinitions(yield* ToolRegistry.Service),
@@ -135,11 +135,11 @@ describe("LocationServiceMap", () => {
             )
 
           const blockedState = yield* update(blocked.path)
-          expect(blockedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(false)
+          expect(blockedState.providers.some((provider) => provider.id === Provider.ID.make("test"))).toBe(false)
           expect(blockedState.tools.map((tool) => tool.name).sort()).toEqual(LIVE_ADVERTISED_TOOLS)
           expect(blockedState.tools.map((tool) => tool.name)).not.toContain("invalid")
           const allowedState = yield* update(allowed.path)
-          expect(allowedState.providers.some((provider) => provider.id === ProviderV2.ID.make("test"))).toBe(true)
+          expect(allowedState.providers.some((provider) => provider.id === Provider.ID.make("test"))).toBe(true)
           expect(allowedState.tools.map((tool) => tool.name).sort()).toEqual(LIVE_ADVERTISED_TOOLS)
         }),
       ),
@@ -170,13 +170,13 @@ describe("LocationServiceMap", () => {
           )
           const failure = yield* SessionRunnerModel.Service.use((models) =>
             models.resolve(
-              SessionV2.Info.make({
-                id: SessionV2.ID.make("ses_unavailable_model"),
-                projectID: ProjectV2.ID.global,
+              Session.Info.make({
+                id: Session.ID.make("ses_unavailable_model"),
+                projectID: CoreProject.ID.global,
                 title: "test",
                 model: {
-                  id: ModelV2.ID.make("chat"),
-                  providerID: ProviderV2.ID.make("unavailable"),
+                  id: Model.ID.make("chat"),
+                  providerID: Provider.ID.make("unavailable"),
                 },
                 cost: 0,
                 tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -203,7 +203,7 @@ describe("LocationServiceMap", () => {
     ).pipe(
       Effect.flatMap((dir) =>
         Effect.gen(function* () {
-          const plugins = yield* PluginV2.Service
+          const plugins = yield* Plugin.Service
           const reviewer = define({
             id: "reviewer",
             effect: (ctx) =>
@@ -216,9 +216,9 @@ describe("LocationServiceMap", () => {
                 })
                 .pipe(Effect.asVoid),
           })
-          yield* plugins.add(PluginV2.ID.make(reviewer.id), reviewer.effect)
+          yield* plugins.add(Plugin.ID.make(reviewer.id), reviewer.effect)
 
-          expect(yield* (yield* AgentV2.Service).get(AgentV2.ID.make("reviewer"))).toMatchObject({
+          expect(yield* (yield* Agent.Service).get(Agent.ID.make("reviewer"))).toMatchObject({
             description: "Reviews code",
             mode: "subagent",
           })

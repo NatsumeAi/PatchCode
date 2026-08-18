@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { Permission } from "@opencode-ai/core/permission"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ExecuteTool } from "@opencode-ai/core/tool/execute"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -16,7 +16,7 @@ import { testEffect } from "./lib/effect"
 import { executeTool, toolDefinitions, toolIdentity } from "./lib/tool"
 import { tempLocationLayer } from "./fixture/location"
 
-const sessionID = SessionV2.ID.make("ses_execute")
+const sessionID = Session.ID.make("ses_execute")
 let pingCount = 0
 let denyPing = false
 

@@ -5,7 +5,7 @@ import type { Disp, Proc } from "#pty"
 import { Context, Effect, Layer, Schema, Types } from "effect"
 import { Pty } from "@opencode-ai/schema/pty"
 import { Config } from "./config"
-import { EventV2 } from "./event"
+import { Event as CoreEvent } from "./event"
 import { Location } from "./location"
 import { PtyID } from "./pty/schema"
 import { Shell } from "./shell"
@@ -88,12 +88,12 @@ export interface Interface {
   readonly attach: (id: PtyID, input: AttachInput) => Effect.Effect<Attachment, NotFoundError | ExitedError>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Pty") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Pty") {}
 
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const location = yield* Location.Service
     const config = yield* Config.Service
     const sandbox = yield* Sandbox.Service
@@ -325,4 +325,4 @@ const layer = Layer.effect(
 
 export const locationLayer = layer.pipe(Layer.provide(Config.locationLayer))
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node, Location.node, Config.node, Sandbox.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [CoreEvent.node, Location.node, Config.node, Sandbox.node] })

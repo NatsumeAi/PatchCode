@@ -3,7 +3,7 @@ import { createApiForServer, createSdkForServer } from "./server"
 import { createCompatibleApi } from "./server-compat"
 
 function setup(
-  protocol: "v1" | "v2" | Promise<"v1" | "v2">,
+  protocol: "legacy" | "current" | Promise<"legacy" | "current">,
   responses?: { vcs?: { branch: string; default_branch: string } },
 ) {
   const requests: Request[] = []
@@ -54,8 +54,8 @@ function setup(
 
 describe("createCompatibleApi", () => {
   /*
-  test("routes V1 archive through the legacy session update", async () => {
-    const { api, requests } = setup("v1")
+  test("routes legacy archive through the legacy session update", async () => {
+    const { api, requests } = setup("legacy")
     await api.session.archive({ sessionID: "ses_1", directory: "/repo" })
 
     const url = new URL(requests[0]!.url)
@@ -66,8 +66,8 @@ describe("createCompatibleApi", () => {
   })
   */
 
-  test("converts current prompts to the V1 prompt contract", async () => {
-    const { api, requests } = setup("v1")
+  test("converts current prompts to the legacy prompt contract", async () => {
+    const { api, requests } = setup("legacy")
     await api.session.prompt({
       sessionID: "ses_1",
       id: "msg_1",
@@ -110,8 +110,8 @@ describe("createCompatibleApi", () => {
     expect(body.parts[2]).not.toHaveProperty("source")
   })
 
-  test("preserves original parts for V1 optimistic reconciliation", async () => {
-    const { api, requests } = setup("v1")
+  test("preserves original parts for legacy optimistic reconciliation", async () => {
+    const { api, requests } = setup("legacy")
     await api.session.prompt({
       sessionID: "ses_1",
       id: "msg_1",
@@ -131,7 +131,7 @@ describe("createCompatibleApi", () => {
 
   test("resolves protocol detection once across implementation methods", async () => {
     let detections = 0
-    const resolved = Promise.resolve<"v1" | "v2">("v2")
+    const resolved = Promise.resolve<"legacy" | "current">("current")
     const protocol = new Proxy(resolved, {
       get(target, property) {
         if (property !== "then") return Reflect.get(target, property, target)
@@ -148,8 +148,8 @@ describe("createCompatibleApi", () => {
   })
 
   /*
-  test("keeps V2 session actions on the current API", async () => {
-    const { api, requests } = setup("v2")
+  test("keeps current session actions on the current API", async () => {
+    const { api, requests } = setup("current")
     await api.session.archive({ sessionID: "ses_1" })
 
     expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/archive")
@@ -157,16 +157,16 @@ describe("createCompatibleApi", () => {
   })
   */
 
-  test("uses the global V1 session search endpoint", async () => {
-    const { api, requests } = setup("v1")
+  test("uses the global legacy session search endpoint", async () => {
+    const { api, requests } = setup("legacy")
     await api.session.list({ parentID: null, search: "session", limit: 50 })
 
     expect(new URL(requests[0]!.url).pathname).toBe("/experimental/session")
   })
 
   /*
-  test("projects the V1 default branch", async () => {
-    const { api } = setup("v1", { vcs: { branch: "feature", default_branch: "dev" } })
+  test("projects the legacy default branch", async () => {
+    const { api } = setup("legacy", { vcs: { branch: "feature", default_branch: "dev" } })
 
     expect(await api.vcs.get({ location: { directory: "/repo" } })).toMatchObject({
       data: { branch: "feature", defaultBranch: "dev" },
@@ -174,8 +174,8 @@ describe("createCompatibleApi", () => {
   })
   */
 
-  test("translates current file searches to the V1 dirs parameter", async () => {
-    const { api, requests } = setup("v1")
+  test("translates current file searches to the legacy dirs parameter", async () => {
+    const { api, requests } = setup("legacy")
     await api.file.find({ location: { directory: "/repo" }, query: "src", type: "file", limit: 20 })
 
     const url = new URL(requests[0]!.url)
@@ -185,7 +185,7 @@ describe("createCompatibleApi", () => {
   })
 
   test("prefers session permission reply even when protocol probes as older health", async () => {
-    const { api, requests } = setup("v1")
+    const { api, requests } = setup("legacy")
     await api.permission.reply({
       sessionID: "ses_1",
       requestID: "permission_1",
@@ -196,7 +196,7 @@ describe("createCompatibleApi", () => {
     expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/permission/permission_1/reply")
   })
 
-  test("falls back to legacy permission reply when V2 endpoint fails", async () => {
+  test("does not fall back to a second permission reply chain", async () => {
     const requests: Request[] = []
     const fetcher = Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -212,28 +212,28 @@ describe("createCompatibleApi", () => {
     )
     const server = { url: "http://localhost:4096" }
     const api = createCompatibleApi({
-      protocol: Promise.resolve("v1"),
+      protocol: Promise.resolve("legacy"),
       current: createApiForServer({ server, fetch: fetcher }),
       legacy: (directory) => createSdkForServer({ server, fetch: fetcher, directory, throwOnError: true }),
       directory: "/repo",
     })
 
-    await api.permission.reply({
-      sessionID: "ses_1",
-      requestID: "permission_1",
-      reply: "once",
-      location: { directory: "/other" },
-    })
+    await expect(
+      api.permission.reply({
+        sessionID: "ses_1",
+        requestID: "permission_1",
+        reply: "once",
+        location: { directory: "/other" },
+      }),
+    ).rejects.toBeTruthy()
 
     expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
       "/api/session/ses_1/permission/permission_1/reply",
-      "/session/ses_1/permissions/permission_1",
     ])
-    expect(new URL(requests[1]!.url).searchParams.get("directory")).toBe("/other")
   })
 
-  test("prefers V2 session question reply even when protocol probes as v1", async () => {
-    const { api, requests } = setup("v1")
+  test("prefers current session question reply even when protocol probes as legacy", async () => {
+    const { api, requests } = setup("legacy")
     await api.question.reply({
       sessionID: "ses_1",
       requestID: "que_1",
@@ -243,8 +243,8 @@ describe("createCompatibleApi", () => {
     expect(new URL(requests[0]!.url).pathname).toBe("/api/session/ses_1/question/que_1/reply")
   })
 
-  test("disposes the V1 instance after connecting a provider", async () => {
-    const { api, requests } = setup("v1")
+  test("disposes the legacy instance after connecting a provider", async () => {
+    const { api, requests } = setup("legacy")
 
     await api.integration.connect.key({
       integrationID: "openrouter",
@@ -261,8 +261,8 @@ describe("createCompatibleApi", () => {
     expect(requests[2]!.headers.get("x-opencode-directory")).toBeNull()
   })
 
-  test("disposes the V1 instance after completing provider OAuth", async () => {
-    const { api, requests } = setup("v1")
+  test("disposes the legacy instance after completing provider OAuth", async () => {
+    const { api, requests } = setup("legacy")
 
     await api.integration.oauth.complete({
       integrationID: "openrouter",

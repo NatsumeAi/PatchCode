@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { ReasoningPart } from "@opencode-ai/sdk/v2"
+import type { ReasoningPart } from "@opencode-ai/sdk/api"
 import {
   applyReasoningHoldOpen,
   buildReasoningViewModel,

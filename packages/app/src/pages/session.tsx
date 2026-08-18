@@ -1,4 +1,4 @@
-import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { FilePart, Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/api"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createQuery, skipToken, useMutation, useQueryClient } from "@tanstack/solid-query"
@@ -29,10 +29,10 @@ import { createStore } from "solid-js/store"
 import type { SessionReviewLineComment } from "@opencode-ai/session-ui/session-review"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
-import { SelectV2 } from "@opencode-ai/ui/v2/select-v2"
+import { Select as KitSelect } from "@opencode-ai/ui/kit/select"
 import { isScrollKeyTarget, scrollKey, scrollKeyOwner } from "@opencode-ai/ui/scroll-view"
 import { Tabs } from "@opencode-ai/ui/tabs"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { previewSelectedLines } from "@opencode-ai/session-ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
@@ -59,7 +59,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
-import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
+import { PromptInputComposer, usePromptInputController } from "@/components/prompt-input-kit"
 import { useSettingsCommand } from "@/components/settings-dialog"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
 import { promptLength } from "@/components/prompt-input/history"
@@ -83,14 +83,13 @@ import {
 } from "@/pages/session/session-panel-width"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { sessionPanelLayout } from "@/pages/session/session-panel-layout"
-import { SessionReviewEmptyChangesV2 } from "@opencode-ai/session-ui/v2/session-review-empty-changes-v2"
-import { SessionReviewEmptyNoGitV2 } from "@opencode-ai/session-ui/v2/session-review-empty-no-git-v2"
-import { SessionReviewV2SidebarToggle } from "@opencode-ai/session-ui/v2/session-review-v2"
-import { ReviewPanelV2 } from "@/pages/session/v2/review-panel-v2"
-import { createReviewPanelV2State } from "@/pages/session/v2/review-panel-v2-state"
-import { reviewDiffDirectory, reviewDiffNeedsLoad, reviewRootDirectory } from "@/pages/session/v2/review-diff-kinds"
-import { TerminalPanel } from "@/pages/session/terminal-panel"
-import { TerminalPanelV2 } from "@/pages/session/terminal-panel-v2"
+import { SessionReviewEmptyChanges } from "@opencode-ai/session-ui/kit/session-review-empty-changes"
+import { SessionReviewEmptyNoGit } from "@opencode-ai/session-ui/kit/session-review-empty-no-git"
+import { SessionReviewSidebarToggle } from "@opencode-ai/session-ui/kit/session-review"
+import { ReviewPanel } from "@/pages/session/kit/review-panel"
+import { createReviewPanelState } from "@/pages/session/kit/review-panel-state"
+import { reviewDiffDirectory, reviewDiffNeedsLoad, reviewRootDirectory } from "@/pages/session/kit/review-diff-kinds"
+import { TerminalPanel } from "@/pages/session/terminal-panel-kit"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
@@ -227,15 +226,15 @@ function SessionErrorFallback(props: { error: unknown; sessionID?: string; serve
             {(sessionID) => (
               <div class="max-w-full flex flex-col items-center gap-1">
                 <div class="max-w-full text-11-regular text-text-faint break-all">{displayServer()}</div>
-                <code class="max-w-full rounded-[4px] px-1 py-0.5 font-mono text-xs font-medium leading-4 text-text-base break-all bg-[color-mix(in_oklch,var(--v2-text-text-base)_8%,transparent)]">
+                <code class="max-w-full rounded-[4px] px-1 py-0.5 font-mono text-xs font-medium leading-4 text-text-base break-all bg-[color-mix(in_oklch,var(--kit-text-text-base)_8%,transparent)]">
                   {sessionID()}
                 </code>
               </div>
             )}
           </Show>
-          <ButtonV2 variant="neutral" size="normal" icon="xmark-small" onClick={closeTab}>
+          <KitButton variant="neutral" size="normal" icon="xmark-small" onClick={closeTab}>
             {language.t("session.error.notFound.closeTab")}
-          </ButtonV2>
+          </KitButton>
         </div>
       </div>
     )
@@ -339,10 +338,10 @@ function SessionPanelFrame(props: ParentProps<{ newLayout: boolean; raised?: boo
     <div
       classList={{
         "flex-1 min-h-0 flex flex-col": true,
-        "bg-v2-background-bg-base": props.newLayout,
+        "bg-kit-background-bg-base": props.newLayout,
         "bg-background-stronger": !props.newLayout,
         "rounded-[10px] overflow-hidden": props.newLayout,
-        "shadow-[var(--v2-elevation-raised)]": props.newLayout && props.raised,
+        "shadow-[var(--kit-elevation-raised)]": props.newLayout && props.raised,
       }}
     >
       {props.children}
@@ -447,12 +446,14 @@ export default function Page() {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
-  const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
-  const desktopV2ReviewOpen = createMemo(() => newSessionDesign() && desktopReviewOpen() && !!params.id)
+  const desktopReviewOpened = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  const desktopReviewOpen = createMemo(() =>
+    newSessionDesign() ? desktopReviewOpened() && !!params.id : desktopReviewOpened(),
+  )
   const terminalOpen = createMemo(() => view().terminal.opened())
   const desktopTerminalOpen = createMemo(() => isDesktop() && terminalOpen())
   const desktopInlineTerminalOnlyOpen = createMemo(
-    () => newSessionDesign() && desktopTerminalOpen() && !desktopV2ReviewOpen(),
+    () => newSessionDesign() && desktopTerminalOpen() && !desktopReviewOpen(),
   )
   const desktopFileTreeOpen = createMemo(
     () =>
@@ -463,7 +464,7 @@ export default function Page() {
       }),
   )
   const desktopSessionResizeOpen = createMemo(() =>
-    newSessionDesign() ? desktopV2ReviewOpen() || desktopTerminalOpen() : desktopReviewOpen(),
+    newSessionDesign() ? desktopReviewOpen() || desktopTerminalOpen() : desktopReviewOpen(),
   )
   const desktopSidePanelOpen = createMemo(() => desktopSessionResizeOpen() || desktopFileTreeOpen())
   let panelRow: HTMLDivElement | undefined
@@ -473,7 +474,7 @@ export default function Page() {
     ({ width }) => setPanelRowWidth(width),
   )
   const splitReview = createMemo(
-    () => (newSessionDesign() ? desktopV2ReviewOpen() : desktopReviewOpen()) && layout.review.diffStyle() === "split",
+    () => (newSessionDesign() ? desktopReviewOpen() : desktopReviewOpen()) && layout.review.diffStyle() === "split",
   )
   // The observer reports the content-box width, which already excludes the row
   // padding; only the flex gap between the panels remains to subtract.
@@ -502,9 +503,9 @@ export default function Page() {
     return `calc(100% - ${layout.fileTree.width()}px)`
   })
   const centered = createMemo(() => isDesktop() && (newSessionDesign() || !desktopReviewOpen()))
-  const desktopV2PanelLayout = createMemo(() =>
+  const desktopPanelLayout = createMemo(() =>
     sessionPanelLayout({
-      review: desktopV2ReviewOpen(),
+      review: desktopReviewOpen(),
       terminal: desktopTerminalOpen(),
       files: desktopFileTreeOpen(),
     }),
@@ -1172,6 +1173,20 @@ export default function Page() {
       return null
     }
 
+    if (settings.general.newLayoutDesigns()) {
+      return (
+        <KitSelect
+          appearance="inline"
+          options={changesOptions()}
+          current={reviewMode()}
+          label={changesLabel}
+          placement="bottom-start"
+          gutter={6}
+          onSelect={(option) => option && view().review.setMode(option)}
+        />
+      )
+    }
+
     return (
       <Select
         options={changesOptions()}
@@ -1181,24 +1196,6 @@ export default function Page() {
         variant="ghost"
         size="small"
         valueClass="text-14-medium"
-      />
-    )
-  }
-
-  const changesTitleV2 = () => {
-    if (!canReview()) {
-      return null
-    }
-
-    return (
-      <SelectV2
-        appearance="inline"
-        options={changesOptions()}
-        current={reviewMode()}
-        label={changesLabel}
-        placement="bottom-start"
-        gutter={6}
-        onSelect={(option) => option && view().review.setMode(option)}
       />
     )
   }
@@ -1231,7 +1228,7 @@ export default function Page() {
     return language.t("session.review.noChanges")
   })
 
-  const reviewEmpty = (input: { loadingClass: string; emptyClass: string }) => {
+  const reviewEmptyLegacy = (input: { loadingClass: string; emptyClass: string }) => {
     if (reviewMode() === "git" || reviewMode() === "branch") {
       if (!reviewReady()) return <div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>
       return empty(reviewEmptyText())
@@ -1249,14 +1246,14 @@ export default function Page() {
     )
   }
 
-  const reviewEmptyV2 = () => {
+  const reviewEmptyKit = () => {
     if ((reviewMode() === "git" || reviewMode() === "branch") && !reviewReady()) {
       return <div class="px-6 py-4 text-text-weak">{language.t("session.review.loadingChanges")}</div>
     }
     if (reviewMode() === "turn" && nogit()) {
-      return <SessionReviewEmptyNoGitV2 pending={gitMutation.isPending} onInitGit={initGit} />
+      return <SessionReviewEmptyNoGit pending={gitMutation.isPending} onInitGit={initGit} />
     }
-    return <SessionReviewEmptyChangesV2 />
+    return <SessionReviewEmptyChanges />
   }
 
   const reviewContent = (input: {
@@ -1269,7 +1266,7 @@ export default function Page() {
     <Show when={!store.deferRender}>
       <SessionReviewTab
         title={changesTitle()}
-        empty={reviewEmpty(input)}
+        empty={reviewEmptyLegacy(input)}
         diffs={reviewDiffs}
         view={view}
         diffStyle={input.diffStyle}
@@ -1292,17 +1289,17 @@ export default function Page() {
     </Show>
   )
 
-  const reviewV2State = createReviewPanelV2State()
+  const reviewState = createReviewPanelState()
 
   // Getters defer reactive reads to the consuming scope. Eager reads here ran inside
   // the side panel's Show children and remounted the whole review panel on unrelated
   // updates such as session switches.
-  const reviewPanelV2Props = () => ({
+  const reviewPanelProps = () => ({
     get title() {
-      return changesTitleV2()
+      return changesTitle()
     },
     get empty() {
-      return reviewEmptyV2()
+      return reviewEmptyKit()
     },
     diffs: reviewDiffs,
     diffsReady: reviewReady,
@@ -1318,7 +1315,7 @@ export default function Page() {
       return layout.review.diffStyle()
     },
     onDiffStyleChange: layout.review.setDiffStyle,
-    state: reviewV2State,
+    state: reviewState,
     onLineComment: (comment: SessionReviewLineComment) => addCommentToContext({ ...comment, origin: "review" }),
     onLineCommentUpdate: updateCommentInContext,
     onLineCommentDelete: removeCommentFromContext,
@@ -1346,34 +1343,27 @@ export default function Page() {
   // Latch: defer only the first diff render off the mount critical path. This Page
   // stays mounted across same-workspace session tab switches, so gating on every
   // deferRender flip tore down and remounted the whole review pane on tab switch.
-  const reviewPanelV2Rendered = createMemo<boolean>((prev) => prev || !store.deferRender, false)
+  const reviewPanelRendered = createMemo<boolean>((prev) => prev || !store.deferRender, false)
 
-  const reviewPanelV2 = () => (
-    <div class="flex flex-col h-full overflow-hidden bg-v2-background-bg-base contain-strict">
-      <Show when={reviewPanelV2Rendered()}>
-        <ReviewPanelV2 {...reviewPanelV2Props()} />
-      </Show>
-    </div>
-  )
-
-  const reviewPanel = () => (
-    <div
-      classList={{
-        "flex flex-col h-full overflow-hidden contain-strict": true,
-        "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
-        "bg-background-stronger": !settings.general.newLayoutDesigns(),
-      }}
-    >
-      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-        {reviewContent({
-          diffStyle: layout.review.diffStyle(),
-          onDiffStyleChange: layout.review.setDiffStyle,
-          loadingClass: "px-6 py-4 text-text-weak",
-          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-        })}
+  const reviewPanel = () =>
+    settings.general.newLayoutDesigns() ? (
+      <div class="flex flex-col h-full overflow-hidden bg-kit-background-bg-base contain-strict">
+        <Show when={reviewPanelRendered()}>
+          <ReviewPanel {...reviewPanelProps()} />
+        </Show>
       </div>
-    </div>
-  )
+    ) : (
+      <div class="flex flex-col h-full overflow-hidden contain-strict bg-background-stronger">
+        <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+          {reviewContent({
+            diffStyle: layout.review.diffStyle(),
+            onDiffStyleChange: layout.review.setDiffStyle,
+            loadingClass: "px-6 py-4 text-text-weak",
+            emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+          })}
+        </div>
+      </div>
+    )
 
   createEffect(
     on(
@@ -2203,7 +2193,7 @@ export default function Page() {
                   }
                 >
                   {(_) => {
-                    const controller = usePromptInputV2Controller({
+                    const controller = usePromptInputController({
                       get controls() {
                         return inputController()
                       },
@@ -2230,7 +2220,7 @@ export default function Page() {
                         setFollowup("paused", id, true)
                       },
                     })
-                    return <PromptInputV2Composer controller={controller} borderUnderlay />
+                    return <PromptInputComposer controller={controller} borderUnderlay />
                   }}
                 </Show>
               }
@@ -2316,9 +2306,9 @@ export default function Page() {
           </Suspense>
         </Show>
         <Show when={newSessionDesign()}>
-          <Show when={isDesktop() ? desktopV2PanelLayout().visible : terminalOpen()}>
+          <Show when={isDesktop() ? desktopPanelLayout().visible : terminalOpen()}>
             <div class="min-w-0 h-full flex flex-1 flex-col">
-              <Show when={isDesktop() && (desktopV2ReviewOpen() || desktopFileTreeOpen())}>
+              <Show when={isDesktop() && (desktopReviewOpen() || desktopFileTreeOpen())}>
                 <div class="min-h-0 flex-1">
                   <Suspense>
                     <SessionSidePanel
@@ -2327,27 +2317,27 @@ export default function Page() {
                       diffsReady={reviewReady}
                       empty={reviewEmptyText}
                       hasReview={hasReview}
-                      reviewHasFocusableContent={() => hasReview() || reviewV2State.sidebarOpened()}
+                      reviewHasFocusableContent={() => hasReview() || reviewState.sidebarOpened()}
                       reviewCount={reviewCount}
-                      reviewPanel={reviewPanelV2}
+                      reviewPanel={reviewPanel}
                       reviewSidebarToggle={(disabled) => (
-                        <SessionReviewV2SidebarToggle
-                          opened={reviewV2State.sidebarOpened()}
+                        <SessionReviewSidebarToggle
+                          opened={reviewState.sidebarOpened()}
                           disabled={disabled}
-                          onToggle={reviewV2State.toggleSidebar}
+                          onToggle={reviewState.toggleSidebar}
                         />
                       )}
-                      fileBrowserState={reviewV2State}
+                      fileBrowserState={reviewState}
                       activeDiff={activeReviewFile()}
                       focusReviewDiff={focusReviewDiff}
                       reviewSnap={ui.reviewSnap}
                       size={size}
-                      stacked={desktopV2PanelLayout().stacked}
+                      stacked={desktopPanelLayout().stacked}
                     />
                   </Suspense>
                 </div>
               </Show>
-              <Show when={desktopV2PanelLayout().stacked}>
+              <Show when={desktopPanelLayout().stacked}>
                 <div class="relative h-2 shrink-0" onPointerDown={() => size.start()}>
                   <ResizeHandle
                     class="!relative !inset-auto !h-full !w-full !transform-none"
@@ -2367,11 +2357,11 @@ export default function Page() {
               <Show when={terminalOpen()}>
                 <div
                   classList={{
-                    "min-h-0 shrink-0": desktopV2PanelLayout().stacked,
-                    "min-h-0 flex-1": !desktopV2PanelLayout().stacked,
+                    "min-h-0 shrink-0": desktopPanelLayout().stacked,
+                    "min-h-0 flex-1": !desktopPanelLayout().stacked,
                   }}
                 >
-                  <TerminalPanelV2 stacked={desktopV2PanelLayout().stacked} />
+                  <TerminalPanel stacked={desktopPanelLayout().stacked} />
                 </div>
               </Show>
             </div>

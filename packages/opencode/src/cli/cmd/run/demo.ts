@@ -15,7 +15,7 @@
 // Demo mode also handles permission and question replies locally, completing
 // or failing the synthetic tool parts as appropriate.
 import path from "path"
-import type { Event, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Event, ToolPart } from "@opencode-ai/sdk/api"
 import { createSessionData, reduceSessionData, type SessionData } from "./session-data"
 import { writeSessionOutput } from "./stream"
 import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt, StreamCommit } from "./types"
@@ -123,10 +123,10 @@ type Perm = {
 
 type Permit = {
   ref: Ref
-  permission: string
-  patterns: string[]
+  action: string
+  resources: string[]
   metadata?: Record<string, unknown>
-  always: string[]
+  save: string[]
   done: Perm["done"]
 }
 
@@ -488,10 +488,10 @@ function askPermission(state: State, item: Permit): void {
     properties: {
       id,
       sessionID: state.id,
-      action: item.permission,
-      resources: item.patterns,
+      action: item.action,
+      resources: item.resources,
       metadata: item.metadata ?? {},
-      save: item.always,
+      save: item.save,
       source: {
         type: "tool",
         messageID: item.ref.msg,
@@ -804,9 +804,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     })
     askPermission(state, {
       ref,
-      permission: "bash",
-      patterns: [command],
-      always: ["*"],
+      action: "bash",
+      resources: [command],
+      save: ["*"],
       done: {
         title: "git status --short",
         output: `${root}\ngit status --short\n M src/demo-format.ts\n?? src/demo-permission.ts\n`,
@@ -827,9 +827,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     })
     askPermission(state, {
       ref,
-      permission: "read",
-      patterns: [target],
-      always: [target],
+      action: "read",
+      resources: [target],
+      save: [target],
       done: {
         title: "read",
         output: ["1: {", '2:   "name": "opencode",', '3:   "private": true', "4: }"].join("\n"),
@@ -846,9 +846,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     })
     askPermission(state, {
       ref,
-      permission: "task",
-      patterns: ["explore"],
-      always: ["*"],
+      action: "task",
+      resources: ["explore"],
+      save: ["*"],
       done: {
         title: "Footer spacing checked",
         output: "",
@@ -871,13 +871,13 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     })
     askPermission(state, {
       ref,
-      permission: "external_directory",
-      patterns: [`${dir}/**`],
+      action: "external_directory",
+      resources: [`${dir}/**`],
       metadata: {
         parentDir: dir,
         filepath: target,
       },
-      always: [`${dir}/**`],
+      save: [`${dir}/**`],
       done: {
         title: "read",
         output: `1: # External demo\n2: Shared preview file\nPath: ${target}`,
@@ -894,9 +894,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     })
     askPermission(state, {
       ref,
-      permission: "doom_loop",
-      patterns: ["*"],
-      always: ["*"],
+      action: "doom_loop",
+      resources: ["*"],
+      save: ["*"],
       done: {
         title: "Retry allowed",
         output: "Continuing after repeated failures.\n",
@@ -914,9 +914,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
   })
   askPermission(state, {
     ref,
-    permission: "edit",
-    patterns: [file],
-    always: [file],
+    action: "edit",
+    resources: [file],
+    save: [file],
     done: {
       title: "edit",
       output: "",

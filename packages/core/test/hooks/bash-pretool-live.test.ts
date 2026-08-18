@@ -4,14 +4,14 @@ import { Effect, Layer, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { BashTool } from "@opencode-ai/core/tool/bash"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -22,7 +22,7 @@ import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 import { toolIdentity, executeTool } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_hooks_bash")
+const sessionID = Session.ID.make("ses_hooks_bash")
 const spawns: Array<{ command: string }> = []
 const assertions: Permission.AssertInput[] = []
 
@@ -61,10 +61,10 @@ const appProcess = Layer.succeed(
 )
 
 const events = Layer.succeed(
-  EventV2.Service,
+  Event.Service,
   {
     publish: () => Effect.succeed({ durable: { aggregateID: sessionID, seq: 1, version: 1 } }),
-  } as unknown as EventV2.Interface,
+  } as unknown as Event.Interface,
 )
 
 const config = Layer.succeed(
@@ -168,7 +168,7 @@ const run = (directory: string, hooks: Layer.Layer<Hooks.Service>) =>
             [AppProcess.node, appProcess],
             [BackgroundJob.node, backgroundJob],
             [Config.node, config],
-            [EventV2.node, events],
+            [Event.node, events],
             [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
           ],
         ),

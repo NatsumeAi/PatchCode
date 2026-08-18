@@ -35,12 +35,12 @@
         cursor: default;
         user-select: none;
 
-        background-color: var(--v2-background-bg-base);
-        border: 0.5px solid var(--v2-border-border-base);
+        background-color: var(--kit-background-bg-base);
+        border: 0.5px solid var(--kit-border-border-base);
         border-radius: 0;
         box-shadow: none;
         overflow: clip;
-        color: var(--v2-text-text-base);
+        color: var(--kit-text-text-base);
         transition: background-color 0.15s ease;
 
         /* text-12-regular */
@@ -52,10 +52,10 @@
         letter-spacing: var(--letter-spacing-normal);
 
         &:hover:not([data-disabled]) {
-          background-color: var(--v2-overlay-simple-overlay-hover);
+          background-color: var(--kit-overlay-simple-overlay-hover);
         }
         &:active:not([data-disabled]) {
-          background-color: var(--v2-overlay-simple-overlay-pressed);
+          background-color: var(--kit-overlay-simple-overlay-pressed);
         }
         &:focus-visible {
           outline: none;
@@ -82,9 +82,9 @@
 
     &[data-expanded] {
       [data-slot="accordion-content"] {
-        border: 0.5px solid var(--v2-border-border-base);
+        border: 0.5px solid var(--kit-border-border-base);
         border-top: 0;
-        background-color: var(--v2-background-bg-layer-01);
+        background-color: var(--kit-background-bg-layer-01);
       }
     }
 

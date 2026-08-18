@@ -2,7 +2,7 @@ import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect, Option } from "effect"
 import { define } from "../internal"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 import { GitLabWorkflow } from "../../session/gitlab-workflow"
 
 export const GitLabPlugin = define({
@@ -34,7 +34,7 @@ export const GitLabPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.gitlab) return
+        if (evt.model.providerID !== Provider.ID.gitlab) return
         const featureFlags =
           typeof evt.options.featureFlags === "object" && evt.options.featureFlags ? evt.options.featureFlags : {}
         if (evt.model.api.id.startsWith("duo-workflow-")) {

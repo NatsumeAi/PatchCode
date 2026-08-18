@@ -11,7 +11,7 @@ import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { MemoryTools, listScopes, writeMemoryNote } from "../../src/memory/tools"
 import { resolveRoots } from "../../src/memory/storage"
 import { tmpdir } from "../fixture/tmpdir"
@@ -19,7 +19,7 @@ import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "../lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_memory_tools_test")
+const sessionID = Session.ID.make("ses_memory_tools_test")
 const permission = Layer.succeed(
   Permission.Service,
   Permission.Service.of({

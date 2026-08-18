@@ -8,12 +8,12 @@ import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProjectDirectories } from "@opencode-ai/core/project/directories"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
@@ -25,7 +25,7 @@ const it = testEffect(
     LayerNode.group([
       MoveSession.node,
       Database.node,
-      EventV2.node,
+      Event.node,
       ProjectDirectories.node,
       Project.node,
       SessionProjector.node,
@@ -69,7 +69,7 @@ describe("MoveSession", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(source, "untracked.txt"), "new\n"))
 
       const projectID = (yield* Project.Service.use((service) => service.resolve(source))).id
-      const sessionID = SessionV2.ID.make("ses_move")
+      const sessionID = Session.ID.make("ses_move")
       const { db } = yield* Database.Service
       yield* db
         .insert(ProjectTable)
@@ -123,7 +123,7 @@ describe("MoveSession", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(source, "untracked.txt"), "new\n"))
 
       const projectID = (yield* Project.Service.use((service) => service.resolve(source))).id
-      const sessionID = SessionV2.ID.make("ses_move_nested")
+      const sessionID = Session.ID.make("ses_move_nested")
       const { db } = yield* Database.Service
       yield* db
         .insert(ProjectTable)
@@ -189,7 +189,7 @@ describe("MoveSession", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(source, "untracked.txt"), "unrelated\n"))
 
       const projectID = (yield* Project.Service.use((service) => service.resolve(source))).id
-      const sessionID = SessionV2.ID.make("ses_move_nested_checkout")
+      const sessionID = Session.ID.make("ses_move_nested_checkout")
       const { db } = yield* Database.Service
       yield* db
         .insert(ProjectTable)

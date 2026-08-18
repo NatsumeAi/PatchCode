@@ -1,20 +1,20 @@
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AISDK } from "@opencode-ai/core/aisdk"
 import { Catalog } from "@opencode-ai/core/catalog"
-import { CommandV2 } from "@opencode-ai/core/command"
+import { Command } from "@opencode-ai/core/command"
 import { Credential } from "@opencode-ai/core/credential"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { FileSystem } from "@opencode-ai/core/filesystem"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Integration } from "@opencode-ai/core/integration"
 import { Location } from "@opencode-ai/core/location"
 import { Npm } from "@opencode-ai/core/npm"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { Reference } from "@opencode-ai/core/reference"
-import { SkillV2 } from "@opencode-ai/core/skill"
+import { Skill } from "@opencode-ai/core/skill"
 import { Effect, Layer } from "effect"
 import { tempLocationLayer } from "../fixture/location"
 
@@ -34,16 +34,16 @@ export const PluginTestLayer = AppNodeBuilder.build(
     Location.node,
     Npm.node,
     Credential.node,
-    EventV2.node,
+    Event.node,
     LayerNodePlatform.httpClient,
-    PluginV2.node,
-    AgentV2.node,
+    Plugin.node,
+    Agent.node,
     AISDK.node,
     Catalog.node,
-    CommandV2.node,
+    Command.node,
     Integration.node,
     Reference.node,
-    SkillV2.node,
+    Skill.node,
   ]),
   [
     [Location.node, tempLocationLayer],

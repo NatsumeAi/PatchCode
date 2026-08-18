@@ -205,6 +205,21 @@ describe("persist localStorage resilience", () => {
     })
   })
 
+  test("server global target scopes legacy keys with the same server prefix", () => {
+    expect(Persist.serverGlobal(ServerScope.local, "settings.models.providers", ["settings-v2.models.providers"])).toEqual(
+      Persist.global("settings.models.providers", ["settings-v2.models.providers"]),
+    )
+    expect(
+      Persist.serverGlobal("https://debian.example" as ServerScope, "settings.models.providers", [
+        "settings-v2.models.providers",
+      ]),
+    ).toEqual({
+      storage: "opencode.global.dat",
+      key: "https://debian.example\0settings.models.providers",
+      legacy: ["https://debian.example\0settings-v2.models.providers"],
+    })
+  })
+
   test("server global target cannot collide when scope and key contain colons", () => {
     expect(Persist.serverGlobal("a:b" as ServerScope, "c")).not.toEqual(Persist.serverGlobal("a" as ServerScope, "b:c"))
   })

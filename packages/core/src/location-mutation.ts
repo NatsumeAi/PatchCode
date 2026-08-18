@@ -62,7 +62,7 @@ export interface Interface {
   readonly resolve: (input: ResolveInput) => Effect.Effect<Target, PathError | FSUtil.Error | Sandbox.Denied | Sandbox.Unavailable>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/LocationMutation") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/LocationMutation") {}
 
 interface ResolvedPath {
   readonly canonical: string

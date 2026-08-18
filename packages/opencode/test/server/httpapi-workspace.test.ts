@@ -8,7 +8,7 @@ import { SessionExecution } from "@opencode-ai/core/session/execution"
 import * as SessionExecutionLocal from "@opencode-ai/core/session/execution/local"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
-import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { Workspace as CoreWorkspace } from "@opencode-ai/core/workspace"
 import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspacePaths } from "../../src/server/routes/instance/httpapi/groups/workspace"
@@ -267,7 +267,7 @@ describe("workspace HttpApi", () => {
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })
       const session = yield* Session.use.create({}).pipe(provideInstance(dir))
-      const workspaceID = WorkspaceV2.ID.ascending("wrk_missing_warp")
+      const workspaceID = CoreWorkspace.ID.ascending("wrk_missing_warp")
 
       const response = yield* request(WorkspacePaths.warp, dir, {
         method: "POST",

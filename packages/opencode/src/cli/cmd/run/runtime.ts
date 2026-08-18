@@ -12,7 +12,7 @@
 //   3. starts the stream transport (SDK event subscription), lazily for fresh
 //      local sessions,
 //   4. runs the prompt queue until the footer closes.
-import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient } from "@opencode-ai/sdk/api"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { MessageID } from "@/session/schema"
 import { createRunDemo } from "./demo"
@@ -250,7 +250,7 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
       }
 
       log?.write("send.permission.reply", next)
-      await ctx.sdk.v2.session.permission.reply({
+      await ctx.sdk.api.session.permission.reply({
         sessionID: state.sessionID,
         requestID: next.requestID,
         reply: next.reply,
@@ -262,10 +262,10 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
         return
       }
 
-      await ctx.sdk.v2.session.question.reply({
+      await ctx.sdk.api.session.question.reply({
         sessionID: state.sessionID,
         requestID: next.requestID,
-        answers: next.answers,
+        questionReply: { answers: next.answers },
       })
     },
     onQuestionReject: async (next) => {
@@ -273,7 +273,7 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
         return
       }
 
-      await ctx.sdk.v2.session.question.reject({
+      await ctx.sdk.api.session.question.reject({
         sessionID: state.sessionID,
         requestID: next.requestID,
       })

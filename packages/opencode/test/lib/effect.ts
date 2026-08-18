@@ -1,5 +1,5 @@
 import { test, type TestOptions } from "bun:test"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { Cause, Duration, Effect, Exit, Layer } from "effect"
 import * as Scope from "effect/Scope"
 import * as TestClock from "effect/testing/TestClock"
@@ -12,7 +12,7 @@ import { InstanceStore } from "@/project/instance-store"
 type Body<A, E, R> = Effect.Effect<A, E, R> | (() => Effect.Effect<A, E, R>)
 type InstanceOptions<E, R> = {
   git?: boolean
-  config?: Partial<ConfigV1.Info> | ((url?: string) => Partial<ConfigV1.Info>)
+  config?: Partial<ConfigInput.Info> | ((url?: string) => Partial<ConfigInput.Info>)
   init?: (directory: string) => Effect.Effect<void, E, R>
 }
 

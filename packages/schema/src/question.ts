@@ -67,20 +67,20 @@ export const Reply = Schema.Struct({
 }).annotate({ identifier: "Question.Reply" })
 export interface Reply extends Schema.Schema.Type<typeof Reply> {}
 
+export const Replied = Schema.Struct({
+  sessionID: SessionID,
+  requestID: ID,
+  answers: Schema.Array(Answer),
+}).annotate({ identifier: "Question.RepliedPayload" })
+export interface Replied extends Schema.Schema.Type<typeof Replied> {}
+
+export const Rejected = Schema.Struct({
+  sessionID: SessionID,
+  requestID: ID,
+}).annotate({ identifier: "Question.RejectedPayload" })
+export interface Rejected extends Schema.Schema.Type<typeof Rejected> {}
+
 const Asked = define({ type: "question.asked", schema: Request.fields })
-const Replied = define({
-  type: "question.replied",
-  schema: {
-    sessionID: SessionID,
-    requestID: ID,
-    answers: Schema.Array(Answer),
-  },
-})
-const Rejected = define({
-  type: "question.rejected",
-  schema: {
-    sessionID: SessionID,
-    requestID: ID,
-  },
-})
-export const Event = { Asked, Replied, Rejected, Definitions: inventory(Asked, Replied, Rejected) }
+const RepliedEvent = define({ type: "question.replied", schema: Replied.fields })
+const RejectedEvent = define({ type: "question.rejected", schema: Rejected.fields })
+export const Event = { Asked, Replied: RepliedEvent, Rejected: RejectedEvent, Definitions: inventory(Asked, RepliedEvent, RejectedEvent) }

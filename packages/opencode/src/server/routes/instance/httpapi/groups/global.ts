@@ -1,5 +1,5 @@
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
-import { EventV2 } from "@opencode-ai/core/event"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
+import { Event } from "@opencode-ai/core/event"
 import { EventManifest } from "@/event-manifest"
 import { InstanceDisposed } from "@/server/event"
 import "@opencode-ai/core/account"
@@ -19,10 +19,10 @@ const SyncEventSchemas = EventManifest.Latest.values()
     return [
       Schema.Struct({
         type: Schema.Literal("sync"),
-        id: EventV2.ID,
+        id: Event.ID,
         syncEvent: Schema.Struct({
-          type: Schema.Literal(EventV2.versionedType(definition.type, definition.durable.version)),
-          id: EventV2.ID,
+          type: Schema.Literal(Event.versionedType(definition.type, definition.durable.version)),
+          id: Event.ID,
           seq: Schema.Finite,
           aggregateID: Schema.String,
           data: definition.data,
@@ -39,7 +39,7 @@ const GlobalEventSchema = Schema.Struct({
   payload: Schema.Union([
     ...EventManifest.Latest.values()
       .map((definition) =>
-        Schema.Struct({ id: EventV2.ID, type: Schema.Literal(definition.type), properties: definition.data }),
+        Schema.Struct({ id: Event.ID, type: Schema.Literal(definition.type), properties: definition.data }),
       )
       .toArray(),
     InstanceDisposed,
@@ -92,7 +92,7 @@ export const GlobalApi = HttpApi.make("global").add(
         }),
       ),
       HttpApiEndpoint.get("configGet", GlobalPaths.config, {
-        success: described(ConfigV1.Info, "Get global config info"),
+        success: described(ConfigInput.Info, "Get global config info"),
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "global.config.get",
@@ -101,8 +101,8 @@ export const GlobalApi = HttpApi.make("global").add(
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {
-        payload: ConfigV1.Info,
-        success: described(ConfigV1.Info, "Successfully updated global config"),
+        payload: ConfigInput.Info,
+        success: described(ConfigInput.Info, "Successfully updated global config"),
         error: HttpApiError.BadRequest,
       }).annotateMerge(
         OpenApi.annotations({

@@ -9,4 +9,4 @@ export interface Host {
   readonly type: (ref: string, text: string) => Effect.Effect<{ readonly ok: boolean }>
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/Browser.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/Browser.Host") {}

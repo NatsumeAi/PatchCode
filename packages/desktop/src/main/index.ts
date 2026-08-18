@@ -61,7 +61,7 @@ const APP_IDS: Record<string, string> = {
   prod: "ai.opencode.desktop",
 }
 const TEST_ONBOARDING = process.env.OPENCODE_TEST_ONBOARDING === "1"
-const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_V2 === "1" ? "v2" : "v1"
+const SIDECAR_VERSION = process.env.OPENCODE_SIDECAR_CURRENT === "1" || process.env.OPENCODE_SIDECAR_V2 === "1" ? "current" : "legacy"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 let logger: ReturnType<typeof initLogging>
@@ -320,8 +320,8 @@ const main = Effect.gen(function* () {
     ensureLoopbackNoProxy()
     useEnvProxy()
 
-    if (SIDECAR_VERSION === "v2") {
-      logger.log("spawning v2 sidecar")
+    if (SIDECAR_VERSION === "current") {
+      logger.log("spawning current sidecar")
       const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
       yield* Deferred.succeed(serverReady, {
         url: sidecar.url,

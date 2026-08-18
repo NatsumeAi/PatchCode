@@ -79,10 +79,10 @@ test("shows a pending permission dock", async ({ page }) => {
       {
         id: "permission-request",
         sessionID,
-        permission: "bash",
-        patterns: ["git status", "git diff"],
+        action: "bash",
+        resources: ["git status", "git diff"],
         metadata: {},
-        always: [],
+        save: [],
       },
     ],
   })
@@ -173,7 +173,7 @@ async function mockServer(
   },
 ) {
   await mockOpenCodeServer(page, {
-    protocol: "v2",
+    protocol: "current",
     directory,
     project: {
       id: projectID,

@@ -4,17 +4,17 @@ import { Effect } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionTable, TodoTable } from "@opencode-ai/core/session/sql"
 import { SessionTodo } from "@opencode-ai/core/session/todo"
 import { testEffect } from "./lib/effect"
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, SessionTodo.node])))
-const sessionID = SessionV2.ID.make("ses_todo_test")
+const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, CoreEvent.node, SessionTodo.node])))
+const sessionID = Session.ID.make("ses_todo_test")
 
 const setup = Effect.gen(function* () {
   const { db } = yield* Database.Service
@@ -42,9 +42,9 @@ describe("SessionTodo", () => {
     Effect.gen(function* () {
       yield* setup
       const { db } = yield* Database.Service
-      const events = yield* EventV2.Service
+      const events = yield* CoreEvent.Service
       const todos = yield* SessionTodo.Service
-      const published = new Array<EventV2.Payload>()
+      const published = new Array<CoreEvent.Payload>()
       const unsubscribe = yield* events.listen((event) =>
         Effect.sync(() => {
           if (event.type === SessionTodo.Event.Updated.type) published.push(event)

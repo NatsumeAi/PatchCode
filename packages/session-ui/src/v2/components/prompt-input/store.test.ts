@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { createStore } from "solid-js/store"
-import type { PromptInputV2PersistedState } from "./types"
-import { createPromptInputV2Store } from "./store"
+import type { PromptInputPersistedState } from "./types"
+import { createPromptInputStore } from "./store"
 
 function createPromptStore() {
-  return createPromptInputV2Store(
-    createStore<PromptInputV2PersistedState>({
+  return createPromptInputStore(
+    createStore<PromptInputPersistedState>({
       prompt: [
         { type: "text", content: "old", start: 0, end: 3 },
         {
@@ -25,12 +25,12 @@ function createPromptStore() {
 
 describe("prompt input v2 store", () => {
   test("accepts an accessor for the backing store", () => {
-    const [state, setState] = createStore<PromptInputV2PersistedState>({
+    const [state, setState] = createStore<PromptInputPersistedState>({
       prompt: [{ type: "text", content: "", start: 0, end: 0 }],
       cursor: 0,
       context: { items: [] },
     })
-    const prompt = createPromptInputV2Store([() => state, setState])
+    const prompt = createPromptInputStore([() => state, setState])
 
     prompt.setText("accessed")
 
@@ -57,7 +57,7 @@ describe("prompt input v2 store", () => {
   })
 
   test("inserts text without flattening structured mentions", () => {
-    const [state, setState] = createStore<PromptInputV2PersistedState>({
+    const [state, setState] = createStore<PromptInputPersistedState>({
       prompt: [
         { type: "text", content: "A ", start: 0, end: 2 },
         { type: "file", path: "one", content: "@one", start: 2, end: 6 },
@@ -66,7 +66,7 @@ describe("prompt input v2 store", () => {
       cursor: 2,
       context: { items: [] },
     })
-    const prompt = createPromptInputV2Store([state, setState])
+    const prompt = createPromptInputStore([state, setState])
 
     prompt.addText("X\nY")
 

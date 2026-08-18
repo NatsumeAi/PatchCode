@@ -4,7 +4,7 @@ import { Spec } from "../framework/spec"
 declare const OPENCODE_CLI_NAME: string | undefined
 
 export const Commands = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME : "opencode", {
-  description: "OpenCode 2.0 preview command line interface",
+  description: "OpenCode command line interface",
   commands: [
     Spec.make("api", {
       description: "Make a request to the running server",
@@ -26,7 +26,7 @@ export const Commands = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCO
       description: "Debugging and troubleshooting tools",
       commands: [Spec.make("agents", { description: "List all agents" })],
     }),
-    Spec.make("migrate", { description: "Migrate v1 data to v2" }),
+    Spec.make("migrate", { description: "Migrate legacy data to the current format" }),
     Spec.make("service", {
       description: "Manage the background server",
       commands: [
@@ -41,7 +41,7 @@ export const Commands = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCO
       ],
     }),
     Spec.make("serve", {
-      description: "Start the v2 API server",
+      description: "Start the API server",
       params: {
         hostname: Flag.string("hostname").pipe(Flag.withDefault("127.0.0.1")),
         port: Flag.integer("port").pipe(Flag.optional),

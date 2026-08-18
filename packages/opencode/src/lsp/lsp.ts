@@ -1,6 +1,6 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FSUtil } from "@opencode-ai/core/fs-util"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import * as LSPClient from "./client"
 import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
@@ -140,7 +140,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const config = yield* Config.Service
     const flags = yield* RuntimeFlags.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* (ctx) {
@@ -501,7 +501,7 @@ export * as Diagnostic from "./diagnostic"
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, RuntimeFlags.node, FSUtil.node, EventV2Bridge.node],
+  deps: [Config.node, RuntimeFlags.node, FSUtil.node, EventBridge.node],
 })
 
 export * as LSP from "./lsp"

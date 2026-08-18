@@ -2,7 +2,7 @@ export * as SubagentRegistry from "./subagent-registry"
 
 import { Context, DateTime, Duration, Effect, Layer, Schedule, Schema, SynchronizedRef } from "effect"
 import { makeGlobalNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { SessionEvent } from "./event"
 import { SubagentLifecycle } from "./subagent-lifecycle"
 import { SessionSchema } from "./schema"
@@ -78,10 +78,10 @@ export interface Interface {
   readonly activeCount: Effect.Effect<number>
   readonly activeCountByType: (subagentType: string) => Effect.Effect<number>
   readonly cancel: (childSessionID: SessionSchema.ID) => Effect.Effect<void>
-  readonly startWatcher: Effect.Effect<void, never, import("effect").Scope.Scope | EventV2.Service>
+  readonly startWatcher: Effect.Effect<void, never, import("effect").Scope.Scope | Event.Service>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SubagentRegistry") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SubagentRegistry") {}
 
 export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = Effect.gen(function* () {
   const lifecycle = yield* SubagentLifecycle.Service
@@ -254,7 +254,7 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
     })
 
   const startWatcher: Interface["startWatcher"] = Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     // Authority: lastHeartbeatAt is progress-only. Drain membership (execution.active)
     // does NOT exempt stall — a hung drain with frozen progress must be marked lost.
     const check = Effect.gen(function* () {
@@ -338,5 +338,5 @@ export const node = makeGlobalNode({
       return svc
     }),
   ),
-  deps: [EventV2.node, SubagentLifecycle.node],
+  deps: [Event.node, SubagentLifecycle.node],
 })

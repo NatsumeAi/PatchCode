@@ -6,7 +6,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Database } from "../database/database"
 import { makeLocationNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { Global } from "../global"
 import { Location } from "../location"
 import { SessionEvent } from "../session/event"
@@ -77,7 +77,7 @@ const layer = Layer.effect(
     const configDir = () => process.env.OPENCODE_CONFIG_DIR?.trim() || undefined
     const location = yield* Location.Service
     const dbOpt = yield* Effect.serviceOption(Database.Service)
-    const eventsOpt = yield* Effect.serviceOption(EventV2.Service)
+    const eventsOpt = yield* Effect.serviceOption(Event.Service)
     const loadDiscovered = () =>
       discover({
         location: location.directory,
@@ -294,7 +294,7 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Location.node, EventV2.node, Database.node],
+  deps: [Location.node, Event.node, Database.node],
 })
 
 export const fire = (input: DispatchArgs) =>

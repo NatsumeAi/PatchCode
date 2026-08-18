@@ -3,8 +3,8 @@ import { getProjectAvatarVariant } from "@/context/layout"
 import type { ServerConnection } from "@/context/server"
 import { displayName, getProjectAvatarSource } from "@/pages/layout/helpers"
 import { useSessionTabAvatarState } from "@/pages/layout/project-avatar-state"
-import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
-import { SessionProgressIndicatorV2 } from "@opencode-ai/session-ui/v2/session-progress-indicator-v2"
+import { ProjectAvatar } from "@opencode-ai/ui/kit/project-avatar"
+import { SessionProgressIndicator } from "@opencode-ai/session-ui/kit/session-progress-indicator"
 import { Show } from "solid-js"
 
 export function SessionTabAvatar(props: {
@@ -48,7 +48,7 @@ export function SessionTabAvatarView(props: {
   return (
     <Show when={props.loading} fallback={projectAvatar()}>
       <span class="relative block size-4 shrink-0">
-        <SessionProgressIndicatorV2
+        <SessionProgressIndicator
           class={`absolute inset-0 ${props.revealProjectOnHover === false ? "" : "group-hover:invisible"}`}
         />
         <Show when={props.revealProjectOnHover !== false}>

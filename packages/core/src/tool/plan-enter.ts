@@ -4,7 +4,7 @@ import path from "path"
 import { ToolFailure } from "@opencode-ai/llm"
 import { DateTime, Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { Location } from "../location"
 import { Permission } from "../permission"
 import { Question } from "../question"
@@ -44,7 +44,7 @@ const layer = Layer.effectDiscard(
     const question = yield* Question.Service
     const permission = yield* Permission.Service
     const location = yield* Location.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
 
     yield* tools
       .register({
@@ -113,5 +113,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/plan-enter",
   layer,
-  deps: [ToolRegistry.node, Permission.node, Question.node, Location.node, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, Question.node, Location.node, Event.node],
 })

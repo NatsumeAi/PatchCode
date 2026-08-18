@@ -1,11 +1,11 @@
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { Permission } from "@opencode-ai/core/permission"
 import { Effect } from "effect"
 
 export const toolIdentity = {
-  agent: AgentV2.ID.make("build"),
+  agent: Agent.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_tool_test"),
 }
 

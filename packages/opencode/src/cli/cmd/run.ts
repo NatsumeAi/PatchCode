@@ -21,7 +21,7 @@ import { UI } from "../ui"
 import { effectCmd } from "../effect-cmd"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
-import { createOpencodeClient, type OpencodeClient, type Part, type ToolPart } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type OpencodeClient, type Part, type ToolPart } from "@opencode-ai/sdk/api"
 import { createLivePartState, leftoverPartsFromLive } from "@/session/live-legacy-parts"
 import { FormatError, FormatUnknownError } from "../error"
 import { INTERACTIVE_INPUT_ERROR, resolveInteractiveStdin } from "./run/runtime.stdin"
@@ -427,24 +427,12 @@ export const RunCommand = effectCmd({
         process.exit(1)
       }
 
-      const rules: PermissionV1.Ruleset = interactive
+      const rules = interactive
         ? []
         : [
-            {
-              permission: "question",
-              action: "deny",
-              pattern: "*",
-            },
-            {
-              permission: "plan_enter",
-              action: "deny",
-              pattern: "*",
-            },
-            {
-              permission: "plan_exit",
-              action: "deny",
-              pattern: "*",
-            },
+            { action: "question", resource: "*", effect: "deny" as const },
+            { action: "plan_enter", resource: "*", effect: "deny" as const },
+            { action: "plan_exit", resource: "*", effect: "deny" as const },
           ]
 
       function title() {
@@ -732,7 +720,7 @@ export const RunCommand = effectCmd({
             if (!id || settledPermissions.has(id)) return
             settledPermissions.add(id)
             if (auto) {
-              await client.v2.session.permission
+              await client.api.session.permission
                 .reply({
                   sessionID,
                   requestID: id,
@@ -747,7 +735,7 @@ export const RunCommand = effectCmd({
               UI.Style.TEXT_NORMAL +
                 `permission requested: ${action} (${resources.join(", ")}); auto-rejecting`,
             )
-            await client.v2.session.permission
+            await client.api.session.permission
               .reply({
                 sessionID,
                 requestID: id,
@@ -868,11 +856,7 @@ export const RunCommand = effectCmd({
 
             if (event.type === "permission.asked") {
               const permission = event.properties
-              await settlePermission(
-                permission.id,
-                "action" in permission ? String(permission.action) : permission.permission,
-                ("resources" in permission ? permission.resources : permission.patterns) ?? [],
-              )
+              await settlePermission(permission.id, permission.action, permission.resources ?? [])
             }
           }
           return error

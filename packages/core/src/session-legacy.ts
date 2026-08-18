@@ -1,4 +1,4 @@
-export * as SessionV1 from "./session-legacy"
+export * as SessionWire from "./session-legacy"
 
 import { Schema } from "effect"
 import { NonNegativeInt } from "./schema"

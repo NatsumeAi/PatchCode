@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent as CoreAgent } from "@opencode-ai/core/agent"
 import { Location as CoreLocation } from "@opencode-ai/core/location"
-import { ModelV2 } from "@opencode-ai/core/model"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Model as CoreModel } from "@opencode-ai/core/model"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionInput as CoreSessionInput } from "@opencode-ai/core/session/input"
 import { SessionMessage as CoreSessionMessage } from "@opencode-ai/core/session/message"
 import { Prompt as CorePrompt } from "@opencode-ai/core/session/prompt"
@@ -22,10 +22,10 @@ import { compile, emitPromise } from "@opencode-ai/httpapi-codegen"
 import { ClientApi, endpointNames, groupNames, omitEndpoints } from "../src/contract"
 
 test("Core and Server reuse the authoritative Schema and Protocol values", () => {
-  expect(AgentV2.ID).toBe(Agent.ID)
+  expect(CoreAgent.ID).toBe(Agent.ID)
   expect(CoreLocation.Ref).toBe(Location.Ref)
-  expect(ModelV2.Ref).toBe(Model.Ref)
-  expect(SessionV2.Info).toBe(Session.Info)
+  expect(CoreModel.Ref).toBe(Model.Ref)
+  expect(CoreSession.Info).toBe(Session.Info)
   expect(CoreSessionInput.Admitted).toBe(SessionInput.Admitted)
   expect(CoreSessionMessage.Message).toBe(SessionMessage.Message)
   expect(CorePrompt).toBe(Prompt)

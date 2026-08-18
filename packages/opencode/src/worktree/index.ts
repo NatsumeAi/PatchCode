@@ -6,7 +6,7 @@ import { Project } from "@/project/project"
 import { Database } from "@opencode-ai/core/database/database"
 import { eq } from "drizzle-orm"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import type { ProjectV2 } from "@opencode-ai/core/project"
+import type { Project as CoreProject } from "@opencode-ai/core/project"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { errorMessage } from "../util/error"
 import { GlobalBus } from "@/bus/global"
@@ -480,7 +480,7 @@ const layer: Layer.Layer<
 
     const runStartScripts = Effect.fnUntraced(function* (
       directory: string,
-      input: { projectID: ProjectV2.ID; extra?: string },
+      input: { projectID: CoreProject.ID; extra?: string },
     ) {
       const row = yield* db
         .select()

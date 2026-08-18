@@ -5,18 +5,18 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { TextInput as KitTextInput } from "@opencode-ai/ui/kit/text-input"
 import { showToast } from "@/utils/toast"
 import fuzzysort from "fuzzysort"
 import { DEFAULT_PALETTE_KEYBIND, formatKeybind, parseKeybind, useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { SettingsList } from "./settings-list"
-import { SettingsListV2 } from "./settings-v2/parts/list"
+import { SettingsList as SettingsListKit } from "./settings-kit/parts/list"
 
-const IconV2 = lazy(() => import("@opencode-ai/ui/v2/icon").then((module) => ({ default: module.Icon })))
+const KitIcon = lazy(() => import("@opencode-ai/ui/kit/icon").then((module) => ({ default: module.Icon })))
 
 const IS_MAC = typeof navigator === "object" && /(Mac|iPod|iPhone|iPad)/.test(navigator.platform)
 const PALETTE_ID = "command.palette"
@@ -410,7 +410,7 @@ export function createKeybindSettingsController(
   }
 }
 
-function SettingsKeybindsV2() {
+function SettingsKeybindsKit() {
   const command = useCommand()
   const settings = useSettings()
   const controller = createKeybindSettingsController({
@@ -419,7 +419,7 @@ function SettingsKeybindsV2() {
   })
 
   return (
-    <SettingsKeybindsV2View
+    <SettingsKeybindsKitView
       groups={controller.catalog.groups}
       filtered={controller.catalog.filtered}
       title={controller.catalog.title}
@@ -432,7 +432,7 @@ function SettingsKeybindsV2() {
   )
 }
 
-function SettingsKeybindsV2View(props: {
+function SettingsKeybindsKitView(props: {
   groups: KeybindGroup[]
   filtered: (query: string) => Map<KeybindGroup, string[]>
   title: (id: string) => string
@@ -449,15 +449,15 @@ function SettingsKeybindsV2View(props: {
 
   return (
     <>
-      <div class="settings-v2-tab-header settings-v2-tab-header--stacked">
-        <div class="settings-v2-tab-header-row">
-          <h2 class="settings-v2-tab-title">{language.t("settings.shortcuts.title")}</h2>
-          <ButtonV2 variant="ghost" onClick={props.onReset} disabled={!props.hasOverrides()}>
+      <div class="settings-kit-tab-header settings-kit-tab-header--stacked">
+        <div class="settings-kit-tab-header-row">
+          <h2 class="settings-kit-tab-title">{language.t("settings.shortcuts.title")}</h2>
+          <KitButton variant="ghost" onClick={props.onReset} disabled={!props.hasOverrides()}>
             {language.t("settings.shortcuts.reset.button")}
-          </ButtonV2>
+          </KitButton>
         </div>
-        <div class="settings-v2-tab-search">
-          <TextInputV2
+        <div class="settings-kit-tab-search">
+          <KitTextInput
             type="search"
             appearance="base"
             value={store.filter}
@@ -470,25 +470,25 @@ function SettingsKeybindsV2View(props: {
             aria-label={language.t("settings.shortcuts.search.placeholder")}
           />
           <Show when={store.filter}>
-            <IconButtonV2
+            <KitIconButton
               type="button"
               variant="ghost-muted"
               size="small"
-              class="settings-v2-tab-search-clear"
-              icon={<IconV2 name="close" size="large" class="text-v2-icon-icon-muted" />}
+              class="settings-kit-tab-search-clear"
+              icon={<KitIcon name="close" size="large" class="text-kit-icon-icon-muted" />}
               onClick={() => setStore("filter", "")}
             />
           </Show>
         </div>
       </div>
-      <div class="settings-v2-tab-body">
-        <div class="settings-v2-shortcuts flex flex-col gap-8">
+      <div class="settings-kit-tab-body">
+        <div class="settings-kit-shortcuts flex flex-col gap-8">
           <For each={props.groups}>
             {(group) => (
               <Show when={(filtered().get(group) ?? []).length > 0}>
-                <div class="settings-v2-section">
-                  <h3 class="settings-v2-section-title">{language.t(groupKey[group])}</h3>
-                  <SettingsListV2>
+                <div class="settings-kit-section">
+                  <h3 class="settings-kit-section-title">{language.t(groupKey[group])}</h3>
+                  <SettingsListKit>
                     <For each={filtered().get(group) ?? []}>
                       {(id) => (
                         <div class="flex items-center justify-between gap-4 py-3 border-b border-border-weak-base last:border-none">
@@ -497,8 +497,8 @@ function SettingsKeybindsV2View(props: {
                             type="button"
                             data-keybind-id={id}
                             classList={{
-                              "settings-v2-keybind-button": true,
-                              "settings-v2-keybind-button--active": props.active() === id,
+                              "settings-kit-keybind-button": true,
+                              "settings-kit-keybind-button--active": props.active() === id,
                             }}
                             onClick={() => props.onCapture(id)}
                           >
@@ -512,15 +512,15 @@ function SettingsKeybindsV2View(props: {
                         </div>
                       )}
                     </For>
-                  </SettingsListV2>
+                  </SettingsListKit>
                 </div>
               </Show>
             )}
           </For>
           <Show when={store.filter && !hasResults()}>
-            <div class="settings-v2-shortcuts-status">
+            <div class="settings-kit-shortcuts-status">
               <span>{language.t("settings.shortcuts.search.empty")}</span>
-              <span class="settings-v2-shortcuts-status-filter">&quot;{store.filter}&quot;</span>
+              <span class="settings-kit-shortcuts-status-filter">&quot;{store.filter}&quot;</span>
             </div>
           </Show>
         </div>
@@ -529,8 +529,8 @@ function SettingsKeybindsV2View(props: {
   )
 }
 
-export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
-  if (props.v2) return <SettingsKeybindsV2 />
+export const SettingsKeybinds: Component<{ kit?: boolean }> = (props) => {
+  if (props.kit) return <SettingsKeybindsKit />
 
   const command = useCommand()
   const language = useLanguage()
@@ -649,13 +649,13 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
     <Show when={store.filter && !hasResults()}>
       <div
         classList={{
-          "flex flex-col items-center justify-center py-12 text-center": !props.v2,
-          "settings-v2-shortcuts-status": props.v2,
+          "flex flex-col items-center justify-center py-12 text-center": !props.kit,
+          "settings-kit-shortcuts-status": props.kit,
         }}
       >
         <span
           classList={{
-            "text-14-regular text-text-weak": !props.v2,
+            "text-14-regular text-text-weak": !props.kit,
           }}
         >
           {language.t("settings.shortcuts.search.empty")}
@@ -663,8 +663,8 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
         <Show when={store.filter}>
           <span
             classList={{
-              "text-14-regular text-text-strong mt-1": !props.v2,
-              "settings-v2-shortcuts-status-filter": props.v2,
+              "text-14-regular text-text-strong mt-1": !props.kit,
+              "settings-kit-shortcuts-status-filter": props.kit,
             }}
           >
             &quot;{store.filter}&quot;
@@ -674,13 +674,13 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
     </Show>
   )
 
-  const List = props.v2 ? SettingsListV2 : SettingsList
+  const List = props.kit ? SettingsListKit : SettingsList
 
   const groups = (
     <div
       classList={{
-        "settings-v2-shortcuts flex flex-col gap-8": props.v2,
-        "flex flex-col gap-8 max-w-[720px]": !props.v2,
+        "settings-kit-shortcuts flex flex-col gap-8": props.kit,
+        "flex flex-col gap-8 max-w-[720px]": !props.kit,
       }}
     >
       <For each={GROUPS}>
@@ -688,14 +688,14 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
           <Show when={(filtered().get(group) ?? []).length > 0}>
             <div
               classList={{
-                "settings-v2-section": props.v2,
-                "flex flex-col gap-1": !props.v2,
+                "settings-kit-section": props.kit,
+                "flex flex-col gap-1": !props.kit,
               }}
             >
               <h3
                 classList={{
-                  "settings-v2-section-title": props.v2,
-                  "text-14-medium text-text-strong pb-2": !props.v2,
+                  "settings-kit-section-title": props.kit,
+                  "text-14-medium text-text-strong pb-2": !props.kit,
                 }}
               >
                 {language.t(groupKey[group])}
@@ -706,7 +706,7 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
                     <div class="flex items-center justify-between gap-4 py-3 border-b border-border-weak-base last:border-none">
                       <span
                         classList={{
-                          "text-14-regular text-text-strong": !props.v2,
+                          "text-14-regular text-text-strong": !props.kit,
                         }}
                       >
                         {title(id)}
@@ -715,13 +715,13 @@ export const SettingsKeybinds: Component<{ v2?: boolean }> = (props) => {
                         type="button"
                         data-keybind-id={id}
                         classList={{
-                          "settings-v2-keybind-button": props.v2,
-                          "settings-v2-keybind-button--active": props.v2 && store.active === id,
-                          "h-8 px-3 rounded-md text-12-regular": !props.v2,
+                          "settings-kit-keybind-button": props.kit,
+                          "settings-kit-keybind-button--active": props.kit && store.active === id,
+                          "h-8 px-3 rounded-md text-12-regular": !props.kit,
                           "bg-surface-base text-text-subtle hover:bg-surface-raised-base-hover active:bg-surface-raised-base-active":
-                            !props.v2 && store.active !== id,
+                            !props.kit && store.active !== id,
                           "border border-border-weak-base bg-surface-inset-base text-text-weak":
-                            !props.v2 && store.active === id,
+                            !props.kit && store.active === id,
                         }}
                         onClick={() => start(id)}
                       >

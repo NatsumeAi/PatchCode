@@ -3,7 +3,7 @@ import { batch, createEffect, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 
@@ -95,9 +95,9 @@ function Cell(props: {
 
   if (props.inline) {
     return (
-      <TooltipV2 value={props.tip} placement="top">
+      <KitTooltip value={props.tip} placement="top">
         {content()}
-      </TooltipV2>
+      </KitTooltip>
     )
   }
 
@@ -131,9 +131,9 @@ function FocusCell(props: { active: boolean; inline?: boolean; onClick: () => vo
 
   if (props.inline) {
     return (
-      <TooltipV2 value="Force focus styles on all interactive elements" placement="top">
+      <KitTooltip value="Force focus styles on all interactive elements" placement="top">
         {content()}
-      </TooltipV2>
+      </KitTooltip>
     )
   }
 

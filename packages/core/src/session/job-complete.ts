@@ -2,9 +2,9 @@ export * as JobComplete from "./job-complete"
 
 import { Effect, Option } from "effect"
 import { Database } from "../database/database"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import type { BackgroundJob } from "../background-job"
-import { SessionV2 } from "../session"
+import { Session } from "../session"
 import { SessionExecution } from "./execution"
 import { SessionInput } from "./input"
 import { SessionMessage } from "./message"
@@ -47,7 +47,7 @@ export const notifyJobFinished = (info: BackgroundJob.Info): Effect.Effect<void>
       parts: [{ type: "text", text, synthetic: true }],
     })
 
-    const session = yield* Effect.serviceOption(SessionV2.Service)
+    const session = yield* Effect.serviceOption(Session.Service)
     if (Option.isSome(session)) {
       yield* session.value
         .prompt({
@@ -58,7 +58,7 @@ export const notifyJobFinished = (info: BackgroundJob.Info): Effect.Effect<void>
         .pipe(Effect.ignore)
     } else {
       const database = yield* Effect.serviceOption(Database.Service)
-      const events = yield* Effect.serviceOption(EventV2.Service)
+      const events = yield* Effect.serviceOption(Event.Service)
       if (Option.isSome(database) && Option.isSome(events)) {
         yield* SessionInput.admit(database.value.db, events.value, {
           id: SessionMessage.ID.create(),

@@ -1,7 +1,7 @@
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { Session } from "@opencode-ai/sdk/api/client"
 import { Avatar } from "@opencode-ai/ui/avatar"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -301,7 +301,7 @@ export const NewSessionItem = (props: {
       }}
     >
       <div class="shrink-0 size-6 flex items-center justify-center">
-        <IconV2 name="edit" size="small" class="text-icon-weak" />
+        <KitIcon name="edit" size="small" class="text-icon-weak" />
       </div>
       <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{label}</span>
     </A>

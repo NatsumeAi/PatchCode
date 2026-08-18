@@ -5,7 +5,7 @@ import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Deferred, Effect, Layer, Option } from "effect"
 import { Config } from "../../src/config/config"
-import { EventV2Bridge } from "../../src/event-bridge"
+import { EventBridge } from "../../src/event-bridge"
 import { McpAuth } from "../../src/mcp/auth"
 import { McpBrowser } from "../../src/mcp/browser"
 import { MCP } from "../../src/mcp/index"
@@ -32,7 +32,7 @@ const browserLayer = Layer.succeed(
 )
 
 const mcpTest = testEffect(
-  LayerNode.compile(LayerNode.group([MCP.node, McpAuth.node, EventV2Bridge.node, Config.node]), [
+  LayerNode.compile(LayerNode.group([MCP.node, McpAuth.node, EventBridge.node, Config.node]), [
     [McpBrowser.node, browserLayer],
   ]),
 )
@@ -135,7 +135,7 @@ const trackBrowserOpen = (url: string, fail = false) =>
   })
 
 const trackBrowserOpenFailed = Effect.gen(function* () {
-  const events = yield* EventV2Bridge.Service
+  const events = yield* EventBridge.Service
   const event = yield* Deferred.make<{ mcpName: string; url: string }>()
   const unsubscribe = yield* events.listen((evt) => {
     if (evt.type === MCP.BrowserOpenFailed.type)

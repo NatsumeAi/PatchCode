@@ -5,7 +5,7 @@ import {
   type DisplayContext,
   type DisplayMode,
 } from "@opencode-ai/session-display"
-import type { ToolPart } from "@opencode-ai/sdk/v2"
+import type { ToolPart } from "@opencode-ai/sdk/api"
 
 const webContext: DisplayContext = {
   cwd: "/",

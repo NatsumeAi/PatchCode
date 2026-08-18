@@ -45,19 +45,19 @@ benchmark.describe("performance: session timeline streaming", () => {
     report(result.metrics, result.context)
   })
 
-  benchmark("streams assistant text in v2 with review pane closed", async ({ page, report }) => {
+  benchmark("streams assistant text in kit with review pane closed", async ({ page, report }) => {
     benchmark.setTimeout(Number(process.env.TIMELINE_COMPLETION_TIMEOUT_MS ?? 420_000) + 60_000)
     const result = await runTimelineStreamBenchmark(page, { newLayoutDesigns: true })
     report(result.metrics, result.context)
   })
 
-  benchmark("streams assistant text in v2 with review diffs and pane closed", async ({ page, report }) => {
+  benchmark("streams assistant text in kit with review diffs and pane closed", async ({ page, report }) => {
     benchmark.setTimeout(Number(process.env.TIMELINE_COMPLETION_TIMEOUT_MS ?? 420_000) + 60_000)
     const result = await runTimelineStreamBenchmark(page, { newLayoutDesigns: true, reviewDiffs: true })
     report(result.metrics, result.context)
   })
 
-  benchmark("streams assistant text in v2 with review pane open", async ({ page, report }) => {
+  benchmark("streams assistant text in kit with review pane open", async ({ page, report }) => {
     benchmark.setTimeout(Number(process.env.TIMELINE_COMPLETION_TIMEOUT_MS ?? 420_000) + 60_000)
     const result = await runTimelineStreamBenchmark(page, { newLayoutDesigns: true, reviewPane: true })
     report(result.metrics, result.context)
@@ -65,7 +65,7 @@ benchmark.describe("performance: session timeline streaming", () => {
 })
 
 benchmark.describe("performance: review pane", () => {
-  benchmark("loads v2 review diffs and switches active files", async ({ page, report }) => {
+  benchmark("loads kit review diffs and switches active files", async ({ page, report }) => {
     benchmark.setTimeout(240_000)
     const historyTurns = Number(process.env.REVIEW_PANE_HISTORY_TURNS ?? 72)
     const diffs = createReviewDiffs()
@@ -209,11 +209,11 @@ async function installReviewPaneProbe(page: Page, input: { file: string }) {
 
     const paneState = () => {
       const panel = document.querySelector<HTMLElement>("#review-panel")
-      const review = panel?.querySelector<HTMLElement>('[data-component="session-review-v2"]')
+      const review = panel?.querySelector<HTMLElement>('[data-component="session-review"]')
       const rect = (review ?? panel)?.getBoundingClientRect()
       const text = panel?.textContent ?? ""
       const previewHeader = panel?.querySelector<HTMLElement>(
-        '[data-slot="session-review-v2-file-header"]',
+        '[data-slot="session-review-kit-file-header"]',
       )?.textContent
       const header = previewHeader ?? text
       const viewers = panel ? [...panel.querySelectorAll<HTMLElement>('[data-component="file"][data-mode="diff"]')] : []

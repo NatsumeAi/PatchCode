@@ -1,4 +1,4 @@
-import { Message, Model, Part, Session, SnapshotFileDiff } from "@opencode-ai/sdk/v2"
+import { Message, Model, Part, Session, SnapshotFileDiff } from "@opencode-ai/sdk/api"
 import { iife } from "@opencode-ai/core/util/iife"
 import z from "zod"
 import { Storage } from "./storage"

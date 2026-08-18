@@ -3,23 +3,23 @@ import { asc, eq } from "drizzle-orm"
 import { DateTime, Effect, Schema } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Model } from "@opencode-ai/core/model"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionTable, SessionMessageTable } from "@opencode-ai/core/session/sql"
 import { testEffect } from "./lib/effect"
 
-const it = testEffect(LayerNode.compile(LayerNode.group([Database.node, EventV2.node, SessionProjector.node])))
+const it = testEffect(LayerNode.compile(LayerNode.group([Database.node, Event.node, SessionProjector.node])))
 const timestamp = DateTime.makeUnsafe(1)
-const model = { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") }
+const model = { id: Model.ID.make("model"), providerID: Provider.ID.make("provider") }
 
 const content = (text: string) => [{ type: "text" as const, text }]
 
@@ -27,8 +27,8 @@ describe("Tool.Progress", () => {
   it.effect("is live-only; final settlements stay durable", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
-      const service = yield* EventV2.Service
-      const sessionID = SessionV2.ID.make("ses_tool_progress_projector")
+      const service = yield* Event.Service
+      const sessionID = Session.ID.make("ses_tool_progress_projector")
       yield* db
         .insert(ProjectTable)
         .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -151,9 +151,9 @@ describe("Tool.Progress", () => {
         .orderBy(asc(EventTable.seq))
         .all()
         .pipe(Effect.orDie)
-      expect(rows.map((row) => row.type)).not.toContain(EventV2.versionedType(SessionEvent.Tool.Progress.type, 1))
-      expect(rows.map((row) => row.type)).toContain(EventV2.versionedType(SessionEvent.Tool.Success.type, 1))
-      expect(rows.map((row) => row.type)).toContain(EventV2.versionedType(SessionEvent.Tool.Failed.type, 1))
+      expect(rows.map((row) => row.type)).not.toContain(Event.versionedType(SessionEvent.Tool.Progress.type, 1))
+      expect(rows.map((row) => row.type)).toContain(Event.versionedType(SessionEvent.Tool.Success.type, 1))
+      expect(rows.map((row) => row.type)).toContain(Event.versionedType(SessionEvent.Tool.Failed.type, 1))
     }),
   )
 })

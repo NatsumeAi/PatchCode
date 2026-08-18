@@ -12,7 +12,7 @@ describe("serverStatusDotClass", () => {
 
   test("uses the session attention token when a service needs attention", () => {
     expect(serverStatusDotClass({ ready: true, serverHealth: true, attention: true, issue: true })).toBe(
-      "bg-v2-background-bg-accent",
+      "bg-kit-background-bg-accent",
     )
   })
 

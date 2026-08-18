@@ -11,13 +11,14 @@ import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { SessionMessageTable, SessionTable } from "./sql"
 import { fromRow } from "./info"
-import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
+import { Permission } from "@opencode-ai/schema/permission"
+import { PermissionStored } from "../permission/stored"
 import { isSandboxExplicit, upgradeLegacyOffProfile } from "../sandbox/resolve"
 import { Unavailable } from "../sandbox/windows"
 
 export interface Interface {
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info | undefined>
-  readonly sessionPermission: (sessionID: SessionSchema.ID) => Effect.Effect<PermissionV1.Ruleset | undefined>
+  readonly sessionPermission: (sessionID: SessionSchema.ID) => Effect.Effect<Permission.Ruleset | undefined>
   readonly context: (sessionID: SessionSchema.ID) => Effect.Effect<SessionMessage.Message[], MessageDecodeError>
   readonly runnerContext: (
     sessionID: SessionSchema.ID,
@@ -33,7 +34,7 @@ export interface Interface {
   ) => Effect.Effect<SessionMessage.Message[] | undefined, MessageDecodeError>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionStore") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SessionStore") {}
 
 const layer = Layer.effect(
   Service,
@@ -70,7 +71,7 @@ const layer = Layer.effect(
       }),
       sessionPermission: Effect.fn("SessionStore.sessionPermission")(function* (sessionID) {
         const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
-        return row?.permission ?? undefined
+        return PermissionStored.ruleset(row?.permission) ?? row?.permission ?? undefined
       }),
       context: Effect.fn("SessionStore.context")(function* (sessionID) {
         return yield* SessionHistory.load(db, sessionID)
@@ -94,7 +95,7 @@ const layer = Layer.effect(
       }),
       wait: Effect.fn("SessionStore.wait")(function* (sessionID, timeoutMs = 30 * 60 * 1_000, after?: number) {
         // Single owner of "wait for the session to settle": the task host,
-        // github handler, and SessionV2.wait all poll through this method
+        // github handler, and Session.wait all poll through this method
         // instead of each reimplementing a message loop. Returns undefined on
         // timeout so callers can distinguish "settled" from "budget expired".
         // `after` (epoch ms) ignores assistants settled before it — resume

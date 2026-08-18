@@ -2,8 +2,8 @@ import { Show, type JSX } from "solid-js"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
 
 import { useCommand } from "@/context/command"
 import { DESKTOP_MENU, desktopMenuVisible, type DesktopMenuAction, type DesktopMenuEntry } from "@/desktop-menu"
@@ -12,7 +12,7 @@ import { usePlatform } from "@/context/platform"
 export function WindowsAppMenu(props: {
   command: ReturnType<typeof useCommand>
   platform: ReturnType<typeof usePlatform>
-  variant?: "legacy" | "v2"
+  variant?: "legacy" | "kit"
 }) {
   let lastFocused: HTMLElement | undefined
 
@@ -48,16 +48,16 @@ export function WindowsAppMenu(props: {
 
   return (
     <DropdownMenu gutter={4} modal={false} placement="bottom-start">
-      {props.variant === "v2" ? (
+      {props.variant === "kit" ? (
         <div
           data-component="desktop-icon-button"
           class="flex h-7 w-9 shrink-0 items-center justify-center rounded-[6px] px-1"
         >
           <DropdownMenu.Trigger
-            as={IconButtonV2}
+            as={KitIconButton}
             variant="ghost-muted"
             size="large"
-            icon={<IconV2 name="menu" />}
+            icon={<KitIcon name="menu" />}
             aria-label="OpenCode menu"
             onPointerDown={rememberFocus}
             onKeyDown={rememberFocus}

@@ -41,12 +41,12 @@ import { Npm } from "@opencode-ai/core/npm"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
 import { AppNodeBuilderInstance } from "./instance-app-node-builder"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SubagentRegistry } from "@opencode-ai/core/session/subagent-registry"
 import { ToolHostBridges } from "@/tool/tool-host-bridges"
 import { TaskTool } from "@opencode-ai/core/tool/task"
@@ -81,7 +81,7 @@ export const AppLayer = AppNodeBuilderInstance.build(
     SessionStatus.node,
     BackgroundJob.node,
     RuntimeFlags.node,
-    EventV2Bridge.node,
+    EventBridge.node,
     SessionRunState.node,
     SessionSummary.node,
 
@@ -99,7 +99,7 @@ export const AppLayer = AppNodeBuilderInstance.build(
     Installation.node,
     ShareNext.node,
     SessionShare.node,
-    SessionV2.node,
+    CoreSession.node,
     ToolHostBridges.node,
     SubagentRegistry.node,
     MemoryDrainWatcher.node,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createStore } from "solid-js/store"
 import { QueryClient } from "@tanstack/solid-query"
-import type { Config, OpencodeClient, Project } from "@opencode-ai/sdk/v2/client"
+import type { Config, OpencodeClient, Project } from "@opencode-ai/sdk/api/client"
 import type { AgentApi, CatalogApi, CommandApi, ReferenceApi } from "@opencode-ai/client/promise"
 import type { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import {
@@ -102,7 +102,7 @@ describe("bootstrapDirectory", () => {
         },
         permission: { list: async () => ({ data: [] }) },
         question: { list: async () => ({ data: [] }) },
-        v2: { reference: { list: async () => ({ data: { data: [] } }) } },
+        api: { reference: { list: async () => ({ data: { data: [] } }) } },
         mcp: {
           status: async () => {
             mcpReads.push("status")
@@ -126,7 +126,7 @@ describe("bootstrapDirectory", () => {
       loadSessions() {},
       translate: (key) => key,
       queryClient: new QueryClient(),
-      protocol: Promise.resolve("v1"),
+      protocol: Promise.resolve("legacy"),
     })
 
     expect(store.status).toBe("partial")

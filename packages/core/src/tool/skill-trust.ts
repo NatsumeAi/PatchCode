@@ -8,7 +8,7 @@ import { FSUtil } from "../fs-util"
 import { Global } from "../global"
 import { scanForThreatsInScope } from "../memory/scan"
 import { Permission } from "../permission"
-import { SkillV2 } from "../skill"
+import { Skill as CoreSkill } from "../skill"
 import { SkillLock } from "../skill/lock"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -30,7 +30,7 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const permission = yield* Permission.Service
-    const skills = yield* SkillV2.Service
+    const skills = yield* CoreSkill.Service
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
 
@@ -76,5 +76,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill-trust",
   layer,
-  deps: [ToolRegistry.node, Permission.node, SkillV2.node, FSUtil.node, Global.node],
+  deps: [ToolRegistry.node, Permission.node, CoreSkill.node, FSUtil.node, Global.node],
 })

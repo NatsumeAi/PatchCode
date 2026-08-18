@@ -1,5 +1,5 @@
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
-import type { Event } from "@opencode-ai/sdk/v2/client"
+import type { Event } from "@opencode-ai/sdk/api/client"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -26,41 +26,7 @@ type CurrentDelta = Extract<
 >
 
 export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
-  if (event.type === "permission.asked") {
-    const data = event.data as {
-      id: string
-      sessionID: string
-      action?: string
-      permission?: string
-      resources?: string[]
-      patterns?: string[]
-      save?: string[]
-      always?: string[]
-      metadata?: Record<string, unknown>
-      source?: { type: string; messageID?: string; callID?: string }
-      tool?: { messageID: string; callID: string }
-    }
-    if (data.action !== undefined) {
-      return {
-        id: event.id,
-        type: "permission.asked",
-        properties: {
-          id: data.id,
-          sessionID: data.sessionID,
-          permission: data.action,
-          patterns: data.resources ?? [],
-          always: data.save ?? [],
-          metadata: data.metadata ?? {},
-          tool:
-            data.source?.type === "tool" && data.source.messageID && data.source.callID
-              ? { messageID: data.source.messageID, callID: data.source.callID }
-              : data.tool,
-        },
-        current: event,
-      } as ServerEvent
-    }
-  }
-  return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
+  return { id: event.id, type: event.type, properties: event.data, current: event } as unknown as ServerEvent
 }
 
 const coalescedKey = (event: QueuedServerEvent) => {
@@ -281,7 +247,7 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
         try {
           const kind = await protocol
           const events =
-            kind === "v1"
+            kind === "legacy"
               ? (await eventSdk.global.event({ signal: attempt.signal })).stream
               : eventApi.event.subscribe({ signal: attempt.signal })
           let yielded = Date.now()

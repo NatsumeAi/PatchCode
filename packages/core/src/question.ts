@@ -3,7 +3,7 @@ export * as Question from "./question"
 import { makeLocationNode } from "./effect/app-node"
 import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Question } from "@opencode-ai/schema/question"
-import { EventV2 } from "./event"
+import { Event as CoreEvent } from "./event"
 import { SessionSchema } from "./session/schema"
 
 export const ID = Question.ID
@@ -70,7 +70,7 @@ interface Pending {
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const pending = new Map<ID, Pending>()
 
     yield* Effect.addFinalizer(() =>
@@ -144,4 +144,4 @@ const layer = Layer.effect(
 
 export const locationLayer = layer
 
-export const node = makeLocationNode({ service: Service, layer, deps: [EventV2.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [CoreEvent.node] })

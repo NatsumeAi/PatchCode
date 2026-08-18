@@ -1,5 +1,5 @@
 /**
- * Registers MCP + plugin tools into core Location Tools.Service so V2
+ * Registers MCP + plugin tools into core Location Tools.Service so
  * SessionRunner.materialize() advertises and settles them.
  */
 export * as DynamicTools from "./dynamic-tools"
@@ -20,7 +20,7 @@ import { MCP, type McpTool } from "@/mcp"
 import { Plugin } from "@/plugin"
 import { inProcessFromPlugin } from "@/plugin/hooks-bridge"
 import { InstanceStore } from "@/project/instance-store"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { EffectBridge } from "@/effect/bridge"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -84,7 +84,9 @@ function isZodType(value: unknown): value is z.ZodType {
 function assertPermission(action: string, context: Tool.Context, extra?: { resources?: string[]; save?: string[] }) {
   return Effect.gen(function* () {
     const permission = yield* Effect.serviceOption(Permission.Service)
-    if (Option.isNone(permission)) return
+    if (Option.isNone(permission)) {
+      return yield* new ToolFailure({ message: `Permission denied: ${action}` })
+    }
     yield* permission.value
       .assert({
         action,
@@ -449,19 +451,19 @@ function pluginToTool(id: string, def: ToolDefinition, directory: string, worktr
           worktree,
           metadata: async () => {},
           ask: (req: {
-            permission: string
-            patterns?: string[]
-            always?: string[]
+            action: string
+            resources?: string[]
+            save?: string[]
             metadata?: Record<string, unknown>
           }) =>
             bridge.promise(
               Option.isNone(permission)
-                ? Effect.void
+                ? Effect.fail(new ToolFailure({ message: `Permission denied: ${req.action}` }))
                 : permission.value
                     .assert({
-                      action: req.permission,
-                      resources: req.patterns ?? ["*"],
-                      save: req.always ?? ["*"],
+                      action: req.action,
+                      resources: req.resources ?? ["*"],
+                      save: req.save ?? ["*"],
                       sessionID: context.sessionID,
                       agent: context.agent,
                       source: {
@@ -510,7 +512,7 @@ const hostLayer = Layer.effect(
     const plugin = yield* Plugin.Service
     const instances = yield* InstanceStore.Service
     const config = yield* Config.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
 
     return DynamicTools.HostService.of({
       install: Effect.gen(function* () {
@@ -664,5 +666,5 @@ const hostLayer = Layer.effect(
 export const node = makeGlobalNode({
   service: DynamicTools.HostService,
   layer: hostLayer,
-  deps: [MCP.node, Plugin.node, InstanceStore.node, Config.node, EventV2Bridge.node],
+  deps: [MCP.node, Plugin.node, InstanceStore.node, Config.node, EventBridge.node],
 })

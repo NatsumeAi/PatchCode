@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { SessionNotification } from "@agentclientprotocol/sdk"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
+import { Model as CoreModel } from "@opencode-ai/core/model"
 import { UsageService } from "@/acp/usage"
 import { Provider } from "@/provider/provider"
 import { Effect, Layer } from "effect"
@@ -43,7 +43,7 @@ const assistantWithoutProvider = (): UsageService.SessionMessage => ({
   },
 })
 
-const model = (providerID: ProviderV2.ID, modelID: ModelV2.ID, context: number): Provider.Model => ({
+const model = (providerID: CoreProvider.ID, modelID: CoreModel.ID, context: number): Provider.Model => ({
   id: modelID,
   providerID,
   api: {
@@ -77,9 +77,9 @@ const model = (providerID: ProviderV2.ID, modelID: ModelV2.ID, context: number):
   release_date: "2026-01-01",
 })
 
-const providers = (context = 128_000): Record<ProviderV2.ID, Provider.Info> => {
-  const providerID = ProviderV2.ID.make("anthropic")
-  const modelID = ModelV2.ID.make("claude-sonnet")
+const providers = (context = 128_000): Record<CoreProvider.ID, Provider.Info> => {
+  const providerID = CoreProvider.ID.make("anthropic")
+  const modelID = CoreModel.ID.make("claude-sonnet")
   return {
     [providerID]: {
       id: providerID,
@@ -96,7 +96,7 @@ const providers = (context = 128_000): Record<ProviderV2.ID, Provider.Info> => {
 
 const fakeLayer = (input: {
   readonly messages?: Effect.Effect<readonly UsageService.SessionMessage[], unknown>
-  readonly providers?: (directory: string) => Effect.Effect<Record<ProviderV2.ID, Provider.Info>, unknown>
+  readonly providers?: (directory: string) => Effect.Effect<Record<CoreProvider.ID, Provider.Info>, unknown>
 }) =>
   LayerNode.compile(UsageService.node, [
     [
@@ -182,13 +182,13 @@ describe("acp usage", () => {
       const usage = yield* UsageService.Service
       const first = yield* usage.contextLimit({
         directory: "/workspace",
-        providerID: ProviderV2.ID.make("anthropic"),
-        modelID: ModelV2.ID.make("claude-sonnet"),
+        providerID: CoreProvider.ID.make("anthropic"),
+        modelID: CoreModel.ID.make("claude-sonnet"),
       })
       const second = yield* usage.contextLimit({
         directory: "/workspace",
-        providerID: ProviderV2.ID.make("anthropic"),
-        modelID: ModelV2.ID.make("claude-sonnet"),
+        providerID: CoreProvider.ID.make("anthropic"),
+        modelID: CoreModel.ID.make("claude-sonnet"),
       })
 
       expect(first).toBe(200_000)

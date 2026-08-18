@@ -1,10 +1,10 @@
 // @refresh reload
 
 import { generateNeutralScale, hexToOklch, oklchToHex, shift } from "../color"
-import { mapV2Foreground } from "./foreground"
-import { mapV2Semantics, mergeV2Tokens } from "./mapping"
-import type { DesktopTheme, HexColor, ResolvedV2Theme, ThemeVariant, V2ColorValue } from "../types"
-import { V2_PRIMITIVES_DEFAULT } from "./default-primitives"
+import { mapKitForeground } from "./foreground"
+import { mapKitSemantics, mergeKitTokens } from "./mapping"
+import type { DesktopTheme, HexColor, ResolvedKitTheme, ThemeVariant, KitColorValue } from "../types"
+import { KIT_PRIMITIVES_DEFAULT } from "./default-primitives"
 
 const V2_STEPS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200] as const
 
@@ -61,10 +61,10 @@ function generateV2NeutralScale(neutral: HexColor, ink: HexColor, isDark: boolea
   return isDark ? scale.toReversed() : scale
 }
 
-function assignHueRamp(prefix: string, scale: HexColor[]): Record<string, V2ColorValue> {
-  const tokens: Record<string, V2ColorValue> = {}
+function assignHueRamp(prefix: string, scale: HexColor[]): Record<string, KitColorValue> {
+  const tokens: Record<string, KitColorValue> = {}
   for (let i = 0; i < V2_STEPS.length; i++) {
-    tokens[`v2-${prefix}-${V2_STEPS[i]}`] = scale[i]!
+    tokens[`kit-${prefix}-${V2_STEPS[i]}`] = scale[i]!
   }
   return tokens
 }
@@ -106,7 +106,7 @@ function readPalette(variant: ThemeVariant): PaletteInput {
 }
 
 /** Build v2 primitive ramps (100 = lightest). Alpha ramps are static in `v2/styles/colors.css`. */
-export function generateV2Primitives(variant: ThemeVariant, isDark: boolean): Record<string, V2ColorValue> {
+export function generateKitPrimitives(variant: ThemeVariant, isDark: boolean): Record<string, KitColorValue> {
   const colors = readPalette(variant)
   const grey = generateV2NeutralScale(colors.neutral, colors.ink, isDark)
   const blue = generateV2HueScale(colors.interactive, isDark)
@@ -119,7 +119,7 @@ export function generateV2Primitives(variant: ThemeVariant, isDark: boolean): Re
   const cyan = generateV2HueScale(shift(colors.info, { h: -12, l: 0.128, c: 1.12 }), isDark)
 
   return {
-    ...V2_PRIMITIVES_DEFAULT,
+    ...KIT_PRIMITIVES_DEFAULT,
     ...assignHueRamp("grey", grey),
     ...assignHueRamp("blue", blue),
     ...assignHueRamp("green", green),
@@ -132,22 +132,41 @@ export function generateV2Primitives(variant: ThemeVariant, isDark: boolean): Re
   }
 }
 
-export function resolveThemeVariantV2(variant: ThemeVariant, isDark: boolean): ResolvedV2Theme {
-  const primitives = generateV2Primitives(variant, isDark)
-  const semantics = mapV2Semantics(isDark)
-  const foreground = mapV2Foreground(readPalette(variant).ink, isDark, primitives, variant.overrides)
-  return mergeV2Tokens(primitives, semantics, foreground, variant.v2Overrides ?? {})
+function remapKitOverrideKeys(input: Record<string, KitColorValue>): Record<string, KitColorValue> {
+  const out: Record<string, KitColorValue> = {}
+  for (const [key, value] of Object.entries(input)) {
+    const nextKey = key.startsWith("v2-") ? `kit-${key.slice(3)}` : key
+    const nextValue = typeof value === "string" ? value.replaceAll("var(--v2-", "var(--kit-") : value
+    out[nextKey] = nextValue
+  }
+  return out
 }
 
-export function resolveThemeV2(theme: DesktopTheme): { light: ResolvedV2Theme; dark: ResolvedV2Theme } {
+export function resolveKitThemeVariant(variant: ThemeVariant, isDark: boolean): ResolvedKitTheme {
+  const primitives = generateKitPrimitives(variant, isDark)
+  const semantics = mapKitSemantics(isDark)
+  const foreground = mapKitForeground(readPalette(variant).ink, isDark, primitives, variant.overrides)
+  return mergeKitTokens(
+    primitives,
+    semantics,
+    foreground,
+    remapKitOverrideKeys(variant.kitOverrides ?? variant.v2Overrides ?? {}),
+  )
+}
+
+export function resolveKitTheme(theme: DesktopTheme): { light: ResolvedKitTheme; dark: ResolvedKitTheme } {
   return {
-    light: resolveThemeVariantV2(theme.light, false),
-    dark: resolveThemeVariantV2(theme.dark, true),
+    light: resolveKitThemeVariant(theme.light, false),
+    dark: resolveKitThemeVariant(theme.dark, true),
   }
 }
 
-export function themeV2ToCss(tokens: ResolvedV2Theme): string {
+export function themeKitToCss(tokens: ResolvedKitTheme): string {
   return Object.entries(tokens)
-    .map(([key, value]) => `--${key}: ${value};`)
+    .flatMap(([key, value]) => {
+      const decl = `--${key}: ${value};`
+      if (!key.startsWith("kit-")) return [decl]
+      return [decl, `--v2-${key.slice(4)}: var(--${key});`]
+    })
     .join("\n  ")
 }

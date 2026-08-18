@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import { SessionV1 as Wire } from "@opencode-ai/schema/session-legacy"
-import { SessionV1 } from "../src/session-legacy"
+import { SessionWire as Wire } from "@opencode-ai/schema/session-legacy"
+import { SessionWire } from "../src/session-legacy"
 
 describe("legacy event schema compatibility", () => {
-  test("Core references canonical SessionV1 definitions", () => {
-    expect(SessionV1.Event.Created).toBe(Wire.Event.Created)
-    expect(SessionV1.Event.PartUpdated).toBe(Wire.Event.PartUpdated)
+  test("Core references canonical SessionWire definitions", () => {
+    expect(SessionWire.Event.Created).toBe(Wire.Event.Created)
+    expect(SessionWire.Event.PartUpdated).toBe(Wire.Event.PartUpdated)
   })
 
   test("Core retains NamedError constructor identity", () => {
-    const error = new SessionV1.APIError({ message: "failed", isRetryable: false })
-    expect(error).toBeInstanceOf(SessionV1.APIError)
+    const error = new SessionWire.APIError({ message: "failed", isRetryable: false })
+    expect(error).toBeInstanceOf(SessionWire.APIError)
     expect(error.toObject()).toEqual({ name: "APIError", data: { message: "failed", isRetryable: false } })
   })
 })

@@ -1,7 +1,7 @@
 // Map live session.next.* SSE events onto leftover Message+Part shapes so
 // official CLI / ACP consumers that still read message.part.updated can paint
 // the unique live drain without a second durable leftover event stream.
-import type { Event, Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Event, Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/api"
 
 export type LivePartState = {
   readonly tools: Map<string, { tool: string; input: Record<string, unknown>; start: number }>

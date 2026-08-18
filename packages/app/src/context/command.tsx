@@ -248,7 +248,7 @@ export function formatKeybind(config: string, t?: (key: KeyLabel) => string): st
   return IS_MAC ? parts.join("") : parts.join("+")
 }
 
-// KeybindV2 takes an array instead of a string
+// Keybind takes an array instead of a string
 export function formatKeybindKeys(config: string, t?: (key: KeyLabel) => string): string[] {
   return formatKeybindParts(config, t)
 }
@@ -275,7 +275,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
 
     type CommandCatalog = Record<string, CommandCatalogItem>
     const [catalog, setCatalog, _, catalogReady] = persisted(
-      Persist.global("command.catalog.v1"),
+      Persist.global("command.catalog", ["command.catalog.v1"]),
       createStore<CommandCatalog>({}),
     )
 

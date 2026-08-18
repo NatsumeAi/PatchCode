@@ -44,7 +44,7 @@ import { MemoryTools } from "../memory/tools"
  *
  * Host bridges (LSP.Host, Task.Host, Browser.Host) are optional: tools register
  * always and fail clearly when the host is not provided. opencode wires the
- * hosts at the app layer so V2 sessions get real task/lsp/browser execution.
+ * hosts at the app layer so sessions get real task/lsp/browser execution.
  */
 export const node = makeLocationNode({
   name: "built-in-tools",

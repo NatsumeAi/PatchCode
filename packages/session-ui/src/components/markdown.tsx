@@ -15,9 +15,9 @@ import {
   splitProps,
 } from "solid-js"
 import { isServer, render } from "solid-js/web"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Tooltip } from "@opencode-ai/ui/kit/tooltip"
 import { bundledLanguages } from "shiki"
 import { canReusePendingBlock, project, type Block, type Projection } from "./markdown-stream"
 import {
@@ -128,20 +128,20 @@ function createCopyButton(labels: CopyLabels) {
 function MarkdownCopyButton(props: { labels: Accessor<CopyLabels>; copied: Accessor<boolean> }) {
   const label = () => (props.copied() ? props.labels().copied : props.labels().copy)
   return (
-    <TooltipV2 placement="top" value={label()}>
-      <IconButtonV2
+    <Tooltip placement="top" value={label()}>
+      <IconButton
         type="button"
         size="normal"
         variant="ghost-muted"
         aria-label={label()}
         icon={
           <>
-            <IconV2 name="outline-copy" data-copy-icon />
-            <IconV2 name="check" data-check-icon />
+            <KitIcon name="outline-copy" data-copy-icon />
+            <KitIcon name="check" data-check-icon />
           </>
         }
       />
-    </TooltipV2>
+    </Tooltip>
   )
 }
 

@@ -1,18 +1,18 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
-import { PluginV2 } from "@opencode-ai/core/plugin"
+import { Plugin } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { ProviderPlugins } from "@opencode-ai/core/plugin/provider"
 import { ZenmuxPlugin } from "@opencode-ai/core/plugin/provider/zenmux"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 
 const addPlugin = Effect.fn(function* () {
-  const plugin = yield* PluginV2.Service
+  const plugin = yield* Plugin.Service
   const host = yield* PluginHost.make(plugin)
   yield* ZenmuxPlugin.effect(host)
 })
@@ -24,14 +24,14 @@ function required<T>(value: T | undefined): T {
 
 describe("ZenmuxPlugin", () => {
   it.effect("is registered so legacy referer headers can be applied", () =>
-    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(PluginV2.ID.make("zenmux"))),
+    Effect.sync(() => expect(ProviderPlugins.map((item) => item.id)).toContain(Plugin.ID.make("zenmux"))),
   )
 
   it.effect("applies the exact legacy Zenmux headers", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
+        catalog.provider.update(Provider.ID.make("zenmux"), (provider) => {
           provider.api = {
             type: "aisdk",
             package: "@ai-sdk/openai-compatible",
@@ -40,7 +40,7 @@ describe("ZenmuxPlugin", () => {
         })
       })
       yield* addPlugin()
-      const result = required(yield* catalog.provider.get(ProviderV2.ID.make("zenmux")))
+      const result = required(yield* catalog.provider.get(Provider.ID.make("zenmux")))
       expect(result.request.headers).toEqual({ "HTTP-Referer": "https://opencode.ai/", "X-Title": "opencode" })
       expect(Object.keys(result.request.headers).sort()).toEqual(["HTTP-Referer", "X-Title"])
     }),
@@ -50,7 +50,7 @@ describe("ZenmuxPlugin", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
+        catalog.provider.update(Provider.ID.make("zenmux"), (provider) => {
           provider.api = {
             type: "aisdk",
             package: "@ai-sdk/openai-compatible",
@@ -61,7 +61,7 @@ describe("ZenmuxPlugin", () => {
       })
       yield* addPlugin()
 
-      expect(required(yield* catalog.provider.get(ProviderV2.ID.make("zenmux"))).request.headers).toEqual({
+      expect(required(yield* catalog.provider.get(Provider.ID.make("zenmux"))).request.headers).toEqual({
         Existing: "value",
         "HTTP-Referer": "https://opencode.ai/",
         "X-Title": "opencode",
@@ -73,7 +73,7 @@ describe("ZenmuxPlugin", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
+        catalog.provider.update(Provider.ID.make("zenmux"), (provider) => {
           provider.api = {
             type: "aisdk",
             package: "@ai-sdk/openai-compatible",
@@ -84,7 +84,7 @@ describe("ZenmuxPlugin", () => {
       })
       yield* addPlugin()
 
-      expect(required(yield* catalog.provider.get(ProviderV2.ID.make("zenmux"))).request.headers).toEqual({
+      expect(required(yield* catalog.provider.get(Provider.ID.make("zenmux"))).request.headers).toEqual({
         "HTTP-Referer": "https://example.com/",
         "X-Title": "custom-title",
       })
@@ -95,13 +95,13 @@ describe("ZenmuxPlugin", () => {
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
-        catalog.provider.update(ProviderV2.ID.openrouter, (provider) => {
+        catalog.provider.update(Provider.ID.openrouter, (provider) => {
           provider.request.headers = { "HTTP-Referer": "https://example.com/", "X-Title": "custom-title" }
         })
       })
       yield* addPlugin()
 
-      expect(required(yield* catalog.provider.get(ProviderV2.ID.openrouter)).request.headers).toEqual({
+      expect(required(yield* catalog.provider.get(Provider.ID.openrouter)).request.headers).toEqual({
         "HTTP-Referer": "https://example.com/",
         "X-Title": "custom-title",
       })

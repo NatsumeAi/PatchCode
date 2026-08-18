@@ -9,14 +9,14 @@ import { Hash } from "@opencode-ai/core/util/hash"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Database } from "@opencode-ai/core/database/database"
 import { ProjectDirectoryTable, ProjectTable } from "@opencode-ai/core/project/sql"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { Project } from "@/project/project"
 import { tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(LayerNode.compile(LayerNode.group([Project.node, Database.node, CrossSpawnSpawner.node])))
 
-function directories(projectID: ProjectV2.ID) {
+function directories(projectID: CoreProject.ID) {
   return Database.Service.use(({ db }) =>
     db
       .select()
@@ -152,7 +152,7 @@ describe("Project directory persistence", () => {
       const tmp = yield* tmpdirScoped({ git: true })
       const project = yield* Project.Service
       yield* project.fromDirectory(tmp)
-      const remoteID = ProjectV2.ID.make(Hash.fast("git-remote:github.com/project-directory-test/collision"))
+      const remoteID = CoreProject.ID.make(Hash.fast("git-remote:github.com/project-directory-test/collision"))
       const { db } = yield* Database.Service
       yield* db
         .insert(ProjectTable)
@@ -188,7 +188,7 @@ describe("Project directory persistence", () => {
         .values({ project_id: original.project.id, directory: stale })
         .run()
         .pipe(Effect.orDie)
-      const remoteID = ProjectV2.ID.make(Hash.fast("git-remote:github.com/project-directory-test/migration"))
+      const remoteID = CoreProject.ID.make(Hash.fast("git-remote:github.com/project-directory-test/migration"))
       yield* Effect.promise(() =>
         $`git remote add origin git@github.com:project-directory-test/migration.git`.cwd(tmp).quiet(),
       )

@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { ModelV2 } from "../../model"
+import { Model } from "../../model"
 import { define } from "../internal"
 
 export const OpenRouterPlugin = define({
@@ -14,7 +14,7 @@ export const OpenRouterPlugin = define({
             provider.request.headers["HTTP-Referer"] = "https://opencode.ai/"
             provider.request.headers["X-Title"] = "opencode"
           })
-          for (const modelID of [ModelV2.ID.make("gpt-5-chat-latest"), ModelV2.ID.make("openai/gpt-5-chat")]) {
+          for (const modelID of [Model.ID.make("gpt-5-chat-latest"), Model.ID.make("openai/gpt-5-chat")]) {
             if (!item.models.has(modelID)) continue
             evt.model.update(item.provider.id, modelID, (model) => {
               // These are OpenRouter-specific OpenAI chat aliases that do not work

@@ -1,12 +1,12 @@
 import type {
-  AgentV2Info,
-  CommandV2Info,
+  AgentInfo,
+  CommandInfo,
   IntegrationInfo,
   LocationRef,
-  ModelV2Info,
+  ModelInfo,
   PermissionSavedInfo,
   PermissionRequest,
-  ProviderV2Info,
+  ProviderInfo,
   QuestionRequest,
   ReferenceInfo,
   SessionMessage,
@@ -14,10 +14,10 @@ import type {
   SessionMessageAssistantReasoning,
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
-  SessionV2Info,
-  SkillV2Info,
-  V2Event,
-} from "@opencode-ai/sdk/v2"
+  SessionInfo,
+  SkillInfo,
+  ServerEvent,
+} from "@opencode-ai/sdk/api"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useSDK } from "./sdk"
@@ -25,18 +25,18 @@ import { useEvent } from "./event"
 import { createSignal, onCleanup, onMount } from "solid-js"
 
 type LocationData = {
-  agent?: AgentV2Info[]
-  command?: CommandV2Info[]
+  agent?: AgentInfo[]
+  command?: CommandInfo[]
   integration?: IntegrationInfo[]
-  model?: ModelV2Info[]
-  provider?: ProviderV2Info[]
+  model?: ModelInfo[]
+  provider?: ProviderInfo[]
   reference?: ReferenceInfo[]
-  skill?: SkillV2Info[]
+  skill?: SkillInfo[]
 }
 
 type Data = {
   session: {
-    info: Record<string, SessionV2Info>
+    info: Record<string, SessionInfo>
     message: Record<string, SessionMessage[]>
     permission: Record<string, PermissionRequest[]>
     question: Record<string, QuestionRequest[]>
@@ -121,7 +121,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
     }
 
-    function handleEvent(event: V2Event) {
+    function handleEvent(event: ServerEvent) {
       switch (event.type) {
         case "catalog.updated":
           void Promise.all([
@@ -407,7 +407,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           ...event,
           data: event.properties,
           location: { directory: metadata.directory, workspaceID: metadata.workspace },
-        } as V2Event)
+        } as ServerEvent)
       })
       onCleanup(unsub)
     })
@@ -418,7 +418,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return store.session.info[sessionID]
         },
         async refresh(sessionID: string) {
-          const result = await sdk.client.v2.session.get({ sessionID }, { throwOnError: true })
+          const result = await sdk.client.api.session.get({ sessionID }, { throwOnError: true })
           setStore("session", "info", sessionID, result.data.data)
         },
         message: {
@@ -426,7 +426,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.message[sessionID]
           },
           async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.messages({ sessionID }, { throwOnError: true })
+            const result = await sdk.client.api.session.messages({ sessionID }, { throwOnError: true })
             setStore("session", "message", sessionID, result.data.data)
           },
         },
@@ -435,7 +435,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.permission[sessionID]
           },
           async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.permission.list({ sessionID }, { throwOnError: true })
+            const result = await sdk.client.api.session.permission.list({ sessionID }, { throwOnError: true })
             setStore("session", "permission", sessionID, result.data.data)
           },
         },
@@ -444,7 +444,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.question[sessionID]
           },
           async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.question.list({ sessionID }, { throwOnError: true })
+            const result = await sdk.client.api.session.question.list({ sessionID }, { throwOnError: true })
             setStore("session", "question", sessionID, result.data.data)
           },
         },
@@ -455,7 +455,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.project.permission[projectID]
           },
           async refresh(projectID: string) {
-            const result = await sdk.client.v2.permission.saved.list({ projectID }, { throwOnError: true })
+            const result = await sdk.client.api.permission.saved.list({ projectID }, { throwOnError: true })
             setStore("project", "permission", projectID, result.data.data)
           },
         },
@@ -465,7 +465,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return defaultLocation()
         },
         async refresh(ref?: LocationRef) {
-          const response = await sdk.client.v2.location.get({ location: locationQuery(ref) }, { throwOnError: true })
+          const response = await sdk.client.api.location.get({ location: locationQuery(ref) }, { throwOnError: true })
           const location = response.data
           const key = locationKey(location)
           if (!store.location[key]) setStore("location", key, {})
@@ -476,7 +476,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.agent
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.agent.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.agent.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "agent", result.data.data)
           },
@@ -486,7 +486,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.command
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.command.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.command.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "command", result.data.data)
           },
@@ -496,7 +496,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.integration
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.integration.list(
+            const result = await sdk.client.api.integration.list(
               { location: locationQuery(ref) },
               { throwOnError: true },
             )
@@ -509,7 +509,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.model
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.model.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.model.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "model", result.data.data)
           },
@@ -519,7 +519,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.provider
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.provider.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.provider.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "provider", result.data.data)
           },
@@ -529,7 +529,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.reference
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.reference.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.reference.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "reference", result.data.data)
           },
@@ -539,7 +539,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.skill
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.skill.list({ location: locationQuery(ref) }, { throwOnError: true })
+            const result = await sdk.client.api.skill.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
             setStore("location", key, "skill", result.data.data)
           },

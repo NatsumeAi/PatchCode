@@ -1,4 +1,4 @@
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { Session } from "@opencode-ai/sdk/api/client"
 import { preloadMarkdown } from "@opencode-ai/session-ui/markdown-cache"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useMarked } from "@opencode-ai/ui/context/marked"
@@ -69,7 +69,7 @@ export function createHomeSessionsController(home: HomeController) {
       const cache = homeSessions()
       const eventSequence = cache.eventSequence()
       const index = await loadHomeSessionIndex(
-        (input, options) => ctx.sdk.client.v2.session.list(input, options),
+        (input, options) => ctx.sdk.client.api.session.list(input, options),
         eventSequence,
         signal,
       )
@@ -143,9 +143,9 @@ export function createHomeSessionsController(home: HomeController) {
         if (!conn) return
         const ctx = home.server.focusedContext()
         if (!ctx) return
-        const { DialogHomeCommandPaletteV2 } = await import("@/components/dialog-command-palette-v2")
+        const { DialogHomeCommandPalette } = await import("@/components/dialog-command-palette-kit")
         void dialog.show(() => (
-          <DialogHomeCommandPaletteV2
+          <DialogHomeCommandPalette
             server={conn}
             onSelectSession={(entry) => {
               if (!entry.sessionID || !entry.directory || !entry.server) return
@@ -211,7 +211,7 @@ export function createHomeSessionsController(home: HomeController) {
         const ctx = home.server.focusedContext()
         if (!conn || !ctx) return
         const [, setStore] = ctx.sync.child(session.directory)
-        if ((await ctx.sdk.protocol) !== "v1") return
+        if ((await ctx.sdk.protocol) !== "legacy") return
         await archiveHomeSession({
           server: ServerConnection.key(conn),
           session,

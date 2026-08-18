@@ -1,7 +1,7 @@
-import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/api"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { Session } from "@/session/session"
-import { MessageV2 } from "../../session/session-message-wire"
+import { MessageWire } from "../../session/session-message-wire"
 import { CliError, effectCmd } from "../effect-cmd"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
@@ -13,8 +13,8 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Effect, Schema } from "effect"
 import type { InstanceContext } from "@/project/instance-context"
 
-const decodeMessageInfo = Schema.decodeUnknownSync(SessionV1.Info)
-const decodePart = Schema.decodeUnknownSync(SessionV1.Part)
+const decodeMessageInfo = Schema.decodeUnknownSync(SessionWire.Info)
+const decodePart = Schema.decodeUnknownSync(SessionWire.Part)
 
 /** Discriminated union returned by the ShareNext API (GET /api/shares/:id/data) */
 export type ShareData =
@@ -194,7 +194,7 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     .pipe(Effect.orDie)
 
   for (const msg of exportData.messages) {
-    const msgInfo = decodeMessageInfo(msg.info) as SessionV1.Info
+    const msgInfo = decodeMessageInfo(msg.info) as SessionWire.Info
     const { id, sessionID: _, ...msgData } = msgInfo
     yield* db
       .insert(MessageTable)
@@ -209,7 +209,7 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
       .pipe(Effect.orDie)
 
     for (const part of msg.parts) {
-      const partInfo = decodePart(part) as SessionV1.Part
+      const partInfo = decodePart(part) as SessionWire.Part
       const { id: partId, sessionID: _s, messageID, ...partData } = partInfo
       yield* db
         .insert(PartTable)

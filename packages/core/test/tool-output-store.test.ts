@@ -7,12 +7,12 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigToolOutput } from "@opencode-ai/core/config/tool-output"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { testEffect } from "./lib/effect"
 import { tmpdir } from "./fixture/tmpdir"
 
-const sessionID = SessionV2.ID.make("ses_tool_output_store")
+const sessionID = Session.ID.make("ses_tool_output_store")
 
 const withStore = <A, E, R>(
   body: (input: { root: string; store: ToolOutputStore.Interface; fs: FSUtil.Interface }) => Effect.Effect<A, E, R>,

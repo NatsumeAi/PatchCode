@@ -2,8 +2,8 @@ import { describe, expect } from "bun:test"
 import type { McpServer } from "@agentclientprotocol/sdk"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect } from "effect"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import * as ACPError from "@/acp/error"
 import * as ACPSession from "@/acp/session"
 import { testEffect } from "../lib/effect"
@@ -11,8 +11,8 @@ import { testEffect } from "../lib/effect"
 const sessionTest = testEffect(LayerNode.compile(ACPSession.node))
 
 const model = (providerID: string, modelID: string): ACPSession.SelectedModel => ({
-  providerID: ProviderV2.ID.make(providerID),
-  modelID: ModelV2.ID.make(modelID),
+  providerID: Provider.ID.make(providerID),
+  modelID: Model.ID.make(modelID),
 })
 
 const mcpServer: McpServer = {

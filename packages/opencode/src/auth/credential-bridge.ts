@@ -1,7 +1,7 @@
-// Legacy auth.json keys are consumed by the V1 Provider service only. The V2
+// Legacy auth.json keys are consumed by the legacy Provider service only. The
 // catalog derives provider availability from Integration connections stored in
 // Credential.Service, so auth.json-only providers stay "Model unavailable".
-// Import api keys at startup so V2 model resolution sees them.
+// Import api keys at startup so current model resolution sees them.
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
@@ -17,7 +17,7 @@ const legacyValue = (info: Auth.Info) => {
   })
 }
 
-/** Copies legacy auth.json api keys into V2 credentials, skipping integrations that already have one. */
+/** Copies legacy auth.json api keys into credentials, skipping integrations that already have one. */
 export const sync = Effect.fn("CredentialBridge.sync")(function* (
   auth: Auth.Interface,
   credentials: Credential.Interface,

@@ -1,5 +1,4 @@
 import { it, expect } from "bun:test"
-import { PermissionV1 } from "@opencode-ai/core/permission-legacy"
 import { deriveSubagentSessionPermission } from "../../src/agent/subagent-permissions"
 import { Permission } from "../../src/permission"
 import type { Agent } from "../../src/agent/agent"
@@ -32,34 +31,34 @@ it("subagent without edit grant (default) → Write/Edit deny in derived ruleset
     parentSessionPermission: [],
     subagent: makeAgent(),
   })
-  expect(perms).toContainEqual({ permission: "edit", pattern: "*", action: "deny" })
+  expect(perms).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
 })
 
 it("subagent with own edit grant → no edit deny (backward compat, executor)", () => {
-  const subagent = makeAgent({ permission: Permission.fromConfig({ edit: "allow" }) })
+  const subagent = makeAgent({ permission: [...Permission.fromConfig({ edit: "allow" })] })
   const perms = deriveSubagentSessionPermission({ parentSessionPermission: [], subagent })
-  expect(perms.some((rule) => rule.permission === "edit" && rule.action === "deny")).toBe(false)
+  expect(perms.some((rule) => rule.action === "edit" && rule.effect === "deny")).toBe(false)
 })
 
 it("explicit writable=true → no edit deny even without own grant", () => {
   const subagent = makeAgent({ writable: true })
   const perms = deriveSubagentSessionPermission({ parentSessionPermission: [], subagent })
-  expect(perms.some((rule) => rule.permission === "edit" && rule.action === "deny")).toBe(false)
+  expect(perms.some((rule) => rule.action === "edit" && rule.effect === "deny")).toBe(false)
 })
 
 it("explicit writable=false → edit deny even with own edit grant (flag overrides)", () => {
-  const subagent = makeAgent({ writable: false, permission: Permission.fromConfig({ edit: "allow" }) })
+  const subagent = makeAgent({ writable: false, permission: [...Permission.fromConfig({ edit: "allow" })] })
   const perms = deriveSubagentSessionPermission({ parentSessionPermission: [], subagent })
-  expect(perms).toContainEqual({ permission: "edit", pattern: "*", action: "deny" })
+  expect(perms).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
 })
 
 it("non-writable subagent → all bash commands denied", () => {
   const subagent = makeAgent()
   const perms = deriveSubagentSessionPermission({ parentSessionPermission: [], subagent })
   const merged = Permission.merge(subagent.permission, perms)
-  expect(Permission.evaluate("bash", "git status", merged).action).toBe("deny")
-  expect(Permission.evaluate("bash", "rm -rf /", merged).action).toBe("deny")
-  expect(Permission.evaluate("bash", "echo hi > out.txt", merged).action).toBe("deny")
+  expect(Permission.evaluate("bash", "git status", merged).effect).toBe("deny")
+  expect(Permission.evaluate("bash", "rm -rf /", merged).effect).toBe("deny")
+  expect(Permission.evaluate("bash", "echo hi > out.txt", merged).effect).toBe("deny")
 })
 
 it("non-writable subagent → shell indirection and write-capable executables denied", () => {
@@ -78,7 +77,7 @@ it("non-writable subagent → shell indirection and write-capable executables de
   ]
 
   for (const command of bypasses) {
-    expect(Permission.evaluate("bash", command, merged).action).toBe("deny")
+    expect(Permission.evaluate("bash", command, merged).effect).toBe("deny")
   }
 })
 
@@ -86,12 +85,12 @@ it("writable subagent → bash write commands NOT denied", () => {
   const subagent = makeAgent({ writable: true })
   const perms = deriveSubagentSessionPermission({ parentSessionPermission: [], subagent })
   const merged = Permission.merge(subagent.permission, perms)
-  expect(Permission.evaluate("bash", "rm -rf /", merged).action).not.toBe("deny")
+  expect(Permission.evaluate("bash", "rm -rf /", merged).effect).not.toBe("deny")
 })
 
 it("non-writable subagent still inherits parent session deny rules", () => {
   const subagent = makeAgent()
-  const parentSessionPermission: PermissionV1.Ruleset = Permission.fromConfig({ bash: "deny" })
+  const parentSessionPermission: Permission.Ruleset = Permission.fromConfig({ bash: "deny" })
   const perms = deriveSubagentSessionPermission({ parentSessionPermission, subagent })
-  expect(perms).toContainEqual({ permission: "bash", pattern: "*", action: "deny" })
+  expect(perms).toContainEqual({ action: "bash", resource: "*", effect: "deny" })
 })

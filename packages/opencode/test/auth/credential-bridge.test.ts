@@ -26,7 +26,7 @@ function withAuthContent<A, E, R>(value: Record<string, unknown>, effect: () => 
 }
 
 describe("CredentialBridge", () => {
-  it.effect("imports legacy api keys into V2 credentials", () =>
+  it.effect("imports legacy api keys into credentials", () =>
     withAuthContent({ "opencode-go": { type: "api", key: "sk-test" } }, () =>
       Effect.gen(function* () {
         const auth = yield* Auth.Service
@@ -38,7 +38,7 @@ describe("CredentialBridge", () => {
     ),
   )
 
-  it.effect("keeps an existing V2 credential instead of overwriting it", () =>
+  it.effect("keeps an existing credential instead of overwriting it", () =>
     withAuthContent({ "opencode-go": { type: "api", key: "legacy-key" } }, () =>
       Effect.gen(function* () {
         const auth = yield* Auth.Service

@@ -7,8 +7,8 @@ import { Config } from "@opencode-ai/core/config"
 import { ConfigProvider } from "@opencode-ai/core/config/provider"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { ConfigMigrateV1 } from "@opencode-ai/core/config/legacy/migrate"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigMigrate } from "@opencode-ai/core/config/legacy/migrate"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
@@ -68,19 +68,19 @@ describe("Config", () => {
 
   it.effect("detects v1 configuration from any v1-only top-level key", () =>
     Effect.sync(() => {
-      expect(ConfigMigrateV1.isV1({ snapshot: false })).toBe(true)
-      expect(ConfigMigrateV1.isV1({ snapshot: false, agents: {} })).toBe(true)
-      expect(ConfigMigrateV1.isV1({ reference: {} })).toBe(true)
-      expect(ConfigMigrateV1.isV1({ shell: "/bin/zsh", model: "anthropic/claude" })).toBe(false)
-      expect(ConfigMigrateV1.isV1({ references: {} })).toBe(false)
+      expect(ConfigMigrate.isV1({ snapshot: false })).toBe(true)
+      expect(ConfigMigrate.isV1({ snapshot: false, agents: {} })).toBe(true)
+      expect(ConfigMigrate.isV1({ reference: {} })).toBe(true)
+      expect(ConfigMigrate.isV1({ shell: "/bin/zsh", model: "anthropic/claude" })).toBe(false)
+      expect(ConfigMigrate.isV1({ references: {} })).toBe(false)
     }),
   )
 
   it.effect("migrates arbitrary v1 configuration into valid v2 configuration", () =>
     Effect.sync(() => {
       FastCheck.assert(
-        FastCheck.property(Schema.toArbitrary(ConfigV1.Info), (info) => {
-          Schema.decodeUnknownSync(Config.Info)(ConfigMigrateV1.migrate(info), { errors: "all" })
+        FastCheck.property(Schema.toArbitrary(ConfigInput.Info), (info) => {
+          Schema.decodeUnknownSync(Config.Info)(ConfigMigrate.migrate(info), { errors: "all" })
         }),
         { numRuns: 100 },
       )
@@ -89,7 +89,7 @@ describe("Config", () => {
 
   it.effect("migrates v1 provider setup options into AISDK settings", () =>
     Effect.sync(() => {
-      const migrated = ConfigMigrateV1.migrate({
+      const migrated = ConfigMigrate.migrate({
         provider: {
           bedrock: {
             npm: "@ai-sdk/amazon-bedrock",
@@ -118,7 +118,7 @@ describe("Config", () => {
   it.effect("migrates v1 command configuration", () =>
     Effect.sync(() => {
       expect(
-        ConfigMigrateV1.migrate({
+        ConfigMigrate.migrate({
           command: {
             review: {
               template: "Review changes",

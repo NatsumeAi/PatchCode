@@ -1,12 +1,12 @@
 import { describe, expect } from "bun:test"
 import { Deferred, Effect, Layer } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
 import { Config } from "@opencode-ai/core/config"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
@@ -15,7 +15,7 @@ import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { BashTool } from "@opencode-ai/core/tool/bash"
@@ -28,8 +28,8 @@ import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolIdentity } from "../lib/tool"
 
-const sessionA = SessionV2.ID.make("ses_job_owner_a")
-const sessionB = SessionV2.ID.make("ses_job_owner_b")
+const sessionA = Session.ID.make("ses_job_owner_a")
+const sessionB = Session.ID.make("ses_job_owner_b")
 
 const config = Layer.succeed(
   Config.Service,
@@ -51,10 +51,10 @@ const withTools = <A, E, R>(directory: string, body: () => Effect.Effect<A, E, R
       AppNodeBuilder.build(
         LayerNode.group([
           Database.node,
-          EventV2.node,
+          Event.node,
           SessionStore.node,
           PermissionSaved.node,
-          AgentV2.node,
+          Agent.node,
           Permission.node,
           ToolRegistry.node,
           ToolRegistry.toolsNode,
@@ -73,7 +73,7 @@ const withTools = <A, E, R>(directory: string, body: () => Effect.Effect<A, E, R
   )
 }
 
-function setup(directory: string, sessionID: SessionV2.ID) {
+function setup(directory: string, sessionID: Session.ID) {
   return Effect.gen(function* () {
     const { db } = yield* Database.Service
     yield* db
@@ -97,9 +97,9 @@ function setup(directory: string, sessionID: SessionV2.ID) {
       })
       .run()
       .pipe(Effect.orDie)
-    const agents = yield* AgentV2.Service
+    const agents = yield* Agent.Service
     yield* agents.transform((editor) =>
-      editor.update(AgentV2.ID.make("build"), (agent) => {
+      editor.update(Agent.ID.make("build"), (agent) => {
         agent.mode = "primary"
         agent.permissions = [{ action: "*", resource: "*", effect: "allow" }]
       }),
@@ -107,7 +107,7 @@ function setup(directory: string, sessionID: SessionV2.ID) {
   })
 }
 
-const jobCall = (sessionID: SessionV2.ID, input: typeof JobTool.Input.Type) => ({
+const jobCall = (sessionID: Session.ID, input: typeof JobTool.Input.Type) => ({
   sessionID,
   ...toolIdentity,
   call: { type: "tool-call" as const, id: `call-job-${input.action}`, name: "job", input },

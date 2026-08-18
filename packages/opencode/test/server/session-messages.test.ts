@@ -1,23 +1,23 @@
 import { afterEach, describe, expect } from "bun:test"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer } from "effect"
 import { HttpClientResponse } from "effect/unstable/http"
 import { Session as SessionNs } from "@/session/session"
-import { MessageV2 } from "../../src/session/session-message-wire"
+import { MessageWire } from "../../src/session/session-message-wire"
 
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { httpApiLayer, requestInDirectory } from "./httpapi-layer"
 
 const it = testEffect(Layer.mergeAll(LayerNode.compile(SessionNs.node), httpApiLayer))
 
 const model = {
-  providerID: ProviderV2.ID.make("test"),
-  modelID: ModelV2.ID.make("test"),
+  providerID: Provider.ID.make("test"),
+  modelID: Model.ID.make("test"),
 }
 
 afterEach(async () => {
@@ -64,14 +64,14 @@ const fill = Effect.fn("SessionMessagesTest.fill")(function* (
           agent: "test",
           model,
           tools: {},
-        } satisfies SessionV1.User)
+        } satisfies SessionWire.User)
         yield* session.updatePart({
           id: PartID.ascending(),
           sessionID,
           messageID: id,
           type: "text",
           text: `m${i}`,
-        } satisfies SessionV1.TextPart)
+        } satisfies SessionWire.TextPart)
         return id
       }),
   )
@@ -95,7 +95,7 @@ describe("session messages endpoint", () => {
 
         const a = yield* request(`/session/${session.id}/message?limit=2`)
         expect(a.status).toBe(200)
-        const aBody = yield* json<SessionV1.WithParts[]>(a)
+        const aBody = yield* json<SessionWire.WithParts[]>(a)
         expect(aBody.map((item) => item.info.id)).toEqual(ids.slice(-2))
         const cursor = a.headers["x-next-cursor"]
         expect(cursor).toBeTruthy()
@@ -103,7 +103,7 @@ describe("session messages endpoint", () => {
 
         const b = yield* request(`/session/${session.id}/message?limit=2&before=${encodeURIComponent(cursor!)}`)
         expect(b.status).toBe(200)
-        const bBody = yield* json<SessionV1.WithParts[]>(b)
+        const bBody = yield* json<SessionWire.WithParts[]>(b)
         expect(bBody.map((item) => item.info.id)).toEqual(ids.slice(-4, -2))
       }),
     ),
@@ -119,7 +119,7 @@ describe("session messages endpoint", () => {
 
         const res = yield* request(`/session/${session.id}/message`)
         expect(res.status).toBe(200)
-        const body = yield* json<SessionV1.WithParts[]>(res)
+        const body = yield* json<SessionWire.WithParts[]>(res)
         expect(body.map((item) => item.info.id)).toEqual(ids)
       }),
     ),
@@ -151,7 +151,7 @@ describe("session messages endpoint", () => {
 
         const res = yield* request(`/session/${session.id}/message?limit=510`)
         expect(res.status).toBe(200)
-        const body = yield* json<SessionV1.WithParts[]>(res)
+        const body = yield* json<SessionWire.WithParts[]>(res)
         expect(body).toHaveLength(510)
       }),
     ),

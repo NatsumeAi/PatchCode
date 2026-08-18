@@ -72,7 +72,7 @@ export interface Interface {
    * Resets the mutable per-session state (budget, retry, worker, breaker)
    * for `sessionID` without touching any other session. `user_abort` and
    * `hard_timeout` survive so extra/wake/resume cannot restart a stopped
-   * drain; a new user `SessionV2.prompt` clears them. Other terminal reasons
+   * drain; a new user `CoreSession.prompt` clears them. Other terminal reasons
    * are cleared so a post-fail drain can pick up steers.
    * Idempotent if no bundle exists yet.
    */

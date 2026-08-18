@@ -23,10 +23,10 @@ import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import type { SessionID } from "../../session/schema"
 import { Provider } from "@/provider/provider"
-import { MessageV2 } from "../../session/session-message-wire"
-import { EventV2Bridge } from "@/event-bridge"
-import { EventV2 } from "@opencode-ai/core/event"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { MessageWire } from "../../session/session-message-wire"
+import { EventBridge } from "@/event-bridge"
+import { Event } from "@opencode-ai/core/event"
+import { Session as CoreSession } from "@opencode-ai/core/session"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { Git } from "@/git"
@@ -380,8 +380,8 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
   const gitSvc = yield* Git.Service
   const sessionSvc = yield* Session.Service
   const sessionShare = yield* SessionShare.Service
-  const v2Svc = yield* SessionV2.Service
-  const events = yield* EventV2Bridge.Service
+  const sessionSvc = yield* CoreSession.Service
+  const events = yield* EventBridge.Service
   const runLocalEffect = <A, E>(effect: Effect.Effect<A, E>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(InstanceRef, ctx)))
   yield* Effect.promise(async () => {
@@ -499,13 +499,7 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
       const repoData = await fetchRepo()
       session = await runLocalEffect(
         sessionSvc.create({
-          permission: [
-            {
-              permission: "question",
-              action: "deny",
-              pattern: "*",
-            },
-          ],
+          permission: [{ action: "question", resource: "*", effect: "deny" }],
         }),
       )
       await subscribeSessionEvents()
@@ -844,8 +838,8 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
       let text = ""
       await runLocalEffect(
         events.listen((evt) => {
-          if (evt.type !== MessageV2.Event.PartUpdated.type) return Effect.void
-          const data = evt.data as EventV2.Data<typeof MessageV2.Event.PartUpdated>
+          if (evt.type !== MessageWire.Event.PartUpdated.type) return Effect.void
+          const data = evt.data as Event.Data<typeof MessageWire.Event.PartUpdated>
           if (data.part.sessionID !== session.id) return Effect.void
           //if (evt.properties.part.messageID === messageID) return
           const part = data.part
@@ -892,11 +886,11 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
 
       return runLocalEffect(
         Effect.gen(function* () {
-          // V2 prompt is async (admit + wake); V2 has no per-prompt model override,
+          // Prompt is async (admit + wake); there is no per-prompt model override,
           // so switch the session model first.
-          const current = yield* v2Svc.get(session.id as SessionSchema.ID).pipe(Effect.orDie)
+          const current = yield* sessionSvc.get(session.id as SessionSchema.ID).pipe(Effect.orDie)
           if (current.model?.id !== modelID || current.model?.providerID !== providerID) {
-            yield* v2Svc
+            yield* sessionSvc
               .switchModel({
                 sessionID: session.id as SessionSchema.ID,
                 model: {
@@ -908,7 +902,7 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
           }
 
           const messageID = SessionMessage.ID.create()
-          yield* v2Svc
+          yield* sessionSvc
             .prompt({
               id: messageID,
               sessionID: session.id as SessionSchema.ID,
@@ -935,15 +929,15 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
 
           // Wait for the final assistant message (SessionStore.wait is the single
           // owner of settle semantics).
-          const msgs = yield* v2Svc.wait(session.id as SessionSchema.ID).pipe(Effect.orDie)
+          const msgs = yield* sessionSvc.wait(session.id as SessionSchema.ID).pipe(Effect.orDie)
           const assistant = msgs?.findLast((m) => m.type === "assistant")
 
           if (!assistant || assistant.type !== "assistant") throw new Error("Timed out waiting for agent response")
 
           if (assistant.error) {
             console.error("Agent error:", assistant.error.message)
-            // V2 assistant errors carry only {type:"unknown", message} — no
-            // structured name tag survives (v1 had ContextOverflowError.name).
+            // Assistant errors carry only {type:"unknown", message} — no
+            // structured name tag survives (legacy had ContextOverflowError.name).
             // Match on the stable message wording, guarded by the UnknownError
             // type so unrelated error kinds are never misclassified.
             if (
@@ -961,13 +955,13 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
             .join("\n")
           if (text.trim()) return text
 
-          // V2 has no per-prompt tools: {"*": false} — send the summary directly.
+          // No per-prompt tools: {"*": false} — send the summary directly.
           console.log("Requesting summary from agent...")
           const summaryMessageID = SessionMessage.ID.create()
           // `after` = admit timestamp: without it wait() settles immediately on
           // the prior (empty-text) turn's assistant instead of the summary turn.
           const summaryStamp = Date.now()
-          yield* v2Svc
+          yield* sessionSvc
             .prompt({
               id: summaryMessageID,
               sessionID: session.id as SessionSchema.ID,
@@ -977,7 +971,7 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
               delivery: "steer",
             })
             .pipe(Effect.orDie)
-          const summaryMsgs = yield* v2Svc.wait(session.id as SessionSchema.ID, summaryStamp).pipe(Effect.orDie)
+          const summaryMsgs = yield* sessionSvc.wait(session.id as SessionSchema.ID, summaryStamp).pipe(Effect.orDie)
           const summaryAssistant = summaryMsgs?.findLast((m) => m.type === "assistant")
           if (!summaryAssistant || summaryAssistant.type !== "assistant") throw new Error("Failed to get summary from agent")
           if (summaryAssistant.error) throw new Error(`Summary agent error: ${summaryAssistant.error.message}`)

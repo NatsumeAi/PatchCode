@@ -3,7 +3,7 @@ export * as TaskTool from "./task"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Cause, Context, DateTime, Effect, Layer, Option, Schema } from "effect"
 import { makeGlobalNode, makeLocationNode } from "../effect/app-node"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 import { Permission } from "../permission"
 import { SessionEvent } from "../session/event"
 import { ToolRegistry } from "./registry"
@@ -150,7 +150,7 @@ export interface Host {
   }>
 }
 
-export class HostService extends Context.Service<HostService, Host>()("@opencode/v2/TaskTool.Host") {}
+export class HostService extends Context.Service<HostService, Host>()("@opencode/TaskTool.Host") {}
 
 /**
  * Location-graph placeholder for the task host. The location graph is hoisted
@@ -179,7 +179,7 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const permission = yield* Permission.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     // Capture the host at build time: the location graph is hoisted and
     // Layer.provide only exposes the host to node layers while they build —
     // an execute-time serviceOption would always resolve None.
@@ -193,7 +193,7 @@ const layer = Layer.effectDiscard(
           toModelOutput: ({ output }) => [{ type: "text", text: toTaskModelOutput(output) }],
           execute: (input, context) =>
             Effect.gen(function* () {
-              // V1 published title via ctx.metadata at execute start so a running
+              // Legacy published title via ctx.metadata at execute start so a running
               // task part is visible before the host blocks.
               yield* events.publish(SessionEvent.Tool.Progress, {
                 sessionID: context.sessionID,
@@ -309,5 +309,5 @@ export const node = makeLocationNode({
   // execute-time serviceOption alone would never resolve — the host must be a
   // compile-time dependency of this node so hoist lifts it into the location
   // environment. App graphs replace hostNode with the real bridge.
-  deps: [ToolRegistry.node, Permission.node, hostNode, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, hostNode, Event.node],
 })

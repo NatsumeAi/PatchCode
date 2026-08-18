@@ -1,7 +1,7 @@
-export * as EventV2 from "./event"
+export * as Event from "./event"
 
 import { Cause, Context, Effect, Layer, Option, PubSub, Queue, Schema, Stream } from "effect"
-import { Event } from "@opencode-ai/schema/event"
+import { Event as EventSchema } from "@opencode-ai/schema/event"
 import type { Data, Definition, Payload } from "@opencode-ai/schema/event"
 import { and, asc, eq, gt, inArray } from "drizzle-orm"
 import { Database } from "./database/database"
@@ -11,14 +11,14 @@ import { makeGlobalNode } from "./effect/app-node"
 import { isDeepStrictEqual } from "node:util"
 import { Durable } from "@opencode-ai/schema/durable-event-manifest"
 
-export const ID = Event.ID
+export const ID = EventSchema.ID
 export type ID = import("@opencode-ai/schema/event").ID
 export type { Data, Definition, Payload } from "@opencode-ai/schema/event"
 
 export type Subscriber<D extends Definition = Definition> = (event: Payload<D>) => Effect.Effect<void>
 export type Unsubscribe = Effect.Effect<void>
 
-export const latestSequence = Effect.fn("EventV2.latestSequence")(function* (
+export const latestSequence = Effect.fn("Event.latestSequence")(function* (
   db: Database.Interface["db"],
   aggregateID: string,
 ) {
@@ -40,7 +40,7 @@ export type SerializedEvent = {
 }
 
 export class InvalidDurableEventError extends Schema.TaggedErrorClass<InvalidDurableEventError>()(
-  "EventV2.InvalidDurableEvent",
+  "Event.InvalidDurableEvent",
   {
     type: Schema.String,
     message: Schema.String,
@@ -60,7 +60,7 @@ const decodeSerializedEvent = (event: SerializedEvent): Payload => {
   }
 }
 
-export const readAggregate = Effect.fn("EventV2.readAggregate")(function* <A>(
+export const readAggregate = Effect.fn("Event.readAggregate")(function* <A>(
   db: Database.Interface["db"],
   input: {
     readonly aggregateID: string
@@ -108,12 +108,12 @@ export const readAggregate = Effect.fn("EventV2.readAggregate")(function* <A>(
 })
 
 export class SubscriberOverflowError extends Schema.TaggedErrorClass<SubscriberOverflowError>()(
-  "EventV2.SubscriberOverflow",
+  "Event.SubscriberOverflow",
   { capacity: Schema.Int },
 ) {}
 
-export const define = Event.define
-export const versionedType = Event.versionedType
+export const define = EventSchema.define
+export const versionedType = EventSchema.versionedType
 
 export interface PublishOptions {
   readonly id?: ID

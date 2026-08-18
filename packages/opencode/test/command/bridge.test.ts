@@ -2,7 +2,7 @@ import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Command } from "@/command"
-import { CommandV2 } from "@opencode-ai/core/command"
+import { Command as CoreCommand } from "@opencode-ai/core/command"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
@@ -11,15 +11,15 @@ import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(LayerNode.compile(Command.node), locationServiceMapLayer))
 
-describe("Command W10 CommandV2 bridge", () => {
-  it.instance("lists and gets location CommandV2-only names via slash Command", () =>
+describe("Command W10 CoreCommand bridge", () => {
+  it.instance("lists and gets location CoreCommand-only names via slash Command", () =>
     Effect.gen(function* () {
       const commands = yield* Command.Service
       const locations = yield* LocationServiceMap.Service
       const ctx = yield* InstanceState.context
       const ref = Location.Ref.make({ directory: AbsolutePath.make(ctx.directory) })
       yield* Effect.gen(function* () {
-        const v2 = yield* CommandV2.Service
+        const v2 = yield* CoreCommand.Service
         yield* v2.transform((draft) => {
           draft.update("v2-only-cmd", (item) => {
             item.template = "hello $ARGUMENTS"

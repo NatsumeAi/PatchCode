@@ -1,5 +1,5 @@
 import { Binary } from "@opencode-ai/core/util/binary"
-import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session } from "@opencode-ai/sdk/api/client"
 import { createMemo } from "solid-js"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import type { createServerSdkContext } from "./server-sdk"
@@ -134,7 +134,7 @@ export const createDirSyncContext = (
       },
       more: createMemo(() => current()[0].session.length >= current()[0].limit),
       archive: async (sessionID: string) => {
-        if ((await serverSDK.protocol) !== "v1") return
+        if ((await serverSDK.protocol) !== "legacy") return
         await serverSDK.client.session.update({ sessionID, directory, time: { archived: Date.now() } })
         current()[1](
           "session",

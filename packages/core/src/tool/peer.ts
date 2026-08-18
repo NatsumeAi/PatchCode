@@ -9,7 +9,7 @@ import { Tools } from "./tools"
 import { ToolRegistry } from "./registry"
 import { SiblingMessage } from "../session/sibling-message"
 import { Database } from "../database/database"
-import { EventV2 } from "../event"
+import { Event } from "../event"
 
 export const name = "peer_message"
 
@@ -33,7 +33,7 @@ const layer = Layer.effectDiscard(
     const tools = yield* Tools.Service
     const permission = yield* Permission.Service
     const database = yield* Database.Service
-    const events = yield* EventV2.Service
+    const events = yield* Event.Service
     yield* tools
       .register({
         [name]: Tool.make({
@@ -71,5 +71,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/peer",
   layer,
-  deps: [ToolRegistry.node, Permission.node, Database.node, EventV2.node],
+  deps: [ToolRegistry.node, Permission.node, Database.node, Event.node],
 })

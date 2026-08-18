@@ -26,10 +26,10 @@ async function installSessionSwitchProbe(
     const reviewLevels: Record<string, string> = {
       panel: "#review-panel",
       tabs: '#review-panel [data-component="tabs"]',
-      body: '#review-panel [data-slot="session-review-v2-body"]',
-      review: '#review-panel [data-component="session-review-v2"]',
-      preview: '#review-panel [data-slot="session-review-v2-preview"]',
-      scroll: '#review-panel [data-slot="session-review-v2-diff-scroll"]',
+      body: '#review-panel [data-slot="session-review-kit-body"]',
+      review: '#review-panel [data-component="session-review"]',
+      preview: '#review-panel [data-slot="session-review-kit-preview"]',
+      scroll: '#review-panel [data-slot="session-review-kit-diff-scroll"]',
       file: '#review-panel [data-component="file"][data-mode="diff"]',
     }
     const initialReviewNodes: Record<string, Element | null> = {}
@@ -53,7 +53,7 @@ async function installSessionSwitchProbe(
               fileHostReplaced: !!initialReviewFile && !!reviewFile && reviewFile !== initialReviewFile,
               header:
                 reviewPanel
-                  .querySelector<HTMLElement>('[data-slot="session-review-v2-file-header"]')
+                  .querySelector<HTMLElement>('[data-slot="session-review-kit-file-header"]')
                   ?.textContent?.trim() ?? "",
               replacedLevels,
             }

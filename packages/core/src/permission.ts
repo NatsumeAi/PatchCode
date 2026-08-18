@@ -3,9 +3,9 @@ export * as Permission from "./permission"
 import { makeLocationNode } from "./effect/app-node"
 import { Context, Deferred, Effect as EffectRuntime, Layer, Option, Schema } from "effect"
 import { Permission } from "@opencode-ai/schema/permission"
-import { EventV2 } from "./event"
+import { Event as CoreEvent } from "./event"
 import { Location } from "./location"
-import { AgentV2 } from "./agent"
+import { Agent } from "./agent"
 import { NotFoundError as SessionNotFoundError } from "./session/error"
 import { SessionSchema } from "./session/schema"
 import { SessionStore } from "./session/store"
@@ -13,8 +13,8 @@ import { Wildcard } from "./util/wildcard"
 import { evaluate } from "./permission/evaluate"
 import { PermissionSaved } from "./permission/saved"
 import { ExecPolicy } from "./exec-policy/service"
-import { toCurrentRule } from "./session/subagent-permissions"
 import { Hooks } from "./hooks"
+import { PluginHooks } from "./plugin-hooks"
 
 export { Effect, Rule, Ruleset } from "@opencode-ai/schema/permission"
 const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "deny" }]
@@ -43,7 +43,7 @@ export type Reply = typeof Reply.Type
 export const AssertInput = Schema.Struct({
   id: ID.pipe(Schema.optional),
   ...RequestFields,
-  agent: AgentV2.ID.pipe(Schema.optional),
+  agent: Agent.ID.pipe(Schema.optional),
 }).annotate({ identifier: "Permission.AssertInput" })
 export type AssertInput = typeof AssertInput.Type
 
@@ -78,7 +78,7 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Per
 
 export type Error = BlockedError | CorrectedError
 
-export { evaluate, merge } from "./permission/evaluate"
+export { evaluate, merge, disabled } from "./permission/evaluate"
 
 export interface Interface {
   readonly ask: (input: AssertInput) => EffectRuntime.Effect<AskResult, SessionNotFoundError>
@@ -94,7 +94,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Pe
 
 interface Pending {
   readonly request: Request
-  readonly agent?: AgentV2.ID
+  readonly agent?: Agent.ID
   readonly policyAsk: boolean
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
 }
@@ -102,9 +102,9 @@ interface Pending {
 const layer = Layer.effect(
   Service,
   EffectRuntime.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const location = yield* Location.Service
-    const agents = yield* AgentV2.Service
+    const agents = yield* Agent.Service
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
     const pending = new Map<ID, Pending>()
@@ -128,19 +128,14 @@ const layer = Layer.effect(
 
     const configured = EffectRuntime.fn("Permission.configured")(function* (
       sessionID: SessionSchema.ID,
-      agentID?: AgentV2.ID,
+      agentID?: Agent.ID,
     ) {
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionNotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
       const agentRules = agent?.permissions ?? missingAgentPermissions
-      // Merge session-scoped rules (stored as V1 shape in the permission column)
-      // on top of agent rules so child-session permissions (subagent derivation)
-      // take effect. V1 {permission,pattern,action} → V2 {action,resource,effect}.
       const sessionRules = yield* sessions.sessionPermission(sessionID).pipe(EffectRuntime.orDie)
-      return sessionRules && sessionRules.length > 0
-        ? [...agentRules, ...sessionRules.map((rule) => toCurrentRule(rule))]
-        : agentRules
+      return sessionRules && sessionRules.length > 0 ? [...agentRules, ...sessionRules] : agentRules
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {
@@ -156,12 +151,34 @@ const layer = Layer.effect(
       return rules.filter((rule) => rule.action !== "*" || rule.resource !== "*")
     }
 
+    const applyPluginAsk = EffectRuntime.fnUntraced(function* (
+      input: AssertInput,
+      effect: Permission.Effect,
+    ) {
+      if (effect === "deny") return effect
+      const hook = yield* EffectRuntime.serviceOption(PluginHooks.PermissionAskService)
+      if (hook._tag === "None") return effect
+      return yield* hook.value
+        .intercept({
+          id: input.id,
+          sessionID: input.sessionID,
+          action: input.action,
+          resources: input.resources,
+          save: input.save,
+          metadata: input.metadata,
+          source: input.source,
+          effect,
+        })
+        .pipe(EffectRuntime.catchCause(() => EffectRuntime.succeed("deny" as const)))
+    })
+
     const evaluateInput = EffectRuntime.fnUntraced(function* (input: AssertInput) {
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
       const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
-      const effect: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
+      const computed: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
+      const effect = yield* applyPluginAsk(input, computed)
       return { effect, rules: all }
     })
 
@@ -170,7 +187,8 @@ const layer = Layer.effect(
       if (denied(input, rules)) return { effect: "deny" as const, rules }
       const specific = policyAskRules([...rules, ...(yield* savedRules())])
       const effects = input.resources.map((resource) => evaluate(input.action, resource, specific).effect)
-      const effect: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
+      const computed: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
+      const effect = yield* applyPluginAsk(input, computed)
       return { effect, rules: specific }
     })
 
@@ -186,7 +204,7 @@ const layer = Layer.effect(
       }
     }
 
-    const create = (request: Request, agent?: AgentV2.ID, policyAsk = false) =>
+    const create = (request: Request, agent?: Agent.ID, policyAsk = false) =>
       EffectRuntime.uninterruptible(
         EffectRuntime.gen(function* () {
           const deferred = yield* Deferred.make<void, DeclinedError | CorrectedError>()
@@ -408,10 +426,10 @@ const layer = Layer.effect(
   }),
 )
 
-export const locationLayer = layer.pipe(Layer.provideMerge(AgentV2.locationLayer))
+export const locationLayer = layer.pipe(Layer.provideMerge(Agent.locationLayer))
 
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [EventV2.node, Location.node, AgentV2.node, SessionStore.node, PermissionSaved.node, ExecPolicy.node],
+  deps: [CoreEvent.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, ExecPolicy.node],
 })

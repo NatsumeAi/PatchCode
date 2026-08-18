@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
-import { AgentV2 } from "../src/agent"
+import { Agent } from "../src/agent"
 import { Permission } from "../src/permission"
 import { Tool } from "../src/tool/tool"
 import { ToolRegistry } from "../src/tool/registry"
@@ -21,36 +21,36 @@ const stubTask = Tool.make({
 })
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, AgentV2.node]), [[Location.node, tempLocationLayer]]),
+  AppNodeBuilder.build(LayerNode.group([ToolRegistry.node, Agent.node]), [[Location.node, tempLocationLayer]]),
 )
 
 describe("ToolRegistry task discovery (describeTaskAgents)", () => {
   it.effect("appends sorted callable agents; excludes primary/hidden/denied; tags capability", () =>
     Effect.gen(function* () {
-      const agents = yield* AgentV2.Service
+      const agents = yield* Agent.Service
       yield* agents.transform((draft) => {
-        draft.update(AgentV2.ID.make("build"), (item) => {
+        draft.update(Agent.ID.make("build"), (item) => {
           item.mode = "primary"
           item.hidden = false
           item.description = "primary"
         })
-        draft.update(AgentV2.ID.make("zeta"), (item) => {
+        draft.update(Agent.ID.make("zeta"), (item) => {
           item.mode = "subagent"
           item.hidden = false
           item.description = "Z agent"
         })
-        draft.update(AgentV2.ID.make("alpha"), (item) => {
+        draft.update(Agent.ID.make("alpha"), (item) => {
           item.mode = "subagent"
           item.hidden = false
           item.capability = "read-only"
           item.description = "A agent"
         })
-        draft.update(AgentV2.ID.make("secret"), (item) => {
+        draft.update(Agent.ID.make("secret"), (item) => {
           item.mode = "subagent"
           item.hidden = true
           item.description = "hidden"
         })
-        draft.update(AgentV2.ID.make("denied"), (item) => {
+        draft.update(Agent.ID.make("denied"), (item) => {
           item.mode = "subagent"
           item.hidden = false
           item.description = "nope"

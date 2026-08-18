@@ -17,12 +17,12 @@
     "./context": "./src/context/index.ts",
     "./context/*": "./src/context/*.tsx",
     "./styles": "./src/styles/index.css",
-    "./v2/*.css": "./src/v2/components/*.css",
-    "./v2/*": "./src/v2/components/*.tsx",
-    "./v2/prompt-input": "./src/v2/components/prompt-input/index.tsx",
-    "./v2/prompt-input/interaction": "./src/v2/components/prompt-input/interaction.ts",
-    "./v2/prompt-input/store": "./src/v2/components/prompt-input/store.ts",
-    "./v2/prompt-input/types": "./src/v2/components/prompt-input/types.ts"
+    "./kit/*.css": "./src/v2/components/*.css",
+    "./kit/*": "./src/v2/components/*.tsx",
+    "./kit/prompt-input": "./src/v2/components/prompt-input/index.tsx",
+    "./kit/prompt-input/interaction": "./src/v2/components/prompt-input/interaction.ts",
+    "./kit/prompt-input/store": "./src/v2/components/prompt-input/store.ts",
+    "./kit/prompt-input/types": "./src/v2/components/prompt-input/types.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",

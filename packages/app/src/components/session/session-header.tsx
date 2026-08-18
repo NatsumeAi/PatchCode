@@ -26,11 +26,11 @@ import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
 import { fileManagerApp } from "@/utils/file-manager"
 import { Persist, persisted } from "@/utils/persist"
-import { StatusPopover, StatusPopoverV2 } from "../status-popover"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
-import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { StatusPopover, StatusPopoverKit } from "../status-popover"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { Keybind as KitKeybind } from "@opencode-ai/ui/kit/keybind"
+import { Tooltip as KitTooltip } from "@opencode-ai/ui/kit/tooltip"
 import { reviewTooltipKeybind } from "../command-tooltip-keybind"
 import { useTitlebarRightMount } from "../titlebar"
 
@@ -161,7 +161,7 @@ export function SessionHeader() {
   })
   const hotkey = createMemo(() => command.keybind("file.open"))
   const os = createMemo(() => detectOS(platform))
-  const isV2 = settings.general.newLayoutDesigns
+  const isKitLayout = settings.general.newLayoutDesigns
   const search = settings.visibility.search
   const status = settings.visibility.status
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -234,7 +234,7 @@ export function SessionHeader() {
   const tint = createMemo(() =>
     messageAgentColor(params.id ? sync().data.message[params.id] : undefined, sync().data.agent),
   )
-  const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
+  const kitActionsState = createMemo<SessionHeaderKitActionsState>(() => ({
     statusVisible: status(),
     statusLabel: language.t("status.popover.trigger"),
     reviewLabel: language.t("command.review.toggle"),
@@ -323,7 +323,7 @@ export function SessionHeader() {
         {(mount) => (
           <Portal mount={mount()}>
             <Show
-              when={isV2}
+              when={isKitLayout}
               fallback={
                 <div class="flex items-center gap-2">
                   <Show when={projectDirectory()}>
@@ -507,7 +507,7 @@ export function SessionHeader() {
                 </div>
               }
             >
-              <SessionHeaderV2Actions state={v2ActionsState()} />
+              <SessionHeaderKitActions state={kitActionsState()} />
             </Show>
           </Portal>
         )}
@@ -516,7 +516,7 @@ export function SessionHeader() {
   )
 }
 
-type SessionHeaderV2ActionsState = {
+type SessionHeaderKitActionsState = {
   statusVisible: boolean
   statusLabel: string
   reviewLabel: string
@@ -526,30 +526,30 @@ type SessionHeaderV2ActionsState = {
   onReviewToggle: () => void
 }
 
-function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
+function SessionHeaderKitActions(props: { state: SessionHeaderKitActionsState }) {
   const language = useLanguage()
 
   return (
     <div class="flex items-center gap-2">
       <Show when={props.state.statusVisible}>
         <Tooltip placement="bottom" value={props.state.statusLabel}>
-          <StatusPopoverV2 />
+          <StatusPopoverKit />
         </Tooltip>
       </Show>
       <Show when={props.state.reviewVisible}>
-        <TooltipV2
+        <KitTooltip
           class="shrink-0"
           placement="bottom"
           value={
             <>
               {props.state.reviewLabel}
               <Show when={props.state.reviewKeybind.length > 0}>
-                <KeybindV2 keys={props.state.reviewKeybind} variant="neutral" />
+                <KitKeybind keys={props.state.reviewKeybind} variant="neutral" />
               </Show>
             </>
           }
         >
-          <IconButtonV2
+          <KitIconButton
             type="button"
             variant="ghost-muted"
             size="large"
@@ -559,9 +559,9 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
             aria-label={props.state.reviewLabel}
             aria-expanded={props.state.reviewOpened}
             aria-controls="review-panel"
-            icon={<IconV2 name="sidebar-right" />}
+            icon={<KitIcon name="sidebar-right" />}
           />
-        </TooltipV2>
+        </KitTooltip>
       </Show>
     </div>
   )

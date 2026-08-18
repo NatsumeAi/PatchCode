@@ -31,14 +31,14 @@ import { DiffChanges } from "@opencode-ai/ui/diff-changes"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
-import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { Icon as KitIcon } from "@opencode-ai/ui/kit/icon"
+import { IconButton as KitIconButton } from "@opencode-ai/ui/kit/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
+import { Menu } from "@opencode-ai/ui/kit/menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { DialogFooter, DialogHeader, DialogTitleGroup, DialogV2 } from "@opencode-ai/ui/v2/dialog-v2"
+import { Dialog as KitDialog, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode-ai/ui/kit/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
+import { Button as KitButton } from "@opencode-ai/ui/kit/button"
 import { SessionRetry } from "@opencode-ai/session-ui/session-retry"
 import { isScrollKeyTarget, scrollKey, scrollKeyOwner, ScrollView } from "@opencode-ai/ui/scroll-view"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
@@ -51,7 +51,7 @@ import type {
   Part as PartType,
   ToolPart,
   UserMessage,
-} from "@opencode-ai/sdk/v2"
+} from "@opencode-ai/sdk/api"
 import { showToast } from "@/utils/toast"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
@@ -812,7 +812,7 @@ export function MessageTimeline(props: {
   const archiveSession = async (sessionID: string) => {
     const session = sync().session.get(sessionID)
     if (!session) return
-    if ((await sdk().protocol) !== "v1") return
+    if ((await sdk().protocol) !== "legacy") return
 
     const sessions = sync().data.session ?? []
     const index = sessions.findIndex((s) => s.id === sessionID)
@@ -922,7 +922,7 @@ export function MessageTimeline(props: {
 
     if (settings.general.newLayoutDesigns())
       return (
-        <DialogV2 fit>
+        <KitDialog fit>
           <DialogHeader hideClose>
             <DialogTitleGroup
               title={language.t("session.delete.title")}
@@ -930,14 +930,14 @@ export function MessageTimeline(props: {
             />
           </DialogHeader>
           <DialogFooter>
-            <ButtonV2 variant="ghost" onClick={() => dialog.close()}>
+            <KitButton variant="ghost" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
-            </ButtonV2>
-            <ButtonV2 variant="danger" onClick={handleDelete}>
+            </KitButton>
+            <KitButton variant="danger" onClick={handleDelete}>
               {language.t("session.delete.button")}
-            </ButtonV2>
+            </KitButton>
           </DialogFooter>
-        </DialogV2>
+        </KitDialog>
       )
 
     return (
@@ -1050,7 +1050,7 @@ export function MessageTimeline(props: {
                 message={message()}
                 showAssistantCopyPartID={assistantCopyPartID(row().userMessageID)}
                 turnDurationMs={turnDurationMs(row().userMessageID)}
-                useV2Actions={settings.general.newLayoutDesigns()}
+                useActions={settings.general.newLayoutDesigns()}
                 defaultOpen={defaultOpen()}
                 toolOpen={toolOpen[part().id] ?? defaultOpen()}
                 onToolOpenChange={(open) => setToolOpen(part().id, open)}
@@ -1162,7 +1162,7 @@ export function MessageTimeline(props: {
                       message={message()}
                       parts={getMsgParts(userMessageRow().userMessageID)}
                       actions={props.actions}
-                      useV2Actions={settings.general.newLayoutDesigns()}
+                      useActions={settings.general.newLayoutDesigns()}
                       comments={messageComments()}
                     />
                   </div>
@@ -1358,10 +1358,10 @@ export function MessageTimeline(props: {
           <button
             type="button"
             aria-label={language.t("session.messages.jumpToLatest")}
-            class="pointer-events-auto flex items-center justify-center w-8 h-7 px-2 py-1.5 rounded-lg border-none cursor-pointer text-v2-text-text-base backdrop-blur-[2px]"
+            class="pointer-events-auto flex items-center justify-center w-8 h-7 px-2 py-1.5 rounded-lg border-none cursor-pointer text-kit-text-text-base backdrop-blur-[2px]"
             style={{
-              background: "color-mix(in srgb, var(--v2-background-bg-base) 92%, transparent)",
-              "box-shadow": "var(--v2-elevation-raised), 0px 2px 8px var(--v2-background-bg-base)",
+              background: "color-mix(in srgb, var(--kit-background-bg-base) 92%, transparent)",
+              "box-shadow": "var(--kit-elevation-raised), 0px 2px 8px var(--kit-background-bg-base)",
             }}
             onClick={props.onResumeScroll}
           >
@@ -1397,7 +1397,7 @@ export function MessageTimeline(props: {
             data-session-title
             classList={{
               "sticky top-0 z-30": true,
-              "bg-[linear-gradient(to_bottom,var(--v2-background-bg-base)_48px,transparent)]":
+              "bg-[linear-gradient(to_bottom,var(--kit-background-bg-base)_48px,transparent)]":
                 settings.general.newLayoutDesigns(),
               "bg-[linear-gradient(to_bottom,var(--background-stronger)_48px,transparent)]":
                 !settings.general.newLayoutDesigns(),
@@ -1421,14 +1421,14 @@ export function MessageTimeline(props: {
                     <button
                       type="button"
                       data-slot="session-title-parent"
-                      class="min-w-0 max-w-[40%] truncate pl-2 text-[13px] font-[530] leading-4 tracking-[-0.04px] text-v2-text-text-faint transition-colors hover:text-v2-text-text-muted"
+                      class="min-w-0 max-w-[40%] truncate pl-2 text-[13px] font-[530] leading-4 tracking-[-0.04px] text-kit-text-text-faint transition-colors hover:text-kit-text-text-muted"
                       onClick={navigateParent}
                     >
                       {parentTitle()}
                     </button>
                     <span
                       data-slot="session-title-separator"
-                      class="-translate-y-[0.5px] pl-2 pr-1 text-[11px] font-medium text-v2-text-text-faint"
+                      class="-translate-y-[0.5px] pl-2 pr-1 text-[11px] font-medium text-kit-text-text-faint"
                       aria-hidden="true"
                     >
                       /
@@ -1441,8 +1441,8 @@ export function MessageTimeline(props: {
                         <h1
                           data-slot="session-title-child"
                           classList={{
-                            "truncate text-[13px] font-[530] leading-4 tracking-[-0.04px] text-v2-text-text-base": true,
-                            "w-fit rounded-[6px] px-2 py-1 hover:bg-v2-overlay-simple-overlay-hover":
+                            "truncate text-[13px] font-[530] leading-4 tracking-[-0.04px] text-kit-text-text-base": true,
+                            "w-fit rounded-[6px] px-2 py-1 hover:bg-kit-overlay-simple-overlay-hover":
                               settings.general.newLayoutDesigns(),
                             "grow-1 min-w-0": !settings.general.newLayoutDesigns(),
                           }}
@@ -1460,7 +1460,7 @@ export function MessageTimeline(props: {
                         value={title.draft}
                         disabled={titleMutation.isPending}
                         classList={{
-                          "block text-[13px] font-[530] leading-4 tracking-[-0.04px] text-v2-text-text-base": true,
+                          "block text-[13px] font-[530] leading-4 tracking-[-0.04px] text-kit-text-text-base": true,
                           "w-full flex-1 grow-1 min-w-0 pl-1 -ml-1 rounded-[6px]": !settings.general.newLayoutDesigns(),
                           "field-sizing-content self-start rounded-[6px] px-2 py-1 ":
                             settings.general.newLayoutDesigns(),
@@ -1500,7 +1500,7 @@ export function MessageTimeline(props: {
                   >
                     <SessionContextUsage
                       placement="bottom"
-                      buttonAppearance={settings.general.newLayoutDesigns() ? "v2" : "default"}
+                      buttonAppearance={settings.general.newLayoutDesigns() ? "kit" : "default"}
                     />
                     <Show when={!parentID()}>
                       <Show
@@ -1581,7 +1581,7 @@ export function MessageTimeline(props: {
                           </DropdownMenu>
                         }
                       >
-                        <MenuV2
+                        <Menu
                           gutter={6}
                           placement="bottom-end"
                           open={title.menuOpen}
@@ -1590,9 +1590,9 @@ export function MessageTimeline(props: {
                             if (open) return
                           }}
                         >
-                          <MenuV2.Trigger
-                            as={IconButtonV2}
-                            icon={<IconV2 name="outline-dots" />}
+                          <Menu.Trigger
+                            as={KitIconButton}
+                            icon={<KitIcon name="outline-dots" />}
                             variant="ghost-muted"
                             size="large"
                             state={share.open || title.pendingShare ? "pressed" : undefined}
@@ -1602,8 +1602,8 @@ export function MessageTimeline(props: {
                               more = el
                             }}
                           />
-                          <MenuV2.Portal>
-                            <MenuV2.Content
+                          <Menu.Portal>
+                            <Menu.Content
                               style={{ width: "120px", "min-width": "120px" }}
                               onCloseAutoFocus={(event) => {
                                 if (title.pendingRename) {
@@ -1621,33 +1621,33 @@ export function MessageTimeline(props: {
                                 }
                               }}
                             >
-                              <MenuV2.Item
+                              <Menu.Item
                                 onSelect={() => {
                                   setTitle("pendingRename", true)
                                   setTitle("menuOpen", false)
                                 }}
                               >
                                 {language.t("common.rename")}
-                              </MenuV2.Item>
+                              </Menu.Item>
                               <Show when={shareEnabled()}>
-                                <MenuV2.Item
+                                <Menu.Item
                                   onSelect={() => {
                                     setTitle({ pendingShare: true, menuOpen: false })
                                   }}
                                 >
                                   {language.t("session.share.action.share")}...
-                                </MenuV2.Item>
+                                </Menu.Item>
                               </Show>
-                              <MenuV2.Item onSelect={() => void archiveSession(id)}>
+                              <Menu.Item onSelect={() => void archiveSession(id)}>
                                 {language.t("common.archive")}
-                              </MenuV2.Item>
-                              <MenuV2.Separator />
-                              <MenuV2.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}>
+                              </Menu.Item>
+                              <Menu.Separator />
+                              <Menu.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}>
                                 {language.t("common.delete")}...
-                              </MenuV2.Item>
-                            </MenuV2.Content>
-                          </MenuV2.Portal>
-                        </MenuV2>
+                              </Menu.Item>
+                            </Menu.Content>
+                          </Menu.Portal>
+                        </Menu>
                       </Show>
 
                       <KobaltePopover
@@ -1665,7 +1665,7 @@ export function MessageTimeline(props: {
                           <KobaltePopover.Content
                             data-component="popover-content"
                             classList={{
-                              "flex w-80 max-w-none flex-col items-start gap-3 rounded-[10px] border-0 bg-v2-background-bg-layer-01 p-3 shadow-[var(--v2-elevation-floating)]":
+                              "flex w-80 max-w-none flex-col items-start gap-3 rounded-[10px] border-0 bg-kit-background-bg-layer-01 p-3 shadow-[var(--kit-elevation-floating)]":
                                 settings.general.newLayoutDesigns(),
                             }}
                             style={{ "min-width": "320px" }}
@@ -1754,10 +1754,10 @@ export function MessageTimeline(props: {
                               }
                             >
                               <div class="flex w-full flex-col gap-1.5 px-0.5 pt-0.5">
-                                <div class="select-none text-[13px] font-[530] leading-none tracking-[-0.04px] text-v2-text-text-base [font-variation-settings:'slnt'_0]">
+                                <div class="select-none text-[13px] font-[530] leading-none tracking-[-0.04px] text-kit-text-text-base [font-variation-settings:'slnt'_0]">
                                   {language.t("session.share.popover.title")}
                                 </div>
-                                <div class="select-none text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted [font-variation-settings:'slnt'_0]">
+                                <div class="select-none text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-muted [font-variation-settings:'slnt'_0]">
                                   {shareUrl()
                                     ? language.t("session.share.popover.description.shared")
                                     : language.t("session.share.popover.description.unshared")}
@@ -1767,7 +1767,7 @@ export function MessageTimeline(props: {
                                 <Show
                                   when={shareUrl()}
                                   fallback={
-                                    <ButtonV2
+                                    <KitButton
                                       variant="contrast"
                                       class="w-full"
                                       onClick={shareSession}
@@ -1776,43 +1776,43 @@ export function MessageTimeline(props: {
                                       {shareMutation.isPending
                                         ? language.t("session.share.action.publishing")
                                         : language.t("session.share.action.publish")}
-                                    </ButtonV2>
+                                    </KitButton>
                                   }
                                 >
                                   <div class="flex flex-col gap-2">
                                     <div
-                                      class="flex h-8 w-full items-center gap-1.5 rounded-[6px] py-1 pl-2.5 pr-1.5 shadow-[var(--v2-elevation-button-neutral)]"
+                                      class="flex h-8 w-full items-center gap-1.5 rounded-[6px] py-1 pl-2.5 pr-1.5 shadow-[var(--kit-elevation-button-neutral)]"
                                       style={{
                                         background:
-                                          "linear-gradient(180deg, var(--v2-alpha-light-2) 0%, var(--v2-alpha-light-0) 100%), var(--v2-background-bg-button-neutral)",
+                                          "linear-gradient(180deg, var(--kit-alpha-light-2) 0%, var(--kit-alpha-light-0) 100%), var(--kit-background-bg-button-neutral)",
                                       }}
                                     >
                                       <div
-                                        class="min-w-0 flex-1 truncate select-text cursor-text text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-variation-settings:'slnt'_0]"
+                                        class="min-w-0 flex-1 truncate select-text cursor-text text-[13px] font-[440] leading-5 tracking-[-0.04px] text-kit-text-text-base [font-variation-settings:'slnt'_0]"
                                         onClick={selectShareUrlText}
                                       >
                                         {shareUrl()}
                                       </div>
-                                      <IconButtonV2
+                                      <KitIconButton
                                         type="button"
                                         size="small"
                                         variant="ghost-muted"
-                                        icon={<IconV2 name="outline-copy" />}
+                                        icon={<KitIcon name="outline-copy" />}
                                         aria-label={language.t("session.share.copy.copyLink")}
                                         onClick={copyShareUrl}
                                       />
-                                      <IconButtonV2
+                                      <KitIconButton
                                         type="button"
                                         size="small"
                                         variant="ghost-muted"
-                                        icon={<IconV2 name="outline-square-arrow" />}
+                                        icon={<KitIcon name="outline-square-arrow" />}
                                         aria-label={language.t("session.share.action.view")}
                                         onClick={viewShare}
                                         disabled={unshareMutation.isPending}
                                       />
                                     </div>
                                     <div class="flex w-full">
-                                      <ButtonV2
+                                      <KitButton
                                         variant="outline"
                                         class="w-full"
                                         onClick={unshareSession}
@@ -1821,7 +1821,7 @@ export function MessageTimeline(props: {
                                         {unshareMutation.isPending
                                           ? language.t("session.share.action.unpublishing")
                                           : language.t("session.share.action.unpublish")}
-                                      </ButtonV2>
+                                      </KitButton>
                                     </div>
                                   </div>
                                 </Show>

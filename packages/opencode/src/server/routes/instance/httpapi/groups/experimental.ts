@@ -16,8 +16,8 @@ import {
 } from "../middleware/workspace-routing"
 import { described } from "./metadata"
 import { QueryBoolean } from "./query"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 
 const ConsoleStateResponse = Schema.Struct({
   consoleManagedProviders: Schema.mutable(Schema.Array(Schema.String)),
@@ -56,8 +56,8 @@ const ToolListItem = Schema.Struct({
 const ToolList = Schema.Array(ToolListItem).annotate({ identifier: "ToolList" })
 export const ToolListQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
-  provider: ProviderV2.ID,
-  model: ModelV2.ID,
+  provider: Provider.ID,
+  model: Model.ID,
 })
 
 const WorktreeList = Schema.Array(Schema.String)

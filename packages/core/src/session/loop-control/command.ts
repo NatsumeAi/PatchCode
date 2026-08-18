@@ -230,7 +230,7 @@ export const loopCommand = (raw: string): Effect.Effect<string, Error> =>
 /**
  * Session-bound variant used by the `/loop` command dispatch: when a
  * `SessionRuntime` is present in the environment, commands observe and
- * control the same per-session loop-control services the V2 runner uses;
+ * control the same per-session loop-control services the session runner uses;
  * otherwise it falls back to the ambient (legacy global) services.
  *
  * `SessionRuntime` is read via `serviceOption` so this effect never adds a

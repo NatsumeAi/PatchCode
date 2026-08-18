@@ -14,13 +14,13 @@ import { Effect, Layer, Scope, Context, Stream, Types, Schema } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AppProcess } from "@opencode-ai/core/process"
-import { ProjectV2 } from "@opencode-ai/core/project"
+import { Project as CoreProject } from "@opencode-ai/core/project"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-bridge"
-import { EventV2 } from "@opencode-ai/core/event"
+import { EventBridge } from "@/event-bridge"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/schema/project"
 
 export const Info = Project.Info
@@ -58,7 +58,7 @@ export function fromRow(row: Row): Info {
 }
 
 export const UpdateInput = Schema.Struct({
-  projectID: ProjectV2.ID,
+  projectID: CoreProject.ID,
   name: Schema.optional(Schema.String),
   icon: Schema.optional(Project.Icon),
   commands: Schema.optional(Project.Commands),
@@ -73,7 +73,7 @@ export const UpdatePayload = Schema.Struct({
 export type UpdatePayload = Types.DeepMutable<Schema.Schema.Type<typeof UpdatePayload>>
 
 export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Project.NotFoundError", {
-  projectID: ProjectV2.ID,
+  projectID: CoreProject.ID,
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -90,13 +90,13 @@ export interface Interface {
   readonly fromDirectory: (directory: string) => Effect.Effect<{ project: Info; sandbox: string }>
   readonly discover: (input: Info) => Effect.Effect<void>
   readonly list: () => Effect.Effect<Info[]>
-  readonly get: (id: ProjectV2.ID) => Effect.Effect<Info | undefined>
+  readonly get: (id: CoreProject.ID) => Effect.Effect<Info | undefined>
   readonly update: (input: UpdateInput) => Effect.Effect<Info, NotFoundError>
   readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
-  readonly setInitialized: (id: ProjectV2.ID) => Effect.Effect<void>
-  readonly sandboxes: (id: ProjectV2.ID) => Effect.Effect<string[]>
-  readonly addSandbox: (id: ProjectV2.ID, directory: string) => Effect.Effect<void>
-  readonly removeSandbox: (id: ProjectV2.ID, directory: string) => Effect.Effect<void>
+  readonly setInitialized: (id: CoreProject.ID) => Effect.Effect<void>
+  readonly sandboxes: (id: CoreProject.ID) => Effect.Effect<string[]>
+  readonly addSandbox: (id: CoreProject.ID, directory: string) => Effect.Effect<void>
+  readonly removeSandbox: (id: CoreProject.ID, directory: string) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Project") {}
@@ -108,9 +108,9 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const projectV2 = yield* ProjectV2.Service
+    const coreProject = yield* CoreProject.Service
     const projectDirectories = yield* ProjectDirectories.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const flags = yield* RuntimeFlags.Service
     const { db } = yield* Database.Service
 
@@ -144,11 +144,11 @@ const layer = Layer.effect(
     const scope = yield* Scope.Scope
 
     const migrateProjectId = Effect.fn("Project.migrateProjectId")(function* (
-      oldID: ProjectV2.ID | undefined,
-      newID: ProjectV2.ID,
+      oldID: CoreProject.ID | undefined,
+      newID: CoreProject.ID,
     ) {
       if (!oldID) return
-      if (oldID === ProjectV2.ID.global) return
+      if (oldID === CoreProject.ID.global) return
       if (oldID === newID) return
 
       yield* db
@@ -193,10 +193,10 @@ const layer = Layer.effect(
     })
 
     const saveProjectDirectory = Effect.fn("Project.saveProjectDirectory")(function* (input: {
-      projectID: ProjectV2.ID
+      projectID: CoreProject.ID
       directory: string
     }) {
-      if (input.projectID === ProjectV2.ID.global) return
+      if (input.projectID === CoreProject.ID.global) return
       const opened = AbsolutePath.make(FSUtil.resolve(input.directory))
       yield* projectDirectories
         .create({
@@ -213,12 +213,12 @@ const layer = Layer.effect(
     const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
       yield* Effect.logInfo("fromDirectory", { directory })
 
-      const data = yield* projectV2.resolve(AbsolutePath.make(directory))
-      const worktree = data.id === ProjectV2.ID.make("global") && !data.vcs ? "/" : data.directory
+      const data = yield* coreProject.resolve(AbsolutePath.make(directory))
+      const worktree = data.id === CoreProject.ID.make("global") && !data.vcs ? "/" : data.directory
 
       // Phase 2: upsert
-      const projectID = ProjectV2.ID.make(data.id)
-      yield* migrateProjectId(data.previous ? ProjectV2.ID.make(data.previous) : undefined, projectID)
+      const projectID = CoreProject.ID.make(data.id)
+      yield* migrateProjectId(data.previous ? CoreProject.ID.make(data.previous) : undefined, projectID)
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, projectID)).get().pipe(Effect.orDie)
       const existing = row
         ? fromRow(row)
@@ -234,12 +234,12 @@ const layer = Layer.effect(
 
       const result: Info = {
         ...existing,
-        worktree: projectID === ProjectV2.ID.global ? worktree : existing.worktree,
+        worktree: projectID === CoreProject.ID.global ? worktree : existing.worktree,
         vcs: data.vcs?.type ?? fakeVcs,
         time: { ...existing.time, updated: Date.now() },
       }
       if (
-        projectID !== ProjectV2.ID.global &&
+        projectID !== CoreProject.ID.global &&
         data.directory !== result.worktree &&
         !result.sandboxes.includes(data.directory)
       )
@@ -288,11 +288,11 @@ const layer = Layer.effect(
         .run()
         .pipe(Effect.orDie)
 
-      if (projectID !== ProjectV2.ID.global) {
+      if (projectID !== CoreProject.ID.global) {
         yield* db
           .update(SessionTable)
           .set({ project_id: projectID })
-          .where(and(eq(SessionTable.project_id, ProjectV2.ID.global), eq(SessionTable.directory, data.directory)))
+          .where(and(eq(SessionTable.project_id, CoreProject.ID.global), eq(SessionTable.directory, data.directory)))
           .run()
           .pipe(Effect.orDie)
       }
@@ -303,8 +303,8 @@ const layer = Layer.effect(
       })
 
       yield* emitUpdated(result)
-      if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
-        yield* projectV2.commit({ store: data.vcs.store, id: data.id })
+      if (projectID !== CoreProject.ID.global && data.vcs?.type === "git") {
+        yield* coreProject.commit({ store: data.vcs.store, id: data.id })
       }
       return { project: result, sandbox: data.vcs ? data.directory : worktree }
     })
@@ -337,7 +337,7 @@ const layer = Layer.effect(
       return (yield* db.select().from(ProjectTable).all().pipe(Effect.orDie)).map(fromRow)
     })
 
-    const get = Effect.fn("Project.get")(function* (id: ProjectV2.ID) {
+    const get = Effect.fn("Project.get")(function* (id: CoreProject.ID) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       return row ? fromRow(row) : undefined
     })
@@ -374,7 +374,7 @@ const layer = Layer.effect(
       return project
     })
 
-    const setInitialized = Effect.fn("Project.setInitialized")(function* (id: ProjectV2.ID) {
+    const setInitialized = Effect.fn("Project.setInitialized")(function* (id: CoreProject.ID) {
       yield* db
         .update(ProjectTable)
         .set({ time_initialized: Date.now() })
@@ -388,7 +388,7 @@ const layer = Layer.effect(
         const unsubscribe = yield* events.listen((event) => {
           if (event.type !== Command.Event.Executed.type || event.location?.directory !== ctx.directory)
             return Effect.void
-          const data = event.data as EventV2.Data<typeof Command.Event.Executed>
+          const data = event.data as CoreEvent.Data<typeof Command.Event.Executed>
           return data.name === Command.Default.INIT ? setInitialized(ctx.project.id) : Effect.void
         })
         yield* Effect.addFinalizer(() => unsubscribe)
@@ -399,7 +399,7 @@ const layer = Layer.effect(
       yield* InstanceState.get(initState)
     })
 
-    const sandboxes = Effect.fn("Project.sandboxes")(function* (id: ProjectV2.ID) {
+    const sandboxes = Effect.fn("Project.sandboxes")(function* (id: CoreProject.ID) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return []
       const data = fromRow(row)
@@ -414,7 +414,7 @@ const layer = Layer.effect(
       ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
     })
 
-    const addSandbox = Effect.fn("Project.addSandbox")(function* (id: ProjectV2.ID, directory: string) {
+    const addSandbox = Effect.fn("Project.addSandbox")(function* (id: CoreProject.ID, directory: string) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) throw new Error(`Project not found: ${id}`)
       const sandbox = AbsolutePath.make(directory)
@@ -431,7 +431,7 @@ const layer = Layer.effect(
       yield* emitUpdated(fromRow(result))
     })
 
-    const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectV2.ID, directory: string) {
+    const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: CoreProject.ID, directory: string) {
       const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
       if (!row) throw new Error(`Project not found: ${id}`)
       const sandbox = AbsolutePath.make(directory)
@@ -472,9 +472,9 @@ export const node = LayerNode.make({
     FSUtil.node,
     AppProcess.node,
     CrossSpawnSpawner.node,
-    ProjectV2.node,
+    CoreProject.node,
     ProjectDirectories.node,
-    EventV2Bridge.node,
+    EventBridge.node,
     RuntimeFlags.node,
     Database.node,
   ],

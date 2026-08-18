@@ -1,4 +1,4 @@
-export * as ConfigAttachmentV1 from "./attachment"
+export * as ConfigAttachmentInput from "./attachment"
 
 import { Schema } from "effect"
 import { PositiveInt } from "../../schema"

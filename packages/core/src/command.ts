@@ -1,12 +1,12 @@
-export * as CommandV2 from "./command"
+export * as Command from "./command"
 
 import { makeLocationNode } from "./effect/app-node"
 import { Context, Effect, Layer, Types } from "effect"
-import { Command } from "@opencode-ai/schema/command"
+import { Command as CommandSchema } from "@opencode-ai/schema/command"
 import { State } from "./state"
 
-export const Info = Command.Info
-export type Info = Command.Info
+export const Info = CommandSchema.Info
+export type Info = CommandSchema.Info
 
 export type Data = {
   commands: Map<string, Types.DeepMutable<Info>>
@@ -24,7 +24,7 @@ export interface Interface extends State.Transformable<Draft> {
   readonly list: () => Effect.Effect<Info[]>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Command") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Command") {}
 
 const layer = Layer.effect(
   Service,
@@ -49,10 +49,10 @@ const layer = Layer.effect(
     return Service.of({
       reload: state.reload,
       transform: state.transform,
-      get: Effect.fn("CommandV2.get")(function* (name) {
+      get: Effect.fn("Command.get")(function* (name) {
         return state.get().commands.get(name)
       }),
-      list: Effect.fn("CommandV2.list")(function* () {
+      list: Effect.fn("Command.list")(function* () {
         return Array.from(state.get().commands.values())
       }),
     })

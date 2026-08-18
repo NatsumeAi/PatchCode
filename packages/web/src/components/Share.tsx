@@ -5,12 +5,12 @@ import { IconArrowDown } from "./icons"
 import { IconOpencode } from "./icons/custom"
 import { ShareI18nProvider, formatCurrency, formatNumber, normalizeLocale } from "./share/common"
 import styles from "./share.module.css"
-import type { MessageV2 } from "opencode/session/session-message-wire"
+import type { MessageWire } from "opencode/session/session-message-wire"
 import type { Message } from "opencode/session/message"
 import type { Session } from "opencode/session/index"
 import { Part, ProviderIcon } from "./share/part"
 
-type MessageWithParts = MessageV2.Info & { parts: MessageV2.Part[] }
+type MessageWithParts = MessageWire.Info & { parts: MessageWire.Part[] }
 
 type Status = "disconnected" | "connecting" | "connected" | "error" | "reconnecting"
 
@@ -526,7 +526,7 @@ export function fromV1(v1: Message.Info): MessageWithParts {
       providerID: v1.metadata.assistant!.providerID,
       mode: "build",
       error: v1.metadata.error,
-      parts: v1.parts.flatMap((part, index): MessageV2.Part[] => {
+      parts: v1.parts.flatMap((part, index): MessageWire.Part[] => {
         const base = {
           id: index.toString(),
           messageID: v1.id,
@@ -609,7 +609,7 @@ export function fromV1(v1: Message.Info): MessageWithParts {
       time: {
         created: v1.metadata.time.created,
       },
-      parts: v1.parts.flatMap((part, index): MessageV2.Part[] => {
+      parts: v1.parts.flatMap((part, index): MessageWire.Part[] => {
         const base = {
           id: index.toString(),
           messageID: v1.id,

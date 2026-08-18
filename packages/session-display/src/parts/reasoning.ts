@@ -1,4 +1,4 @@
-import type { ReasoningPart } from "@opencode-ai/sdk/v2"
+import type { ReasoningPart } from "@opencode-ai/sdk/api"
 import type { DisplayConfig } from "../config"
 import type { DisplayMode } from "../mode"
 import { toEpochMs, toText } from "../header-utils"

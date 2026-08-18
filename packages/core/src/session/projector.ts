@@ -3,17 +3,18 @@ export * as SessionProjector from "./projector"
 import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm"
 import { DateTime, Effect, Layer, Schema } from "effect"
 import { Database } from "../database/database"
-import { EventV2 } from "../event"
+import { Event as CoreEvent } from "../event"
 import { makeGlobalNode } from "../effect/app-node"
 import { SessionEvent } from "./event"
-import { SessionV1 } from "../session-legacy"
+import { SessionWire } from "../session-legacy"
 import { WorkspaceTable } from "../control-plane/workspace.sql"
 import { SessionMessage } from "./message"
 import { SessionMessageUpdater } from "./message-updater"
 import { SessionInput } from "./input"
-import { WorkspaceV2 } from "../workspace"
+import { Workspace } from "../workspace"
 import { SessionContextEpoch } from "./context-epoch"
 import { MessageTable, PartTable, SessionInputTable, SessionMessageTable, SessionTable } from "./sql"
+import { PermissionStored } from "../permission/stored"
 import type { DeepMutable } from "../schema"
 
 type DatabaseService = Database.Interface["db"]
@@ -33,7 +34,7 @@ type Usage = {
   }
 }
 
-function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] | unknown): Usage | undefined {
+function usage(part: (typeof SessionWire.Event.PartUpdated.Type)["data"]["part"] | unknown): Usage | undefined {
   if (typeof part !== "object" || part === null) return undefined
   const value = part as Record<string, unknown>
   if (value.type !== "step-finish") return undefined
@@ -61,14 +62,14 @@ function v1AssistantError(message: SessionMessage.Assistant): { error?: { name: 
   return { error: { name: "UnknownError", data: message.error } }
 }
 
-function userMetadata(meta: SessionV1.SessionInfo["metadata"]) {
+function userMetadata(meta: SessionWire.SessionInfo["metadata"]) {
   if (meta == null) return undefined
   if (!Object.prototype.hasOwnProperty.call(meta, "sandboxProfile")) return meta
   const { sandboxProfile: _profile, ...rest } = meta
   return Object.keys(rest).length === 0 ? undefined : rest
 }
 
-function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
+function sessionRow(info: SessionWire.SessionInfo): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
     project_id: info.projectID,
@@ -95,7 +96,7 @@ function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInse
     tokens_cache_read: (info.tokens ?? { cache: { read: 0 } }).cache.read,
     tokens_cache_write: (info.tokens ?? { cache: { write: 0 } }).cache.write,
     revert: info.revert ? { ...info.revert, messageID: SessionMessage.ID.make(info.revert.messageID) } : null,
-    permission: info.permission ? [...info.permission] : undefined,
+    permission: PermissionStored.ruleset(info.permission) ?? undefined,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
@@ -104,20 +105,20 @@ function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInse
 }
 
 function messageData(
-  info: (typeof SessionV1.Event.MessageUpdated.Type)["data"]["info"],
+  info: (typeof SessionWire.Event.MessageUpdated.Type)["data"]["info"],
 ): typeof MessageTable.$inferInsert.data {
   const { id: _, sessionID: __, ...rest } = info
   return rest as DeepMutable<typeof rest>
 }
 
-function partData(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"]): typeof PartTable.$inferInsert.data {
+function partData(part: (typeof SessionWire.Event.PartUpdated.Type)["data"]["part"]): typeof PartTable.$inferInsert.data {
   const { id: _, messageID: __, sessionID: ___, ...rest } = part
   return rest as DeepMutable<typeof rest>
 }
 
 function applyUsage(
   db: DatabaseService,
-  sessionID: (typeof SessionV1.Event.MessageUpdated.Type)["data"]["sessionID"],
+  sessionID: (typeof SessionWire.Event.MessageUpdated.Type)["data"]["sessionID"],
   value: Usage,
   sign = 1,
 ) {
@@ -137,7 +138,7 @@ function applyUsage(
     .pipe(Effect.orDie)
 }
 
-function run(db: DatabaseService, events: EventV2.Interface, event: SessionEvent.Event) {
+function run(db: DatabaseService, events: CoreEvent.Interface, event: SessionEvent.Event) {
   return Effect.gen(function* () {
     const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type })
@@ -231,7 +232,7 @@ type LegacySession = {
 
 /**
  * Mirror V2 SessionMessage rows into the legacy MessageTable + PartTable shape
- * so TUI `GET /session/:id/message` (MessageV2.page → MessageTable) can display
+ * so TUI `GET /session/:id/message` (MessageWire.page → MessageTable) can display
  * messages written by the V2 runner. Without this, SessionMessageTable fills
  * but the TUI list stays empty.
  */
@@ -696,7 +697,7 @@ function legacyMirror(
 
 function dualWriteLegacy(
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: CoreEvent.Interface,
   sessionID: SessionEvent.Event["data"]["sessionID"],
   message: SessionMessage.Message,
 ) {
@@ -814,7 +815,7 @@ function dualWriteLegacy(
         .pipe(Effect.orDie)
     }
 
-    // NOTE: do NOT publish SessionV1.Event.MessageUpdated here — it is durable
+    // NOTE: do NOT publish SessionWire.Event.MessageUpdated here — it is durable
     // and steals event seq (UNIQUE constraint) / needs InstanceRef. Live TUI
     // paint for V2 is handled by session.next.* → sync store bridge.
   }).pipe(
@@ -826,7 +827,7 @@ function dualWriteLegacy(
 
 function insertMessage(
   db: DatabaseService,
-  events: EventV2.Interface,
+  events: CoreEvent.Interface,
   event: SessionEvent.Event,
   message: SessionMessage.Message,
 ) {
@@ -852,9 +853,9 @@ function insertMessage(
 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const events = yield* EventV2.Service
+    const events = yield* CoreEvent.Service
     const { db } = yield* Database.Service
-    yield* events.project(SessionV1.Event.Created, (event) =>
+    yield* events.project(SessionWire.Event.Created, (event) =>
       Effect.gen(function* () {
         const stored = yield* db
           .insert(SessionTable)
@@ -874,7 +875,7 @@ const layer = Layer.effectDiscard(
         }
       }),
     )
-    yield* events.project(SessionV1.Event.Updated, (event) => {
+    yield* events.project(SessionWire.Event.Updated, (event) => {
       const row = sessionRow(event.data.info)
       const next =
         typeof event.data.info.metadata?.sandboxProfile === "string"
@@ -889,7 +890,7 @@ const layer = Layer.effectDiscard(
           .set({
             directory: event.data.location.directory,
             path: event.data.subdirectory,
-            workspace_id: event.data.location.workspaceID ? WorkspaceV2.ID.make(event.data.location.workspaceID) : null,
+            workspace_id: event.data.location.workspaceID ? Workspace.ID.make(event.data.location.workspaceID) : null,
             time_updated: DateTime.toEpochMillis(event.data.timestamp),
           })
           .where(eq(SessionTable.id, event.data.sessionID))
@@ -898,10 +899,10 @@ const layer = Layer.effectDiscard(
         yield* SessionContextEpoch.reset(db, event.data.sessionID)
       }),
     )
-    yield* events.project(SessionV1.Event.Deleted, (event) =>
+    yield* events.project(SessionWire.Event.Deleted, (event) =>
       db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie),
     )
-    yield* events.project(SessionV1.Event.MessageUpdated, (event) =>
+    yield* events.project(SessionWire.Event.MessageUpdated, (event) =>
       Effect.gen(function* () {
         const time_created = event.data.info.time.created
         const id = event.data.info.id
@@ -915,7 +916,7 @@ const layer = Layer.effectDiscard(
           .pipe(Effect.orDie)
       }),
     )
-    yield* events.project(SessionV1.Event.MessageRemoved, (event) =>
+    yield* events.project(SessionWire.Event.MessageRemoved, (event) =>
       Effect.gen(function* () {
         const rows = yield* db
           .select()
@@ -962,7 +963,7 @@ const layer = Layer.effectDiscard(
           .pipe(Effect.orDie)
       }),
     )
-    yield* events.project(SessionV1.Event.PartRemoved, (event) =>
+    yield* events.project(SessionWire.Event.PartRemoved, (event) =>
       Effect.gen(function* () {
         const row = yield* db
           .select()
@@ -979,7 +980,7 @@ const layer = Layer.effectDiscard(
           .pipe(Effect.orDie)
       }),
     )
-    yield* events.project(SessionV1.Event.PartUpdated, (event) =>
+    yield* events.project(SessionWire.Event.PartUpdated, (event) =>
       Effect.gen(function* () {
         const id = event.data.part.id
         const messageID = event.data.part.messageID
@@ -1244,8 +1245,8 @@ const layer = Layer.effectDiscard(
       }),
     )
     // Live-only Progress events are not durable and must not rewrite SessionMessage rows.
-    // Subscribers still receive them through EventV2.listen / streams.
+    // Subscribers still receive them through CoreEvent.listen / streams.
   }),
 )
 
-export const node = makeGlobalNode({ name: "session-projector", layer, deps: [EventV2.node, Database.node] })
+export const node = makeGlobalNode({ name: "session-projector", layer, deps: [CoreEvent.node, Database.node] })

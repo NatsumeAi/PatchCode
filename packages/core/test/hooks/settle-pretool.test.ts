@@ -1,11 +1,11 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "@opencode-ai/core/agent"
+import { Agent } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Hooks } from "@opencode-ai/core/hooks"
 import { SessionMessage } from "@opencode-ai/core/session/message"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
@@ -62,8 +62,8 @@ const it = testEffect(
 )
 
 const call = {
-  sessionID: SessionV2.ID.make("ses_hooks_settle"),
-  agent: AgentV2.ID.make("build"),
+  sessionID: Session.ID.make("ses_hooks_settle"),
+  agent: Agent.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_hooks_settle"),
   call: { type: "tool-call" as const, id: "call-dummy", name: "dummy", input: {} },
 }

@@ -2,9 +2,9 @@ export * as SkillGuidance from "./guidance"
 
 import { makeLocationNode } from "../effect/app-node"
 import { Context, Effect, Layer, Schema } from "effect"
-import { AgentV2 } from "../agent"
+import { Agent } from "../agent"
 import { Permission } from "../permission"
-import { SkillV2 } from "../skill"
+import { Skill as CoreSkill } from "../skill"
 import { SystemContext } from "../system-context/index"
 
 const Summary = Schema.Struct({
@@ -32,21 +32,21 @@ const render = (skills: ReadonlyArray<Summary>) =>
   ].join("\n")
 
 export interface Interface {
-  readonly load: (agent: AgentV2.Selection) => Effect.Effect<SystemContext.SystemContext>
+  readonly load: (agent: Agent.Selection) => Effect.Effect<SystemContext.SystemContext>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SkillGuidance") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/SkillGuidance") {}
 
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const skills = yield* SkillV2.Service
+    const skills = yield* CoreSkill.Service
 
     return Service.of({
       load: Effect.fn("SkillGuidance.load")(function* (selection) {
         const agent = selection.info
         if (!agent) return SystemContext.empty
-        const permitted = SkillV2.available(yield* skills.list(), agent)
+        const permitted = CoreSkill.available(yield* skills.list(), agent)
         if (permitted.length === 0 && Permission.evaluate("skill", "*", agent.permissions).effect === "deny")
           return SystemContext.empty
         const available = permitted
@@ -73,4 +73,4 @@ const layer = Layer.effect(
 
 export const locationLayer = layer
 
-export const node = makeLocationNode({ service: Service, layer, deps: [SkillV2.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [CoreSkill.node] })

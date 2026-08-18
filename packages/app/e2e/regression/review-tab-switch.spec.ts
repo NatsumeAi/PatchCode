@@ -18,10 +18,10 @@ const PROBE = "original"
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-// The v2 review pane's diff data is workspace-scoped: switching between session
+// The kit review pane's diff data is workspace-scoped: switching between session
 // tabs in the same workspace must update its parameters reactively instead of
 // tearing the pane down and remounting it (which flickers).
-test("keeps the v2 review pane mounted when switching session tabs in a workspace", async ({ page }) => {
+test("keeps the kit review pane mounted when switching session tabs in a workspace", async ({ page }) => {
   await setup(page)
 
   await page.goto(sessionHref(sessionA))
@@ -32,7 +32,7 @@ test("keeps the v2 review pane mounted when switching session tabs in a workspac
   const reviewTabPanel = page.locator("#session-side-panel-review-tabpanel")
   await expect(reviewTab).toHaveAttribute("aria-controls", "session-side-panel-review-tabpanel")
   await expect(reviewTabPanel).toHaveAttribute("id", "session-side-panel-review-tabpanel")
-  const review = page.locator('#review-panel [data-component="session-review-v2"]')
+  const review = page.locator('#review-panel [data-component="session-review"]')
   await expectAppVisible(review)
   await expectAppVisible(page.getByRole("button", { name: "generated-0000.ts" }))
   await writeProbe(page)
@@ -49,7 +49,7 @@ test("keeps the v2 review pane mounted when switching session tabs in a workspac
   await expectAppVisible(page.getByRole("button", { name: "generated-0000.ts" }))
   expect(await readProbe(page)).toBe(PROBE)
 
-  const viewport = page.locator('#review-panel [data-slot="session-review-v2-sidebar-tree"] .scroll-view__viewport')
+  const viewport = page.locator('#review-panel [data-slot="session-review-kit-sidebar-tree"] .scroll-view__viewport')
   await viewport.hover()
   await page.mouse.wheel(0, 100_000)
   await expect
@@ -65,13 +65,13 @@ async function switchTab(page: Page, title: string) {
 }
 
 async function writeProbe(page: Page) {
-  await page.locator('#review-panel [data-component="session-review-v2"]').evaluate((el, probe) => {
+  await page.locator('#review-panel [data-component="session-review"]').evaluate((el, probe) => {
     ;(el as Probed).__e2eProbe = probe
   }, PROBE)
 }
 
 async function readProbe(page: Page) {
-  return page.locator('#review-panel [data-component="session-review-v2"]').evaluate((el) => (el as Probed).__e2eProbe)
+  return page.locator('#review-panel [data-component="session-review"]').evaluate((el) => (el as Probed).__e2eProbe)
 }
 
 async function setup(page: Page) {

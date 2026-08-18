@@ -3,14 +3,14 @@ export * as ConfigAgentPlugin from "./agent"
 import { define } from "../../plugin/internal"
 import path from "path"
 import { Effect, Option, Schema } from "effect"
-import { AgentV2 } from "../../agent"
+import { Agent as CoreAgent } from "../../agent"
 import { Config } from "../../config"
 import { ConfigAgent } from "../agent"
 import { ConfigMarkdown } from "../markdown"
 import { FSUtil } from "../../fs-util"
-import { ModelV2 } from "../../model"
-import { ConfigAgentV1 } from "../legacy/agent"
-import { ConfigMigrateV1 } from "../legacy/migrate"
+import { Model } from "../../model"
+import { ConfigAgentInput } from "../legacy/agent"
+import { ConfigMigrate } from "../legacy/migrate"
 import { Global } from "../../global"
 import { Permission } from "../../permission"
 import type { LocationMutation } from "../../location-mutation"
@@ -23,7 +23,7 @@ const legacySources = [
   { pattern: "{mode,modes}/*.md", primary: true },
 ] as const
 const decodeAgent = Schema.decodeUnknownOption(ConfigAgent.Info)
-const decodeLegacyAgent = Schema.decodeUnknownOption(ConfigAgentV1.Info)
+const decodeLegacyAgent = Schema.decodeUnknownOption(ConfigAgentInput.Info)
 const decodeConfig = Schema.decodeUnknownOption(Config.Info)
 type PathAction =
   | LocationMutation.ExternalDirectoryAuthorization["action"]
@@ -77,7 +77,7 @@ export const Plugin = define({
           global.home,
         )
         const configuredDefault = Config.latest(documents, "default_agent")
-        if (configuredDefault !== undefined) draft.default(AgentV2.ID.make(configuredDefault))
+        if (configuredDefault !== undefined) draft.default(CoreAgent.ID.make(configuredDefault))
         for (const current of draft.list()) {
           draft.update(current.id, (agent) => agent.permissions.push(...permissions))
         }
@@ -85,7 +85,7 @@ export const Plugin = define({
         const inherited = applyInheritance(documents)
         for (const document of documents) {
           for (const [id, item] of Object.entries(document.info.agents ?? {})) {
-            const agentID = AgentV2.ID.make(id)
+            const agentID = CoreAgent.ID.make(id)
             if (item.disabled) {
               draft.remove(agentID)
               continue
@@ -96,15 +96,15 @@ export const Plugin = define({
             draft.update(agentID, (agent) => {
               if (!exists) agent.permissions.push(...permissions)
               if (inheritedItem?.model !== undefined && agent.model === undefined) {
-                const inherited = ModelV2.parse(inheritedItem.model)
+                const inherited = Model.parse(inheritedItem.model)
                 agent.model = { id: inherited.modelID, providerID: inherited.providerID }
               }
               if (item.model !== undefined) {
-                const model = ModelV2.parse(item.model)
+                const model = Model.parse(item.model)
                 agent.model = { id: model.modelID, providerID: model.providerID, variant: agent.model?.variant }
               }
               if (item.variant !== undefined && agent.model !== undefined) {
-                agent.model.variant = ModelV2.VariantID.make(item.variant)
+                agent.model.variant = Model.VariantID.make(item.variant)
               }
               if (inheritedItem?.request !== undefined) {
                 Object.assign(agent.request.headers, inheritedItem.request.headers ?? {})
@@ -137,7 +137,7 @@ export const Plugin = define({
               }
               if (item.workspace !== undefined) agent.workspace = item.workspace
               // persona is on Agent.Info (schema); cast for DeepMutable assign.
-              const mutable = agent as DeepMutable<AgentV2.Info> & { persona?: string }
+              const mutable = agent as DeepMutable<CoreAgent.Info> & { persona?: string }
               if (inheritedItem?.persona !== undefined && mutable.persona === undefined) {
                 mutable.persona = inheritedItem.persona
               }
@@ -272,7 +272,7 @@ function decode(file: { directory: string; filepath: string; primary: boolean },
     legacy
       ? Option.map(
           decodeLegacyAgent({ name, ...markdown.data, prompt: body }, { errors: "all", propertyOrder: "original" }),
-          ConfigMigrateV1.migrateAgent,
+          ConfigMigrate.migrateAgent,
         )
       : decodeAgent({ ...markdown.data, system: body }, { errors: "all", propertyOrder: "original" }),
   )

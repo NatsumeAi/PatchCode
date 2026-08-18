@@ -3,7 +3,7 @@ import path from "path"
 import { Effect, Layer, Context, Schema } from "effect"
 import { NamedError } from "@opencode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { Global } from "@opencode-ai/core/global"
 import { SkillPlugin } from "@opencode-ai/core/plugin/skill"
@@ -103,7 +103,7 @@ export interface Interface {
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
 }
 
-const add = Effect.fnUntraced(function* (state: State, match: string, events: EventV2Bridge.Service["Service"]) {
+const add = Effect.fnUntraced(function* (state: State, match: string, events: EventBridge.Service["Service"]) {
   const md = yield* Effect.tryPromise({
     try: () => ConfigMarkdown.parse(match),
     catch: (err) => err,
@@ -274,7 +274,7 @@ const discoverSkills = Effect.fnUntraced(function* (
 const loadSkills = Effect.fnUntraced(function* (
   state: State,
   discovered: DiscoveryState,
-  events: EventV2Bridge.Service["Service"],
+  events: EventBridge.Service["Service"],
 ) {
   yield* Effect.forEach(discovered.matches, (match) => add(state, match, events), {
     concurrency: "unbounded",
@@ -291,7 +291,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const discovery = yield* Discovery.Service
     const config = yield* Config.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const fsys = yield* FSUtil.Service
     const global = yield* Global.Service
     const flags = yield* RuntimeFlags.Service
@@ -350,7 +350,7 @@ const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
-      return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
+      return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).effect !== "deny")
     })
 
     return Service.of({ get, require, all, dirs, available })
@@ -387,7 +387,7 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Discovery.node, Config.node, EventV2Bridge.node, FSUtil.node, Global.node, RuntimeFlags.node],
+  deps: [Discovery.node, Config.node, EventBridge.node, FSUtil.node, Global.node, RuntimeFlags.node],
 })
 
 export * as Skill from "."

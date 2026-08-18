@@ -2,7 +2,7 @@ export * as ToolRegistry from "./registry"
 
 import { ToolOutput, ToolDefinition, type ToolCall, type ToolResultValue } from "@opencode-ai/llm"
 import { Context, Effect, Layer, Option, Scope } from "effect"
-import { AgentV2 } from "../agent"
+import { Agent } from "../agent"
 import { Permission } from "../permission"
 import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
@@ -74,7 +74,7 @@ export const rankDynamicHits = (items: readonly DynamicHit[], query: string, lim
 
 export type ExecuteInput = {
   readonly sessionID: SessionSchema.ID
-  readonly agent: AgentV2.ID
+  readonly agent: Agent.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly call: ToolCall
 }
@@ -107,7 +107,7 @@ export interface Settlement {
   readonly outputPaths?: ReadonlyArray<string>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/ToolRegistry") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
 
 /** Optional host: leftover plugins rewrite advertised tool descriptions at materialize time. */
 export interface DefinitionHook {
@@ -119,7 +119,7 @@ export interface DefinitionHook {
 }
 
 export class DefinitionHookService extends Context.Service<DefinitionHookService, DefinitionHook>()(
-  "@opencode/v2/ToolDefinitionHook",
+  "@opencode/ToolDefinitionHook",
 ) {}
 
 const registryLayer = Layer.effect(
@@ -322,14 +322,15 @@ const registryLayer = Layer.effect(
             : {}
           if (!webSearchEnabled(agent.providerID, flags)) advertised.delete("websearch")
         }
-        for (const name of Array.from(advertised.keys())) {
-          const registration = advertised.get(name)
-          if (!registration) continue
-          const rule = Permission.evaluate(permission(registration.tool, name), "*", permissions)
-          if (rule.effect === "deny" && rule.resource === "*") advertised.delete(name)
+        const hiddenByPermission = Permission.disabled(
+          [...new Set(Array.from(advertised, ([name, registration]) => permission(registration.tool, name)))],
+          permissions,
+        )
+        for (const [name, registration] of advertised) {
+          if (hiddenByPermission.has(permission(registration.tool, name))) advertised.delete(name)
         }
         const definitions = Array.from(advertised, ([name, registration]) => definition(name, registration.tool))
-        // Restore V1 describeTask: append callable subagent catalog to task tool description.
+        // Append callable subagent catalog to the task tool description.
         if (advertised.has("task")) {
           const appendix = yield* describeTaskAgents(permissions)
           if (appendix) {
@@ -401,14 +402,14 @@ const registryLayer = Layer.effect(
 )
 
 /**
- * Parent-facing subagent catalog (V1 describeTask port).
+ * Parent-facing subagent catalog (legacy describeTask port).
  * Filters: not primary, not hidden, parent may call task on that agent id.
  * Capability tag included when set (Tier 2).
  */
 const describeTaskAgents = Effect.fn("ToolRegistry.describeTaskAgents")(function* (
   parentPermissions: Permission.Ruleset,
 ) {
-  const agentsOpt = yield* Effect.serviceOption(AgentV2.Service)
+  const agentsOpt = yield* Effect.serviceOption(Agent.Service)
   if (Option.isNone(agentsOpt)) return undefined
   const items = (yield* agentsOpt.value.all())
     .filter((item) => item.mode !== "primary" && !item.hidden)

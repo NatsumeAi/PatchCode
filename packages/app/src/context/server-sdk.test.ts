@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { adaptServerEvent, coalesceServerEvents, enqueueServerEvent, resumeStreamAfterPageShow } from "./server-sdk"
 import type { OpenCodeEvent } from "@opencode-ai/client/promise"
-import type { Event } from "@opencode-ai/sdk/v2/client"
+import type { Event } from "@opencode-ai/sdk/api/client"
 
 describe("resumeStreamAfterPageShow", () => {
   test("restarts a stream only after a back-forward cache restore", () => {
@@ -22,11 +22,11 @@ describe("adaptServerEvent", () => {
       created: 1,
       type: "permission.asked",
       data: { id: "perm_1", sessionID: "ses_1", action: "read", resources: ["src/**"] },
-    } as OpenCodeEvent
+    } as unknown as OpenCodeEvent
 
     expect(adaptServerEvent(current)).toMatchObject({
       type: "permission.asked",
-      properties: { id: "perm_1", sessionID: "ses_1", permission: "read", patterns: ["src/**"] },
+      properties: { id: "perm_1", sessionID: "ses_1", action: "read", resources: ["src/**"] },
       current,
     })
   })

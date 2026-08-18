@@ -7,7 +7,7 @@ import { Permission } from "./permission"
 import { Provider } from "./provider"
 import { PositiveInt, statics } from "./schema"
 
-export const ID = Schema.String.pipe(Schema.brand("AgentV2.ID"))
+export const ID = Schema.String.pipe(Schema.brand("Agent.ID"))
 export type ID = typeof ID.Type
 
 export const Color = Schema.Union([
@@ -33,7 +33,7 @@ export const Info = Schema.Struct({
   persona: Schema.String.pipe(optional),
   source: Schema.Record(Schema.String, Schema.Literals(["explicit", "inherited", "default"])).pipe(optional),
 })
-  .annotate({ identifier: "AgentV2.Info" })
+  .annotate({ identifier: "Agent.Info" })
   .pipe(
     statics((schema) => ({
       empty: (id: ID) =>

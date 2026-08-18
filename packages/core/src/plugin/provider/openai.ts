@@ -1,14 +1,14 @@
 import { createServer } from "node:http"
-import type { IntegrationOAuthMethodRegistration } from "@opencode-ai/plugin/v2/effect/integration"
-import { define } from "@opencode-ai/plugin/v2/effect/plugin"
+import type { IntegrationOAuthMethodRegistration } from "@opencode-ai/plugin/effect/integration"
+import { define } from "@opencode-ai/plugin/effect/plugin"
 import { Deferred, Effect } from "effect"
 import type { Scope } from "effect"
 import { Credential } from "../../credential"
 import { InstallationVersion } from "../../installation/version"
 import { Integration } from "../../integration"
-import { ModelV2 } from "../../model"
+import { Model } from "../../model"
 import { OauthCallbackPage } from "../../oauth/page"
-import { ProviderV2 } from "../../provider"
+import { Provider } from "../../provider"
 import type { PluginInternal } from "../internal"
 
 const clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -163,8 +163,8 @@ export const OpenAIPlugin = define({
         for (const item of evt.provider.list()) {
           if (item.provider.api.type !== "aisdk") continue
           if (item.provider.api.package !== "@ai-sdk/openai") continue
-          if (!item.models.has(ModelV2.ID.make("gpt-5-chat-latest"))) continue
-          evt.model.update(item.provider.id, ModelV2.ID.make("gpt-5-chat-latest"), (model) => {
+          if (!item.models.has(Model.ID.make("gpt-5-chat-latest"))) continue
+          evt.model.update(item.provider.id, Model.ID.make("gpt-5-chat-latest"), (model) => {
             // OpenAIPlugin sends OpenAI models through Responses; this alias is a
             // chat-completions-only model, so hide it only from OpenAI's catalog.
             model.enabled = false
@@ -181,7 +181,7 @@ export const OpenAIPlugin = define({
     )
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
-        if (evt.model.providerID !== ProviderV2.ID.openai) return
+        if (evt.model.providerID !== Provider.ID.openai) return
         evt.language = evt.sdk.responses(evt.model.api.id)
       }),
     )

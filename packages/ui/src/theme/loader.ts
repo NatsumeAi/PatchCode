@@ -1,6 +1,6 @@
-import type { DesktopTheme, ResolvedTheme, ResolvedV2Theme } from "./types"
+import type { DesktopTheme, ResolvedTheme, ResolvedKitTheme } from "./types"
 import { resolveThemeVariant, themeToCss } from "./resolve"
-import { resolveThemeVariantV2, themeV2ToCss } from "./v2/resolve"
+import { resolveKitThemeVariant, themeKitToCss } from "./v2/resolve"
 
 let activeTheme: DesktopTheme | null = null
 const THEME_STYLE_ID = "opencode-theme"
@@ -20,10 +20,10 @@ export function applyTheme(theme: DesktopTheme, themeId?: string): void {
   activeTheme = theme
   const lightTokens = resolveThemeVariant(theme.light, false)
   const darkTokens = resolveThemeVariant(theme.dark, true)
-  const lightV2Tokens = resolveThemeVariantV2(theme.light, false)
-  const darkV2Tokens = resolveThemeVariantV2(theme.dark, true)
+  const lightKitTokens = resolveKitThemeVariant(theme.light, false)
+  const darkKitTokens = resolveKitThemeVariant(theme.dark, true)
   const targetThemeId = themeId ?? theme.id
-  const css = buildThemeCss(lightTokens, darkTokens, lightV2Tokens, darkV2Tokens, targetThemeId)
+  const css = buildThemeCss(lightTokens, darkTokens, lightKitTokens, darkKitTokens, targetThemeId)
   const themeStyleElement = ensureLoaderStyleElement()
   themeStyleElement.textContent = css
   document.documentElement.setAttribute("data-theme", targetThemeId)
@@ -32,13 +32,13 @@ export function applyTheme(theme: DesktopTheme, themeId?: string): void {
 function buildThemeCss(
   light: ResolvedTheme,
   dark: ResolvedTheme,
-  lightV2: ResolvedV2Theme,
-  darkV2: ResolvedV2Theme,
+  lightKit: ResolvedKitTheme,
+  darkKit: ResolvedKitTheme,
   themeId: string,
 ): string {
   const isDefaultTheme = themeId === "oc-2"
-  const lightCss = `${themeToCss(light)}\n  ${themeV2ToCss(lightV2)}`
-  const darkCss = `${themeToCss(dark)}\n  ${themeV2ToCss(darkV2)}`
+  const lightCss = `${themeToCss(light)}\n  ${themeKitToCss(lightKit)}`
+  const darkCss = `${themeToCss(dark)}\n  ${themeKitToCss(darkKit)}`
 
   if (isDefaultTheme) {
     return `

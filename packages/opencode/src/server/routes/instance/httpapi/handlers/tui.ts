@@ -1,4 +1,4 @@
-import { EventV2Bridge } from "@/event-bridge"
+import { EventBridge } from "@/event-bridge"
 import { TuiEvent } from "@/server/tui-event"
 import { Session } from "@/session/session"
 import { Effect } from "effect"
@@ -27,7 +27,7 @@ const commandAliases = {
 
 export const tuiHandlers = HttpApiBuilder.group(InstanceHttpApi, "tui", (handlers) =>
   Effect.gen(function* () {
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventBridge.Service
     const session = yield* Session.Service
     const publishCommand = (command: typeof TuiEvent.CommandExecute.data.Type.command | undefined) =>
       events.publish(TuiEvent.CommandExecute, { command } as typeof TuiEvent.CommandExecute.data.Type)

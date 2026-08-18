@@ -9,7 +9,7 @@ import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
 import { Permission } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { ReadToolFileSystem } from "@opencode-ai/core/tool/read-filesystem"
 import { RepoOverviewTool } from "@opencode-ai/core/tool/repo-overview"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -19,7 +19,7 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { executeTool, toolIdentity } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_repo_overview")
+const sessionID = Session.ID.make("ses_repo_overview")
 const assertions: Permission.AssertInput[] = []
 
 const permission = Layer.succeed(

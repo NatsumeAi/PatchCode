@@ -203,7 +203,7 @@ export default function Download() {
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <g clip-path="url(#clip0_2614_159729)">
                         <path
-                          d="M2 2H11.481V11.4769H2V2ZM12.519 2H22V11.4769H12.519V2ZM2 12.519H11.481V22H2V12.519ZM12.519 12.519H22V22H12.519"
+                          d="M2 2H11.481V11.4769H2ZM12.519 2H22V11.4769H12.519ZM2 12.519H11.481V22H2V12.519ZM12.519 12.519H22V22H12.519"
                           fill="currentColor"
                         />
                       </g>

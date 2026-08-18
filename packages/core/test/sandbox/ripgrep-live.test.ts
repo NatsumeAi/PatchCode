@@ -7,9 +7,9 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 
-const sessionID = SessionV2.ID.make("ses_rg_live_sandbox")
+const sessionID = Session.ID.make("ses_rg_live_sandbox")
 
 describe.skipIf(process.platform !== "linux")("ripgrep live sandbox", () => {
   test("workspace ripgrep cannot read denied .env", async () => {

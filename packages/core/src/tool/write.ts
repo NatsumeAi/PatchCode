@@ -1,5 +1,5 @@
 /**
- * Model-facing V2 file-write leaf. Relative paths resolve within the active
+ * Model-facing file-write leaf. Relative paths resolve within the active
  * Location. Absolute paths inside that Location are accepted, while explicit
  * absolute external paths retain mutation capability through a separate
  * external_directory approval before edit approval.

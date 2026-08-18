@@ -8,7 +8,7 @@ import type {
   QuestionRequest,
   ReferenceInfo,
   Session,
-} from "@opencode-ai/sdk/v2/client"
+} from "@opencode-ai/sdk/api/client"
 import type {
   AgentListInput,
   AgentListOutput,
@@ -226,7 +226,7 @@ export const loadProvidersQuery = (
     queryKey: [scope, directory, "providers"],
     queryFn: () =>
       retry(async () => {
-        if ((await protocol) === "v1" && legacy) {
+        if ((await protocol) === "legacy" && legacy) {
           const result = await legacy.provider.list()
           return normalizeProviderList(result.data!)
         }
@@ -263,7 +263,7 @@ export const loadAgentsQuery = (
     queryKey: [scope, directory, "agents"],
     queryFn: () =>
       retry(async () => {
-        if ((await protocol) === "v1" && legacy) return normalizeAgentList((await legacy.app.agents()).data ?? [])
+        if ((await protocol) === "legacy" && legacy) return normalizeAgentList((await legacy.app.agents()).data ?? [])
         return sdk.list({ location: { directory } }).then((result) => normalizeAgentList(result.data))
       }),
   })
@@ -275,7 +275,7 @@ export const loadCommands = (
   protocol?: Promise<ServerProtocol>,
 ): Promise<CommandInfo[]> =>
   retry(async () => {
-    if ((await protocol) === "v1" && legacy) {
+    if ((await protocol) === "legacy" && legacy) {
       return ((await legacy.command.list()).data ?? []).map((command) => {
         const [providerID, id] = command.model?.split("/") ?? []
         return {
@@ -301,7 +301,7 @@ export const loadPathQuery = (
   queryOptions<Path>({
     queryKey: [scope, directory, "path"],
     queryFn: async () => {
-      if ((await protocol) !== "v1")
+      if ((await protocol) !== "legacy")
         return { state: "", config: "", worktree: "", directory: directory ?? "", home: "" }
       return retry(() => sdk.path.get({ directory: directory ?? undefined }).then((result) => result.data!))
     },
@@ -318,7 +318,7 @@ export const loadReferencesQuery = (
     queryKey: [scope, directory, "references"] as const,
     queryFn: () =>
       retry(async () => {
-        if ((await protocol) === "v1" && legacy) return (await legacy.v2.reference.list()).data?.data ?? []
+        if ((await protocol) === "legacy" && legacy) return (await legacy.api.reference.list()).data?.data ?? []
         return api.list({ location: { directory } }).then((result) => result.data)
       }).catch(() => []),
     placeholderData: [],
@@ -380,7 +380,7 @@ export async function bootstrapDirectory(input: {
       () =>
         retry(() =>
           (async () => {
-            if ((await input.protocol) !== "v1") return
+            if ((await input.protocol) !== "legacy") return
             const x = await input.sdk.session.status()
             if (!input.session) {
               input.setStore("session_status", x.data!)
@@ -419,7 +419,7 @@ export async function bootstrapDirectory(input: {
             })),
       () =>
         retry(async () => {
-          if ((await input.protocol) !== "v1") return
+          if ((await input.protocol) !== "legacy") return
           return input.sdk.vcs.get().then((result) => {
             const next = { branch: result.data?.branch, default_branch: result.data?.default_branch }
             input.setStore("vcs", next)
@@ -438,7 +438,7 @@ export async function bootstrapDirectory(input: {
       () =>
         retry(() =>
           (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.permission.list()).data ?? []
+            if ((await input.protocol) === "legacy") return []
             return input.api.permission.request
               .list({ location: { directory: input.directory } })
               .then((result) => result.data.map(normalizePermissionRequest))
@@ -474,7 +474,7 @@ export async function bootstrapDirectory(input: {
       () =>
         retry(() =>
           (async () => {
-            if ((await input.protocol) === "v1") return (await input.sdk.question.list()).data ?? []
+            if ((await input.protocol) === "legacy") return []
             return input.api.question.request
               .list({ location: { directory: input.directory } })
               .then((result) => result.data)

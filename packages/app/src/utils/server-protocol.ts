@@ -1,7 +1,7 @@
 import type { ServerConnection } from "@/context/server"
 import { authTokenFromCredentials } from "./server"
 
-export type ServerProtocol = "v1" | "v2"
+export type ServerProtocol = "legacy" | "current"
 
 function headers(server: ServerConnection.HttpBase) {
   if (!server.password) return
@@ -26,10 +26,10 @@ export async function detectServerProtocol(
   fetch: typeof globalThis.fetch,
 ): Promise<ServerProtocol> {
   const legacy = await probe(server, fetch, "/global/health").catch(() => undefined)
-  if (legacy && "healthy" in legacy && legacy.healthy === true) return "v1"
+  if (legacy && "healthy" in legacy && legacy.healthy === true) return "legacy"
 
   const current = await probe(server, fetch, "/api/health").catch(() => undefined)
-  if (current && "pid" in current && typeof current.pid === "number") return "v2"
-  if (current && "healthy" in current && current.healthy === true) return "v1"
-  return "v2"
+  if (current && "pid" in current && typeof current.pid === "number") return "current"
+  if (current && "healthy" in current && current.healthy === true) return "legacy"
+  return "current"
 }

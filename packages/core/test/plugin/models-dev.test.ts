@@ -5,13 +5,13 @@ import { Catalog } from "@opencode-ai/core/catalog"
 import { Integration } from "@opencode-ai/core/integration"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Location } from "@opencode-ai/core/location"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Model } from "@opencode-ai/core/model"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { ModelsDevPlugin } from "@opencode-ai/core/plugin/models-dev"
-import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Provider as CoreProvider } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
@@ -21,7 +21,7 @@ const locationLayer = Layer.succeed(
   Location.Service,
   Location.Service.of(location({ directory: AbsolutePath.make(import.meta.dir) })),
 )
-const layer = AppNodeBuilder.build(LayerNode.group([Catalog.node, Integration.node, EventV2.node]), [
+const layer = AppNodeBuilder.build(LayerNode.group([Catalog.node, Integration.node, Event.node]), [
   [Location.node, locationLayer],
 ])
 const it = testEffect(layer)
@@ -89,9 +89,9 @@ describe("ModelsDevPlugin", () => {
         }),
       ).pipe(Effect.provideService(ModelsDev.Service, models))
 
-      const providerID = ProviderV2.ID.make("acme")
-      const base = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4"))
-      const fast = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4-fast"))
+      const providerID = CoreProvider.ID.make("acme")
+      const base = yield* catalog.model.get(providerID, Model.ID.make("gpt-5.4"))
+      const fast = yield* catalog.model.get(providerID, Model.ID.make("gpt-5.4-fast"))
 
       expect(base?.variants).toEqual([])
       expect(base?.request.body).toEqual({})
@@ -207,7 +207,7 @@ describe("ModelsDevPlugin", () => {
         }),
       ).pipe(Effect.provideService(ModelsDev.Service, models))
 
-      const model = yield* catalog.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("deepseek-v4-flash-free"))
+      const model = yield* catalog.model.get(CoreProvider.ID.opencode, Model.ID.make("deepseek-v4-flash-free"))
       expect(model?.variants).toEqual([
         expect.objectContaining({ id: "high", body: { reasoning_effort: "high" } }),
         expect.objectContaining({ id: "max", body: { reasoning_effort: "max" } }),

@@ -22,10 +22,10 @@ import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "e
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 import { containsPath, type InstanceContext } from "../project/instance-context"
-import { ConfigV1 } from "@opencode-ai/core/config/legacy/config"
+import { ConfigInput } from "@opencode-ai/core/config/legacy/config"
 import { RemoteAuthError } from "@opencode-ai/core/config/legacy/error"
-import { ConfigPermissionV1 } from "@opencode-ai/core/config/legacy/permission"
-import { ConfigPluginV1 } from "@opencode-ai/core/config/legacy/plugin"
+import { ConfigPermission } from "@opencode-ai/core/config/legacy/permission"
+import { ConfigPluginInput } from "@opencode-ai/core/config/legacy/plugin"
 import { ConfigAgent } from "./agent"
 import { ConfigCommand } from "./command"
 import { ConfigManaged } from "./managed"
@@ -98,7 +98,7 @@ async function substituteWellKnownRemoteConfig(input: {
   return { url, headers }
 }
 
-async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }>(config: T, filepath: string) {
+async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginInput.Spec[] }>(config: T, filepath: string) {
   if (!config.plugin) return config
   for (let i = 0; i < config.plugin.length; i++) {
     // Normalize path-like plugin specs while we still know which config file declared them.
@@ -108,7 +108,7 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
   return config
 }
 
-type Info = ConfigV1.Info & {
+type Info = ConfigInput.Info & {
   // plugin_origins is derived state, not a persisted config field. It keeps each winning plugin spec together
   // with the file and scope it came from so later runtime code can make location-sensitive decisions.
   plugin_origins?: ConfigPlugin.Origin[]
@@ -224,7 +224,7 @@ const layer = Layer.effect(
         ),
       )
       const parsed = ConfigParse.jsonc(expanded, source)
-      const data = ConfigParse.schema(ConfigV1.Info, normalizeLoadedConfig(parsed), source)
+      const data = ConfigParse.schema(ConfigInput.Info, normalizeLoadedConfig(parsed), source)
       if (!("path" in options)) return data
 
       yield* Effect.promise(() => resolveLoadedPlugins(data, options.path))
@@ -331,7 +331,7 @@ const layer = Layer.effect(
           source: string,
           // mergePluginOrigins receives raw Specs from one config source, before provenance for this merge step
           // is attached.
-          list: ConfigPluginV1.Spec[] | undefined,
+          list: ConfigPluginInput.Spec[] | undefined,
           // Scope can be inferred from the source path, but some callers already know whether the config should
           // behave as global or local and can pass that explicitly.
           kind?: ConfigPlugin.Scope,
@@ -359,7 +359,7 @@ const layer = Layer.effect(
             authEnv[value.key] = value.token
             const wellknownURL = `${url}/.well-known/opencode`
             yield* Effect.logDebug("fetching remote config", { url: wellknownURL })
-            const wellknown = yield* fetchRemoteJson(wellknownURL, undefined, ConfigV1.WellKnown, url)
+            const wellknown = yield* fetchRemoteJson(wellknownURL, undefined, ConfigInput.WellKnown, url)
             const remote = yield* Effect.promise(() =>
               substituteWellKnownRemoteConfig({
                 value: wellknown.remote_config,
@@ -551,9 +551,9 @@ const layer = Layer.effect(
         }
 
         if (result.tools) {
-          const perms: Record<string, ConfigPermissionV1.Action> = {}
+          const perms: Record<string, ConfigPermission.Action> = {}
           for (const [tool, enabled] of Object.entries(result.tools)) {
-            const action: ConfigPermissionV1.Action = enabled ? "allow" : "deny"
+            const action: ConfigPermission.Action = enabled ? "allow" : "deny"
             if (tool === "write" || tool === "edit" || tool === "patch") {
               perms.edit = action
               continue
@@ -642,7 +642,7 @@ const layer = Layer.effect(
       let next: Info
       let changed: boolean
       if (!file.endsWith(".jsonc")) {
-        const existing = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(before, file), file)
+        const existing = ConfigParse.schema(ConfigInput.Info, ConfigParse.jsonc(before, file), file)
         const merged = mergeDeep(writable(existing), patch)
         const serialized = JSON.stringify(merged, null, 2)
         changed = serialized !== before
@@ -650,7 +650,7 @@ const layer = Layer.effect(
         next = merged
       } else {
         const updated = patchJsonc(before, patch)
-        next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(updated, file), file)
+        next = ConfigParse.schema(ConfigInput.Info, ConfigParse.jsonc(updated, file), file)
         changed = updated !== before
         if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
       }

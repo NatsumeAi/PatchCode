@@ -1,11 +1,11 @@
 import { test, expect, describe } from "bun:test"
-import { SessionV1 } from "@opencode-ai/core/session-legacy"
+import { SessionWire } from "@opencode-ai/core/session-legacy"
 import { extractResponseText, formatPromptTooLargeError } from "../../src/cli/cmd/github"
-import type { MessageV2 } from "../../src/session/session-message-wire"
+import type { MessageWire } from "../../src/session/session-message-wire"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 
 // Helper to create minimal valid parts
-function createTextPart(text: string): SessionV1.Part {
+function createTextPart(text: string): SessionWire.Part {
   return {
     id: PartID.ascending(),
     sessionID: SessionID.make("ses_test"),
@@ -15,7 +15,7 @@ function createTextPart(text: string): SessionV1.Part {
   }
 }
 
-function createReasoningPart(text: string): SessionV1.Part {
+function createReasoningPart(text: string): SessionWire.Part {
   return {
     id: PartID.ascending(),
     sessionID: SessionID.make("ses_test"),
@@ -26,7 +26,7 @@ function createReasoningPart(text: string): SessionV1.Part {
   }
 }
 
-function createToolPart(tool: string, title: string, status: "completed" | "running" = "completed"): SessionV1.Part {
+function createToolPart(tool: string, title: string, status: "completed" | "running" = "completed"): SessionWire.Part {
   if (status === "completed") {
     return {
       id: PartID.ascending(),
@@ -60,7 +60,7 @@ function createToolPart(tool: string, title: string, status: "completed" | "runn
   }
 }
 
-function createStepStartPart(): SessionV1.Part {
+function createStepStartPart(): SessionWire.Part {
   return {
     id: PartID.ascending(),
     sessionID: SessionID.make("ses_test"),
@@ -69,7 +69,7 @@ function createStepStartPart(): SessionV1.Part {
   }
 }
 
-function createStepFinishPart(): SessionV1.Part {
+function createStepFinishPart(): SessionWire.Part {
   return {
     id: PartID.ascending(),
     sessionID: SessionID.make("ses_test"),

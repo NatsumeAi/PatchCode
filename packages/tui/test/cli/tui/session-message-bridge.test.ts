@@ -7,7 +7,7 @@ import {
   userMessageFromPrompt,
   userTextPart,
 } from "../../../src/context/session-message-bridge"
-import type { SessionMessage } from "@opencode-ai/sdk/v2"
+import type { SessionMessage } from "@opencode-ai/sdk/api"
 
 test("user prompt maps to V1 user message + text part", () => {
   const meta = sessionMeta(undefined)

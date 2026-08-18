@@ -7,7 +7,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
-import { EventV2 } from "@opencode-ai/core/event"
+import { Event } from "@opencode-ai/core/event"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { LocationMutation } from "@opencode-ai/core/location-mutation"
@@ -15,7 +15,7 @@ import { Permission } from "@opencode-ai/core/permission"
 import { AppProcess } from "@opencode-ai/core/process"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { pinSession } from "@opencode-ai/core/sandbox/resolve"
-import { SessionV2 } from "@opencode-ai/core/session"
+import { Session } from "@opencode-ai/core/session"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { BashTool } from "@opencode-ai/core/tool/bash"
 import { BackgroundJob } from "@opencode-ai/core/background-job"
@@ -26,7 +26,7 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { toolIdentity, executeTool, settleTool, toolDefinitions } from "./lib/tool"
 
-const sessionID = SessionV2.ID.make("ses_bash_tool_test")
+const sessionID = Session.ID.make("ses_bash_tool_test")
 pinSession(sessionID, "off")
 const assertions: Permission.AssertInput[] = []
 const spawns: Array<{
@@ -98,14 +98,14 @@ const appProcess = Layer.succeed(
   } as unknown as AppProcess.Interface),
 )
 const events = Layer.succeed(
-  EventV2.Service,
+  Event.Service,
   {
     publish: (definition: { readonly type: string }, data: Record<string, unknown>) =>
       Effect.sync(() => {
         published.push({ type: definition.type, data })
         return { durable: { aggregateID: data.sessionID, seq: published.length, version: 1 } }
       }),
-  } as unknown as EventV2.Interface,
+  } as unknown as Event.Interface,
 )
 const config = Layer.succeed(
   Config.Service,
@@ -213,7 +213,7 @@ const withTool = <A, E, R>(
           [AppProcess.node, processLayer],
           [BackgroundJob.node, backgroundJob],
           [Config.node, config],
-          [EventV2.node, events],
+          [Event.node, events],
           [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
           ...(hostLayer ? ([[BashTool.hostNode, hostLayer]] as const) : []),
         ],

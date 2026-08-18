@@ -4,7 +4,7 @@ import { Context, Effect, Layer, Schema, SynchronizedRef } from "effect"
 import { makeGlobalNode } from "../../effect/app-node"
 
 /**
- * WorkerState is the loop-control state machine for one worker fiber inside the v2 session
+ * WorkerState is the loop-control state machine for one worker fiber inside the session
  * runner. It tracks the worker's current operating state (Active / Waiting(reason) / Dead(reason))
  * and the derived harness observation (Busy / Idle / Stuck).
  *

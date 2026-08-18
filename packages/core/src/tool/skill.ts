@@ -5,7 +5,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
-import { SkillV2 } from "../skill"
+import { Skill as CoreSkill } from "../skill"
 import { Permission } from "../permission"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
@@ -32,7 +32,7 @@ export const description = [
   "The skill name must match one of the skills listed in your system prompt.",
 ].join("\n")
 
-export const toModelOutput = (skill: SkillV2.Info, files: ReadonlyArray<string>) => {
+export const toModelOutput = (skill: CoreSkill.Info, files: ReadonlyArray<string>) => {
   const directory = path.dirname(skill.location)
   return [
     `<skill_content name="${skill.name}">`,
@@ -58,7 +58,7 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const tools = yield* Tools.Service
     const fs = yield* FSUtil.Service
-    const skills = yield* SkillV2.Service
+    const skills = yield* CoreSkill.Service
     const permission = yield* Permission.Service
     yield* tools
       .register({
@@ -105,5 +105,5 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/skill",
   layer,
-  deps: [ToolRegistry.node, FSUtil.node, SkillV2.node, Permission.node],
+  deps: [ToolRegistry.node, FSUtil.node, CoreSkill.node, Permission.node],
 })

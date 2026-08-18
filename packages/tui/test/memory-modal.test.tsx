@@ -197,7 +197,7 @@ test("memory modal footer documents import force mode", async () => {
 })
 
 test("sdk importPack serializes force into request body", async () => {
-  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2")
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/api")
   let body = ""
   const client = createOpencodeClient({
     baseUrl: "http://localhost:1",
@@ -217,7 +217,7 @@ test("sdk importPack serializes force into request body", async () => {
 })
 
 test("sdk importHistory serializes format into request body", async () => {
-  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2")
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/api")
   let body = ""
   const client = createOpencodeClient({
     baseUrl: "http://localhost:1",

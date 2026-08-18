@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { ConfigProviderOptionsV1 } from "@opencode-ai/core/config/legacy/provider-options"
+import { ConfigProviderOptionsInput } from "@opencode-ai/core/config/legacy/provider-options"
 
-describe("ConfigProviderOptionsV1", () => {
+describe("ConfigProviderOptionsInput", () => {
   test("keeps raw provider and request options unchanged", () => {
-    const lowerer = ConfigProviderOptionsV1.get("custom-provider")
+    const lowerer = ConfigProviderOptionsInput.get("custom-provider")
 
     expect(lowerer.provider({ apiKey: "secret", headers: { "x-test": "1" }, nested: { camelCase: true } })).toEqual({
       body: { apiKey: "secret", headers: { "x-test": "1" }, nested: { camelCase: true } },
@@ -12,11 +12,11 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("falls back to raw lowering for prototype property package names", () => {
-    expect(ConfigProviderOptionsV1.get("toString").provider({ enabled: true })).toEqual({ body: { enabled: true } })
+    expect(ConfigProviderOptionsInput.get("toString").provider({ enabled: true })).toEqual({ body: { enabled: true } })
   })
 
   test("lowers OpenAI provider and request options", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/openai")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/openai")
 
     expect(
       lowerer.provider({
@@ -56,7 +56,7 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("lowers Anthropic provider and request options", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/anthropic")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/anthropic")
 
     expect(
       lowerer.provider({
@@ -88,7 +88,7 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("lowers Google provider and request options", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/google")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/google")
 
     expect(
       lowerer.provider({
@@ -124,7 +124,7 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("lowers Azure provider options and uses OpenAI request lowering", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/azure")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/azure")
 
     expect(
       lowerer.provider({
@@ -147,7 +147,7 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("lowers Amazon Bedrock provider and request options", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/amazon-bedrock")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/amazon-bedrock")
 
     expect(
       lowerer.provider({
@@ -167,7 +167,7 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("lowers OpenAI-compatible provider and request options", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/openai-compatible")
+    const lowerer = ConfigProviderOptionsInput.get("@ai-sdk/openai-compatible")
 
     expect(
       lowerer.provider({
@@ -199,7 +199,7 @@ describe("ConfigProviderOptionsV1", () => {
     "ai-gateway-provider",
     "venice-ai-sdk-provider",
   ])("uses OpenAI-compatible lowering for %s", (packageName) => {
-    const lowerer = ConfigProviderOptionsV1.get(packageName)
+    const lowerer = ConfigProviderOptionsInput.get(packageName)
 
     expect(lowerer.provider({ baseURL: "https://example.test", apiKey: "secret" })).toEqual({
       url: "https://example.test",
@@ -213,7 +213,7 @@ describe("ConfigProviderOptionsV1", () => {
   test.each(["@ai-sdk/google-vertex", "@ai-sdk/google-vertex/anthropic"])(
     "uses provider family lowering for %s",
     (packageName) => {
-      const lowerer = ConfigProviderOptionsV1.get(packageName)
+      const lowerer = ConfigProviderOptionsInput.get(packageName)
 
       expect(lowerer.provider({ baseURL: "https://example.test", profile: "dev" })).toMatchObject({
         url: "https://example.test",

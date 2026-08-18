@@ -23,8 +23,8 @@ import { ConfigProvider } from "./config/provider"
 import { ConfigReference } from "./config/reference"
 import { ConfigToolOutput } from "./config/tool-output"
 import { ConfigWatcher } from "./config/watcher"
-import { ConfigV1 } from "./config/legacy/config"
-import { ConfigMigrateV1 } from "./config/legacy/migrate"
+import { ConfigInput } from "./config/legacy/config"
+import { ConfigMigrate } from "./config/legacy/migrate"
 import { Flag } from "./flag/flag"
 import { substitute } from "./config/variable"
 
@@ -161,7 +161,7 @@ export interface Interface {
   readonly reload: () => Effect.Effect<void>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Config") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
 const layer = Layer.effect(
   Service,
@@ -173,15 +173,15 @@ const layer = Layer.effect(
     const names = ["opencode.json", "opencode.jsonc"]
     const decodeOptions = { errors: "all", onExcessProperty: "ignore", propertyOrder: "original" } as const
     const decodeInfo = Schema.decodeUnknownOption(Info, decodeOptions)
-    const decodeV1Info = Schema.decodeUnknownOption(ConfigV1.Info, decodeOptions)
+    const decodeInputInfo = Schema.decodeUnknownOption(ConfigInput.Info, decodeOptions)
 
     const parseDocument = (text: string, source?: string) => {
       const errors: ParseError[] = []
       const input: unknown = parse(text, errors, { allowTrailingComma: true })
       if (errors.length) return
       const info = Option.getOrUndefined(
-        ConfigMigrateV1.isV1(input)
-          ? decodeV1Info(input).pipe(Option.map(ConfigMigrateV1.migrate), Option.flatMap(decodeInfo))
+        ConfigMigrate.isV1(input)
+          ? decodeInputInfo(input).pipe(Option.map(ConfigMigrate.migrate), Option.flatMap(decodeInfo))
           : decodeInfo(input),
       )
       if (!info) return

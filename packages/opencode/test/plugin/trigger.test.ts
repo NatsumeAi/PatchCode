@@ -14,8 +14,8 @@ import { testEffect } from "../lib/effect"
 import { AccountTest } from "../fake/account"
 import { AuthTest } from "../fake/auth"
 import { NpmTest } from "../fake/npm"
-import { ProviderV2 } from "@opencode-ai/core/provider"
-import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@opencode-ai/core/provider"
+import { Model } from "@opencode-ai/core/model"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 
@@ -63,8 +63,8 @@ const triggerSystemTransform = Effect.fn("PluginTriggerTest.triggerSystemTransfo
     systemHook,
     {
       model: {
-        providerID: ProviderV2.ID.anthropic,
-        modelID: ModelV2.ID.make("claude-sonnet-4-6"),
+        providerID: Provider.ID.anthropic,
+        modelID: Model.ID.make("claude-sonnet-4-6"),
       },
     },
     out,
