@@ -2,6 +2,7 @@ import { Formatter, Logger, type LogLevel } from "effect"
 import path from "path"
 import { Global } from "../global"
 import { runID } from "./shared"
+import { redactSecrets } from "../secret-redaction"
 
 function formatter(id: string = runID) {
   return Logger.map(Logger.formatStructured, (output) => {
@@ -43,7 +44,8 @@ function plain(input: unknown): input is Record<string, unknown> {
 
 function format(input: unknown) {
   const value = typeof input === "string" ? input : Formatter.format(input)
-  return /^[^\s="\\]+$/.test(value) ? value : JSON.stringify(value)
+  const redacted = redactSecrets(value)
+  return /^[^\s="\\]+$/.test(redacted) ? redacted : JSON.stringify(redacted)
 }
 
 export function fileLogger(file = path.join(Global.Path.log, "opencode.log"), id: string = runID) {

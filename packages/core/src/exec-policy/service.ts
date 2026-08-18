@@ -8,6 +8,7 @@ import { makeLocationNode } from "../effect/app-node"
 import { Global } from "../global"
 import { Location } from "../location"
 import { Trust } from "../trust"
+import { Flag } from "../flag/flag"
 import { classify } from "./parse"
 import { reduce } from "./peel"
 import { decideAsync, type DecideOptions, type Decision } from "./decide"
@@ -16,6 +17,7 @@ import { which } from "../util/which"
 
 export interface Interface {
   readonly policy: () => Effect.Effect<Policy, Invalid>
+  readonly reload: () => Effect.Effect<Policy, Invalid>
   readonly decideCommand: (
     command: string,
     shell: string,
@@ -57,23 +59,48 @@ export const loadMerged = async (input: { configDir?: string; locationDir: strin
   return Object.assign(policy, { skippedUntrusted })
 }
 
+const resolvedConfigDir = () => Flag.OPENCODE_CONFIG_DIR ?? Global.Path.config
+
+/** Append a user-global allow prefix to exec-policy.toml (TOML, not Starlark). */
+export const appendAllowPrefix = async (prefix: string[], configDir?: string) => {
+  if (prefix.length === 0) return
+  const dir = configDir ?? resolvedConfigDir()
+  const file = path.join(dir, "exec-policy.toml")
+  const block = `\n[[rule]]\nprefix = ${JSON.stringify(prefix)}\neffect = "allow"\n`
+  await fs.mkdir(dir, { recursive: true })
+  await fs.appendFile(file, block)
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const location = yield* Location.Service
-    const configDir = Global.Path.config
-    const cached = yield* Effect.tryPromise({
-      try: async () => {
-        const trusted = await Trust.isTrusted(location.directory, { configDir })
-        return loadMerged({ configDir, locationDir: location.directory, trusted })
-      },
-      catch: (error) => (error instanceof Invalid ? error : new Invalid(String(error))),
-    })
+    const configDir = resolvedConfigDir()
+    const loadCached = () =>
+      Effect.tryPromise({
+        try: async () => {
+          const trusted = await Trust.isTrusted(location.directory, { configDir })
+          return loadMerged({ configDir, locationDir: location.directory, trusted })
+        },
+        catch: (error) => (error instanceof Invalid ? error : new Invalid(String(error))),
+      })
+    let cached = yield* loadCached()
     if (cached.skippedUntrusted) {
       yield* Effect.logWarning("Skipping untrusted project exec-policy.toml", { file: cached.skippedUntrusted })
     }
+    const reload = () =>
+      loadCached().pipe(
+        Effect.tap((policy) => {
+          cached = policy
+          if (policy.skippedUntrusted) {
+            return Effect.logWarning("Skipping untrusted project exec-policy.toml", { file: policy.skippedUntrusted })
+          }
+          return Effect.void
+        }),
+      )
     return Service.of({
       policy: () => Effect.succeed(cached),
+      reload,
       decideCommand: (command, shell, options) =>
         Effect.tryPromise({
           try: async () => {

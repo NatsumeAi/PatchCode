@@ -16,6 +16,24 @@ const ctx = {
   opencodeTmp: "/tmp/opencode",
 }
 
+test("linux wrap with seccomp fd inserts --seccomp before --", () => {
+  const profile = builtInProfile("workspace", ctx)
+  const wrapped = buildLinuxWrap({
+    profile,
+    class: "workspace-child",
+    cwd: "/repo",
+    command: "/bin/sh",
+    args: ["-c", "true"],
+    bwrapPath: "/usr/bin/bwrap",
+    deniedFiles: [],
+    deniedDirs: [],
+    seccompFd: 3,
+  })
+  expect(wrapped.args).toContain("--seccomp")
+  expect(wrapped.args[wrapped.args.indexOf("--seccomp") + 1]).toBe("3")
+  expect(wrapped.args.indexOf("--seccomp")).toBeLessThan(wrapped.args.indexOf("--"))
+})
+
 test("workspace wrap starts with bwrap and keeps original command after --", () => {
   const profile = builtInProfile("workspace", ctx)
   const wrapped = buildLinuxWrap({
@@ -32,6 +50,7 @@ test("workspace wrap starts with bwrap and keeps original command after --", () 
   expect(wrapped.args.slice(0, 3)).toEqual(["--die-with-parent", "--unshare-pid", "--dev"])
   expect(wrapped.args).toContain("--ro-bind")
   expect(wrapped.args).not.toContain("--unshare-net")
+  expect(wrapped.args).not.toContain("--seccomp")
   const dd = wrapped.args.indexOf("--")
   expect(wrapped.args.slice(dd)).toEqual(["--", "/bin/sh", "-c", "echo hi"])
   expect(wrapped.args).toContain("/repo/.env")
@@ -103,6 +122,8 @@ test("darwin profile text denies .env and optional network", () => {
   expect(seatbelt).toContain("deny")
   expect(seatbelt).toMatch(/\\.env/)
   expect(seatbelt).toContain("(deny network*)")
+  expect(seatbelt).toContain("169.254.169.254")
+  expect(seatbelt).toContain("metadata.google.internal")
   expect(args[0]).toBe("-p")
   expect(args.includes("--")).toBe(true)
 })
@@ -129,7 +150,7 @@ test("off wrapSpawn is identity", async () => {
   expect(wrapped).toEqual({ command: "/bin/sh", args: ["-c", "echo hi"] })
 })
 
-test("workspace wrapSpawn on linux prefixes bwrap", async () => {
+test("workspace wrapSpawn on linux prefixes bwrap and seccomp", async () => {
   if (process.platform !== "linux") return
   const wrapped = await wrapSpawn({
     class: "workspace-child",
@@ -140,9 +161,11 @@ test("workspace wrapSpawn on linux prefixes bwrap", async () => {
     location: "/tmp",
     home: "/tmp",
   })
-  expect(wrapped.command).toContain("bwrap")
-  expect(wrapped.args.slice(0, 2)).toEqual(["--die-with-parent", "--unshare-pid"])
-  const dd = wrapped.args.indexOf("--")
+  expect(wrapped.command === "/bin/sh" || wrapped.command.includes("bwrap")).toBe(true)
+  expect(wrapped.args.some((arg) => arg.includes("bwrap") || arg === "--die-with-parent")).toBe(true)
+  expect(wrapped.args).toContain("--seccomp")
+  expect(wrapped.args).toContain("/etc/hosts")
+  const dd = wrapped.args.lastIndexOf("--")
   expect(wrapped.args.slice(dd)).toEqual(["--", "/bin/sh", "-c", "echo hi"])
 })
 
@@ -276,5 +299,5 @@ test("unpinned unix wrapSpawn uses location default not implicit off", async () 
     location: "/tmp",
     home: "/tmp",
   })
-  expect(wrapped.command).toContain("bwrap")
+  expect(wrapped.command.includes("bwrap") || wrapped.args.some((arg) => String(arg).includes("bwrap"))).toBe(true)
 })

@@ -9,6 +9,7 @@ import { EventV2 } from "./event"
 import { Policy } from "./policy"
 import { State } from "./state"
 import { Integration } from "./integration"
+import { registerSecretValue } from "./secret-redaction"
 
 export type ProviderRecord = {
   provider: ProviderV2.MutableInfo
@@ -91,6 +92,14 @@ const layer = Layer.effect(
         headers: { ...provider.request.headers, ...model.request.headers },
         body: { ...provider.request.body, ...model.request.body },
         variant: model.request.variant,
+      }
+      for (const value of [
+        provider.request.body.apiKey,
+        provider.api.settings?.apiKey,
+        request.body.apiKey,
+        api.settings?.apiKey,
+      ]) {
+        if (typeof value === "string") registerSecretValue(value)
       }
       return ModelV2.Info.make({
         ...model,

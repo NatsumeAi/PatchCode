@@ -1,5 +1,7 @@
 import { describe, expect } from "bun:test"
 import { realpathSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import path from "path"
 import { ChildProcess } from "effect/unstable/process"
 import { Deferred, Effect, Fiber, Layer, Stream } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
@@ -230,6 +232,8 @@ describe("bash exec-policy gate", () => {
       Effect.promise(() => tmpdir()),
       (tmp) => {
         reset()
+        const previous = process.env.OPENCODE_CONFIG_DIR
+        process.env.OPENCODE_CONFIG_DIR = tmp.path
         return withTool(tmp.path, (registry) =>
           Effect.gen(function* () {
             yield* setup(tmp.path)
@@ -254,11 +258,21 @@ describe("bash exec-policy gate", () => {
             const rows = yield* saved.list({ projectID: Project.ID.global })
             expect(rows.every((row) => row.resource !== "*")).toBe(true)
             expect(rows.some((row) => row.action === "bash" && row.resource.includes("curl"))).toBe(true)
+            const toml = yield* Effect.promise(() => readFile(path.join(tmp.path, "exec-policy.toml"), "utf8"))
+            expect(toml).toContain("curl")
+            expect(toml).toContain('effect = "allow"')
             reset()
             const second = yield* executeTool(registry, call("curl https://example.com"))
             expect(second).toMatchObject({ type: "content" })
             expect(spawns.length).toBe(1)
           }),
+        ).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+              else process.env.OPENCODE_CONFIG_DIR = previous
+            }),
+          ),
         )
       },
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),

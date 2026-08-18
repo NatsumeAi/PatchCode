@@ -190,8 +190,8 @@ describe("W5 live bash PreToolUse", () => {
           const result = yield* run(realpathSync(tmp.path), hooksFor("exit 2", 5))
           expect(result.type).toBe("error")
           if (result.type === "error") expect(result.value).toContain("Hook denied")
-          expect(spawns).toEqual([])
-          expect(assertions.length).toBeGreaterThan(0)
+          expect(spawns).toHaveLength(0)
+          expect(assertions).toHaveLength(0)
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),

@@ -92,6 +92,15 @@ describe("W8e review loop", () => {
     }),
   )
 
+  test("merge with sessionID and no review verdict is blocked", async () => {
+    await ReviewGate.reset().pipe(Effect.runPromise)
+    const blocked = await Effect.flip(
+      WorktreeEngine.merge({ projectRoot: "/tmp", id: "missing", sessionID: "ses_no_review" }),
+    ).pipe(Effect.runPromise)
+    expect(blocked).toBeInstanceOf(ReviewGate.Failed)
+    expect((blocked as InstanceType<typeof ReviewGate.Failed>).verdict).toBe("none")
+  })
+
   test("review.ts child prompt is JSON reviewer, not slash parent", async () => {
     const src = await Bun.file(new URL("../../src/tool/review.ts", import.meta.url)).text()
     expect(src).not.toContain("Verifier")

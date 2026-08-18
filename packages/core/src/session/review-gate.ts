@@ -40,8 +40,8 @@ const save = () => {
   try {
     fs.mkdirSync(path.dirname(persistFile()), { recursive: true })
     fs.writeFileSync(persistFile(), JSON.stringify(Object.fromEntries(sessions)))
-  } catch {
-    // best-effort
+  } catch (error) {
+    console.error("ReviewGate.save failed", error)
   }
 }
 
@@ -67,8 +67,9 @@ export const assertMerge = (sessionID: string) =>
   Effect.gen(function* () {
     if (sessions.size === 0) load()
     const state = sessions.get(sessionID)
-    if (!state?.enabled) return
-    if (state.verdict === "fail") return yield* new Failed({ sessionID, verdict: "fail" })
+    const verdict = state?.verdict
+    if (verdict === "pass") return
+    return yield* new Failed({ sessionID, verdict: verdict ?? "none" })
   })
 
 export const reset = (sessionID?: string) =>

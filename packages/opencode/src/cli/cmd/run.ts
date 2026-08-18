@@ -698,8 +698,35 @@ export const RunCommand = effectCmd({
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
           const liveParts = createLivePartState()
+          const streamed = new Map<string, number>()
           const settledPermissions = new Set<string>()
           let error: string | undefined
+
+          function writeStreamedPart(input: {
+            id: string
+            text: string
+            ended: boolean
+            prefix?: string
+            style?: (value: string) => string
+          }) {
+            const visible = input.text.trim()
+            const prev = streamed.get(input.id) ?? 0
+            if (visible.length > prev) {
+              let chunk = visible.slice(prev)
+              if (prev === 0 && input.prefix) chunk = input.prefix + chunk
+              const body = input.style ? input.style(chunk) : chunk
+              if (process.stdout.isTTY && prev === 0) UI.empty()
+              process.stdout.write(body)
+              streamed.set(input.id, visible.length)
+            }
+            if (!input.ended || (streamed.get(input.id) ?? 0) <= 0) return
+            if (process.stdout.isTTY) {
+              process.stdout.write(EOL)
+              UI.empty()
+              return
+            }
+            process.stdout.write(EOL)
+          }
 
           async function settlePermission(id: string, action: string, resources: string[]) {
             if (!id || settledPermissions.has(id)) return
@@ -761,31 +788,24 @@ export const RunCommand = effectCmd({
               if (emit("step_finish", { part })) return
             }
 
-            if (part.type === "text" && part.time?.end) {
-              if (emit("text", { part })) return
-              const text = part.text.trim()
-              if (!text) return
-              if (!process.stdout.isTTY) {
-                process.stdout.write(text + EOL)
-                return
-              }
-              UI.empty()
-              UI.println(text)
-              UI.empty()
+            if (part.type === "text") {
+              if (part.time?.end && emit("text", { part })) return
+              if (args.format === "json") return
+              writeStreamedPart({ id: part.id, text: part.text, ended: Boolean(part.time?.end) })
             }
 
-            if (part.type === "reasoning" && part.time?.end && thinking) {
-              if (emit("reasoning", { part })) return
-              const text = part.text.trim()
-              if (!text) return
-              const line = `Thinking: ${text}`
-              if (process.stdout.isTTY) {
-                UI.empty()
-                UI.println(`${UI.Style.TEXT_DIM}\u001b[3m${line}\u001b[0m${UI.Style.TEXT_NORMAL}`)
-                UI.empty()
-                return
-              }
-              process.stdout.write(line + EOL)
+            if (part.type === "reasoning" && thinking) {
+              if (part.time?.end && emit("reasoning", { part })) return
+              if (args.format === "json") return
+              writeStreamedPart({
+                id: part.id,
+                text: part.text,
+                ended: Boolean(part.time?.end),
+                prefix: "Thinking: ",
+                style: process.stdout.isTTY
+                  ? (value) => `${UI.Style.TEXT_DIM}\u001b[3m${value}\u001b[0m${UI.Style.TEXT_NORMAL}`
+                  : undefined,
+              })
             }
           }
 

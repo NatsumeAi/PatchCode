@@ -97,7 +97,9 @@ const layer = Layer.effect(
 
     return Service.of({
       pull: Effect.fn("SkillDiscovery.pull")(function* (url) {
-        const base = url.endsWith("/") ? url : `${url}/`
+        const trimmed = url.trim()
+        if (trimmed.toLowerCase().startsWith("file:")) return []
+        const base = trimmed.endsWith("/") ? trimmed : `${trimmed}/`
         const source = new URL(base)
         const index = new URL("index.json", source).href
         const data = yield* HttpClientRequest.get(index).pipe(

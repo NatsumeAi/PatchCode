@@ -500,6 +500,29 @@ export function Session() {
     })
   })
 
+  event.subscribe((evt) => {
+    if ((evt as { type: string }).type !== "trust.asked") return
+    const payload = evt as { properties?: { sessionID?: string; directory?: string }; data?: { sessionID?: string; directory?: string } }
+    const properties = payload.properties ?? payload.data
+    if (!properties?.directory) return
+    if (dialog.stack.length > 0) return
+    void DialogConfirm.show(
+      dialog,
+      "Trust this folder?",
+      `Project hooks, exec-policy, and sandbox.toml stay skipped until you trust:\n${properties.directory}`,
+      "Trust",
+    ).then((ok) => {
+      const client = sdk.client.session as {
+        trust?: (input: { sessionID: string; grant: boolean; directory?: string }) => Promise<unknown>
+      }
+      void client.trust?.({
+        sessionID: properties.sessionID ?? route.sessionID,
+        grant: ok === true,
+        directory: properties.directory,
+      })
+    })
+  })
+
   // Helper: Find next visible message boundary in direction
   const findNextVisibleMessage = (direction: "next" | "prev"): string | null => {
     const children = scroll.getChildren()

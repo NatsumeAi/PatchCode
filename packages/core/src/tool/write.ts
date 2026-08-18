@@ -89,6 +89,7 @@ const layer = Layer.effectDiscard(
               }).pipe(
                 Effect.mapError((error) => {
                   if (error instanceof PlanGate.Denied) return new ToolFailure({ message: error.message })
+                  if (error instanceof FileMutation.HardlinkDenied) return new ToolFailure({ message: error.message })
                   if (error instanceof ToolFailure) return error
                   return new ToolFailure({ message: `Unable to write ${input.path}` })
                 }),

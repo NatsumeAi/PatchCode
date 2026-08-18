@@ -4,6 +4,21 @@ import fs from "fs/promises"
 import path from "path"
 import { Global } from "./global"
 
+const bunTestRunner = () =>
+  process.env.BUN_TEST === "1" ||
+  process.env.BUN_TEST === "true" ||
+  // `bun test` does not always set BUN_TEST; argv[1] is the subcommand "test".
+  process.argv[1] === "test"
+
+export const isInteractive = () =>
+  Boolean(process.stdin.isTTY) &&
+  Boolean(process.stdout.isTTY) &&
+  process.env.CI !== "true" &&
+  process.env.CI !== "1" &&
+  !bunTestRunner() &&
+  process.env.OPENCODE_HEADLESS !== "1" &&
+  process.env.OPENCODE_HEADLESS !== "true"
+
 export const FILE_NAME = "trusted-folders.json"
 
 export interface Store {

@@ -145,7 +145,10 @@ export const JobInfo = Schema.Struct({
 export const JobWaitPayload = Schema.Struct({
   timeout: Schema.optional(Schema.Number),
 })
-export const HooksList = Schema.Struct({
+export const TrustPayload = Schema.Struct({
+  grant: Schema.Boolean,
+  directory: Schema.optional(Schema.String),
+})
   loaded: Schema.Array(
     Schema.Struct({
       id: Schema.String,
@@ -198,6 +201,7 @@ export const SessionPaths = {
   jobKill: `${root}/:sessionID/jobs/:jobID/kill`,
   jobPromote: `${root}/:sessionID/jobs/:jobID/promote`,
   hooks: `${root}/:sessionID/hooks`,
+  trust: `${root}/:sessionID/trust`,
 } as const
 
 export const SessionApi = HttpApi.make("session")
@@ -498,7 +502,7 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.revert",
             summary: "Revert message",
             description:
-              "Revert a specific message in a session, undoing its effects and restoring the previous state. Unknown messageID is a no-op (returns the session unchanged). partID is not supported on the V2 path and returns 400.",
+              "Revert a specific message in a session, undoing its effects and restoring the previous state. Unknown messageID is a no-op (returns the session unchanged). Optional partID trims from that part to the end of the message.",
           }),
         ),
         HttpApiEndpoint.post("unrevert", SessionPaths.unrevert, {
@@ -634,6 +638,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.hooks.list",
             summary: "List session hooks",
             description: "List loaded lifecycle hooks and the last deny for this session's location.",
+          }),
+        ),
+        HttpApiEndpoint.post("trust", SessionPaths.trust, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: TrustPayload,
+          success: described(Schema.String, "Trusted directory"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.trust",
+            summary: "Trust session directory",
+            description: "Grant or ignore trust for the session location so project hooks and sandbox.toml can load.",
           }),
         ),
       )

@@ -1,6 +1,6 @@
 export * as SessionProjector from "./projector"
 
-import { and, desc, eq, gt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm"
 import { DateTime, Effect, Layer, Schema } from "effect"
 import { Database } from "../database/database"
 import { EventV2 } from "../event"
@@ -1118,6 +1118,42 @@ const layer = Layer.effectDiscard(
             .run()
             .pipe(Effect.orDie, Effect.asVoid)
           return
+        }
+        if (event.data.partID) {
+          const row = yield* db
+            .select()
+            .from(SessionMessageTable)
+            .where(
+              and(
+                eq(SessionMessageTable.session_id, event.data.sessionID),
+                eq(SessionMessageTable.id, event.data.messageID),
+              ),
+            )
+            .get()
+            .pipe(Effect.orDie)
+          if (row) {
+            const message = decodeMessage({ ...row.data, id: row.id, type: row.type })
+            if (message.type === "assistant") {
+              const idx = message.content.findIndex((item) => item.id === event.data.partID)
+              if (idx >= 0) {
+                const trimmed = { ...message, content: message.content.slice(0, idx) }
+                const encoded = encodeMessage(trimmed)
+                const { id: _id, type, ...data } = encoded
+                yield* db
+                  .update(SessionMessageTable)
+                  .set({ type, data })
+                  .where(
+                    and(
+                      eq(SessionMessageTable.id, event.data.messageID),
+                      eq(SessionMessageTable.session_id, event.data.sessionID),
+                    ),
+                  )
+                  .run()
+                  .pipe(Effect.orDie)
+                yield* dualWriteLegacy(db, events, event.data.sessionID, trimmed)
+              }
+            }
+          }
         }
         const removed = yield* db
           .select()

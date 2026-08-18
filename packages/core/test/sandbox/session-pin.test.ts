@@ -11,6 +11,8 @@ import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionStore } from "@opencode-ai/core/session/store"
+import { SessionTable } from "@opencode-ai/core/session/sql"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { testEffect } from "../lib/effect"
 
 const projects = Layer.succeed(
@@ -98,6 +100,37 @@ describe("session sandbox pin", () => {
       if (Exit.isFailure(exit)) {
         expect(Cause.squash(exit.cause)).toMatchObject({ _tag: "Sandbox.ProfileMismatch" })
       }
+    }),
+  )
+
+  it.effect("DEFAULT off SQL row is upgraded on load", () =>
+    Effect.gen(function* () {
+      if (process.platform === "win32") return
+      delete process.env.OPENCODE_SANDBOX
+      const { db } = yield* Database.Service
+      const store = yield* SessionStore.Service
+      const id = SessionV2.ID.make("ses_legacy_off")
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: ProjectV2.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .onConflictDoNothing()
+        .run()
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id,
+          project_id: ProjectV2.ID.global,
+          slug: "legacy-off",
+          directory: "/project",
+          title: "legacy-off",
+          version: "test",
+          sandbox_profile: "off",
+        })
+        .run()
+      const loaded = yield* store.get(id)
+      expect(loaded?.sandboxProfile).toBe("strict")
+      const explicit = yield* (yield* SessionV2.Service).create({ location, sandboxProfile: "off" })
+      expect((yield* store.get(explicit.id))?.sandboxProfile).toBe("off")
     }),
   )
 })

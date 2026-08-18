@@ -174,4 +174,31 @@ describe("W8c MCP tool_search", () => {
       expect(names).not.toContain("dummy_1")
     }),
   )
+
+  many.live("search_tool ranks name tokens above description and returns nothing on no match", () =>
+    Effect.gen(function* () {
+      yield* registerDummies(9)
+      const registry = yield* ToolRegistry.Service
+      const ranked = yield* executeTool(registry, {
+        sessionID,
+        ...toolIdentity,
+        call: { type: "tool-call", id: "call-rank", name: "search_tool", input: { query: "ping" } },
+      })
+      expect(ranked.type).not.toBe("error")
+      const rankedText = JSON.stringify(ranked)
+      expect(rankedText).toContain("mcp_ping")
+      const pingAt = rankedText.indexOf("mcp_ping")
+      const dummyAt = rankedText.indexOf("dummy_")
+      if (dummyAt >= 0) expect(pingAt).toBeLessThan(dummyAt)
+
+      const missed = yield* executeTool(registry, {
+        sessionID,
+        ...toolIdentity,
+        call: { type: "tool-call", id: "call-miss", name: "search_tool", input: { query: "no-such-deferred-tool" } },
+      })
+      expect(missed.type).not.toBe("error")
+      expect(JSON.stringify(missed)).not.toContain("dummy_")
+      expect(JSON.stringify(missed)).not.toContain("mcp_ping")
+    }),
+  )
 })

@@ -1,6 +1,6 @@
 export * as HooksRunHttp from "./run-http"
 
-import { denyHost } from "../net/deny-host"
+import { DeniedUrl, denyHost, guardUrl } from "../net/deny-host"
 import type { Decision, Envelope, HttpHook, Origin } from "./schema"
 
 export const runHttp = async (input: {
@@ -19,6 +19,14 @@ export const runHttp = async (input: {
       return { _tag: "Deny", reason: "hook_failed", hookId: input.hookId }
     }
     if (!https || denyHost(url)) return { _tag: "Deny", reason: "hook_failed", hookId: input.hookId }
+    try {
+      await guardUrl(url)
+    } catch (error) {
+      if (error instanceof DeniedUrl || error instanceof Error) {
+        return { _tag: "Deny", reason: "hook_failed", hookId: input.hookId }
+      }
+      return { _tag: "Deny", reason: "hook_failed", hookId: input.hookId }
+    }
   }
   const timeoutMs = Math.max(1, input.hook.timeout) * 1000
   const fetchImpl = input.fetchImpl ?? fetch

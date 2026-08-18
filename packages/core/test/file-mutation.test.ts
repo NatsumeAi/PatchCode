@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FileMutation } from "@opencode-ai/core/file-mutation"
@@ -505,6 +505,21 @@ describe("FileMutation", () => {
         expect(calls).toEqual([{ path: target.canonical, existed: false, operation: "write" }])
       }).pipe(provide(directory), Effect.provide(effects))
     }),
+  )
+
+  it.live("refuses to write through a hard link", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const targetPath = path.join(directory, "linked.txt")
+        const other = path.join(directory, "other.txt")
+        yield* Effect.promise(() => fs.writeFile(other, "secret"))
+        yield* Effect.promise(() => fs.link(other, targetPath))
+        const target = yield* (yield* LocationMutation.Service).resolve({ path: "linked.txt" })
+        const exit = yield* (yield* FileMutation.Service).write({ target, content: "pwned" }).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(yield* Effect.promise(() => fs.readFile(other, "utf8"))).toBe("secret")
+      }).pipe(provide(directory)),
+    ),
   )
 })
 

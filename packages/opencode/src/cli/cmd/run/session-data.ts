@@ -26,6 +26,7 @@
 //   to the next pending request or to the prompt view.
 import type { Event, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/v2"
 import * as Locale from "@/util/locale"
+import { createLivePartState, leftoverPartsFromLive, liveSessionID, type LivePartState } from "@/session/live-legacy-parts"
 import { toolView } from "./tool"
 import type { FooterOutput, FooterPatch, FooterView, StreamCommit } from "./types"
 
@@ -86,6 +87,7 @@ export type SessionData = {
   visible: Map<string, string>
   end: Set<string>
   echo: Map<string, Set<string>>
+  live: LivePartState
 }
 
 export type SessionDataInput = {
@@ -124,6 +126,7 @@ export function createSessionData(
     visible: new Map(),
     end: new Set(),
     echo: new Map(),
+    live: createLivePartState(),
   }
 }
 
@@ -789,6 +792,45 @@ export function flushInterrupted(data: SessionData, commits: SessionCommit[]) {
   }
 }
 
+function reduceLiveSessionEvent(input: SessionDataInput, commits: SessionCommit[]): SessionDataOutput {
+  const data = input.data
+  const event = input.event
+  const sessionID = liveSessionID(event)
+  if (sessionID !== input.sessionID) {
+    return out(data, commits)
+  }
+
+  const assistantMessageID = Reflect.get(event.properties, "assistantMessageID")
+  let footer: FooterOutput | undefined
+  if (typeof assistantMessageID === "string") {
+    data.role.set(assistantMessageID, "assistant")
+    if (!data.announced) {
+      data.announced = true
+      footer = patch({ status: "assistant responding" })
+    }
+  }
+
+  let current = out(data, commits, footer)
+  for (const part of leftoverPartsFromLive(event, data.live)) {
+    const piece = reduceSessionData({
+      ...input,
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: part.sessionID,
+          part,
+        },
+      } as Event,
+    })
+    current = {
+      data: piece.data,
+      commits: [...current.commits, ...piece.commits],
+      footer: piece.footer ?? current.footer,
+    }
+  }
+  return current
+}
+
 // The main reducer. Takes one SDK event and returns scrollback commits and
 // footer updates. Called once per event from the stream transport's watch loop.
 //
@@ -849,6 +891,10 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
     data.ids.add(partID)
     commits.push(doneShell(event.properties.callID, command, event.properties.output))
     return out(data, commits)
+  }
+
+  if (liveSessionID(event)) {
+    return reduceLiveSessionEvent(input, commits)
   }
 
   if (event.type === "message.updated") {

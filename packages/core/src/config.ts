@@ -26,6 +26,9 @@ import { ConfigWatcher } from "./config/watcher"
 import { ConfigV1 } from "./config/legacy/config"
 import { ConfigMigrateV1 } from "./config/legacy/migrate"
 import { Flag } from "./flag/flag"
+import { substitute } from "./config/variable"
+
+export { substitute } from "./config/variable"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: Schema.optional(Schema.String).annotate({
@@ -185,10 +188,22 @@ const layer = Layer.effect(
       return new Document({ type: "document", ...(source === undefined ? {} : { path: source }), info })
     }
 
+    const expand = (text: string, origin: { path: string } | { source: string; dir: string }) =>
+      Effect.tryPromise({
+        try: () =>
+          substitute(
+            "path" in origin
+              ? { text, type: "path", path: origin.path }
+              : { text, type: "virtual", source: origin.source, dir: origin.dir },
+          ),
+        catch: (error) => error,
+      }).pipe(Effect.orDie)
+
     const loadFile = Effect.fnUntraced(function* (filepath: string) {
       const text = yield* fs.readFileStringSafe(filepath)
       if (!text) return
-      return parseDocument(text, filepath)
+      const expanded = yield* expand(text, { path: filepath })
+      return parseDocument(expanded, filepath)
     })
 
     const loadDirectory = Effect.fnUntraced(function* (directory: AbsolutePath) {
@@ -241,7 +256,10 @@ const layer = Layer.effect(
       // is the runtime override the CLI / JS SDK actually ship (test providers,
       // `createOpencode({ config })`). Live catalog reads this Config.Service.
       const configContent = process.env.OPENCODE_CONFIG_CONTENT
-        ? parseDocument(process.env.OPENCODE_CONFIG_CONTENT, "OPENCODE_CONFIG_CONTENT")
+        ? yield* expand(process.env.OPENCODE_CONFIG_CONTENT, {
+            source: "OPENCODE_CONFIG_CONTENT",
+            dir: location.directory,
+          }).pipe(Effect.map((text) => parseDocument(text, "OPENCODE_CONFIG_CONTENT")))
         : undefined
       // Apply general settings first and more specific settings last:
       // global config, OPENCODE_CONFIG, project files, `.opencode` / CONFIG_DIR,

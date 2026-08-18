@@ -1243,7 +1243,7 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("rebuilds the baseline directly after completed compaction", () =>
+  it.effect("keeps origin baseline after completed compaction and admits context as TAIL", () =>
     Effect.gen(function* () {
       yield* setup
       const session = yield* SessionV2.Service
@@ -1273,8 +1273,12 @@ describe("SessionRunnerLLM", () => {
 
       expect(requests.map((request) => request.system.map((part) => part.text))).toEqual([
         ["Initial context"],
-        ["Replacement context"],
+        ["Initial context"],
       ])
+      expect(JSON.stringify(compiledConv(requests[1]!))).toContain("Replacement context")
+      const tape = yield* sessionTape()
+      expect(tape?.system).toContain("Initial context")
+      expect(tape?.system).not.toContain("Replacement context")
       yield* replaySessionProjection(sessionID)
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Third" }), resume: false })
       yield* session.resume(sessionID)

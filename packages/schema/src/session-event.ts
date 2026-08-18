@@ -535,7 +535,7 @@ export namespace RevertEvent {
   export const Committed = Event.define({
     type: "session.next.revert.committed",
     ...options,
-    schema: { ...Base, messageID: SessionMessage.ID },
+    schema: { ...Base, messageID: SessionMessage.ID, partID: Schema.String.pipe(optional) },
   })
 }
 
@@ -560,6 +560,23 @@ export const Hook = Event.define({
     decision: Schema.String,
     elapsedMs: Schema.Number,
     reason: Schema.String.pipe(optional),
+  },
+})
+
+export const TrustAsked = Event.define({
+  type: "trust.asked",
+  schema: {
+    sessionID: SessionID,
+    directory: Schema.String,
+  },
+})
+
+export const TrustReplied = Event.define({
+  type: "trust.replied",
+  schema: {
+    sessionID: SessionID,
+    directory: Schema.String,
+    granted: Schema.Boolean,
   },
 })
 
@@ -636,6 +653,8 @@ export const Definitions = Event.inventory(
   RevertEvent.Committed,
   Sandbox,
   Hook,
+  TrustAsked,
+  TrustReplied,
 )
 
 export const Durable = Schema.Union(DurableDefinitions, { mode: "oneOf" })

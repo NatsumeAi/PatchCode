@@ -104,6 +104,7 @@ const layer = Layer.effect(
       }
     }
     let lastDeny: LastDeny | undefined = readLastDeny()
+    const askedTrust = new Set<string>()
 
     const events = () => (Option.isSome(eventsOpt) ? eventsOpt.value : undefined)
 
@@ -247,6 +248,25 @@ const layer = Layer.effect(
         }),
       ensureSessionStart: (sessionID) =>
         Effect.gen(function* () {
+          const dir = location.directory
+          if (Trust.isInteractive() && !askedTrust.has(dir)) {
+            const trusted = yield* Effect.promise(() =>
+              Trust.isTrusted(dir, configDir() ? { configDir: configDir() } : {}),
+            )
+            if (!trusted) {
+              askedTrust.add(dir)
+              const bus = events()
+              if (bus) {
+                // Detached so a slow event bus cannot block SessionStart / the live drain.
+                yield* Effect.forkDetach(
+                  bus.publish(SessionEvent.TrustAsked, {
+                    sessionID: SessionSchema.ID.make(sessionID),
+                    directory: dir,
+                  }).pipe(Effect.ignore),
+                )
+              }
+            }
+          }
           const state = yield* readStart(sessionID)
           if (state === "allow") return allow
           if (state === "deny")
@@ -262,6 +282,7 @@ const layer = Layer.effect(
       trust: (absPath) =>
         Effect.gen(function* () {
           const granted = yield* Effect.promise(() => Trust.grant(absPath, configDir() ? { configDir: configDir() } : {}))
+          askedTrust.add(granted)
           yield* reload()
           return granted
         }),

@@ -73,6 +73,7 @@ export interface Interface {
   ) => Effect.Effect<void>
   readonly get: (childSessionID: SessionSchema.ID) => Effect.Effect<SubagentRecord | undefined>
   readonly list: (filter?: { parentSessionID?: SessionSchema.ID; status?: SubagentStatus }) => Effect.Effect<SubagentRecord[]>
+  readonly abortChildren: (parentSessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.ID[]>
   readonly snapshot: Effect.Effect<ReadonlyArray<SubagentRecord>>
   readonly activeCount: Effect.Effect<number>
   readonly activeCountByType: (subagentType: string) => Effect.Effect<number>
@@ -205,6 +206,22 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
       ),
     )
 
+  const abortChildren: Interface["abortChildren"] = (parentSessionID) =>
+    Effect.gen(function* () {
+      const children = yield* list({ parentSessionID })
+      const ids: SessionSchema.ID[] = []
+      for (const child of children) {
+        if (TERMINAL.includes(child.status)) continue
+        yield* lifecycle.dispatch({
+          _tag: "Abort",
+          childSessionID: child.childSessionID,
+          reason: "parent_interrupt",
+        })
+        ids.push(child.childSessionID)
+      }
+      return ids
+    })
+
   const snapshot: Interface["snapshot"] = SynchronizedRef.get(records).pipe(
     Effect.map((map) => Array.from(map.values()).map((r) => ({ ...r }))),
   )
@@ -273,7 +290,7 @@ export const make: Effect.Effect<Interface, never, SubagentLifecycle.Service> = 
     )
   })
 
-  return { register, transition, touchHeartbeat, get, list, snapshot, activeCount, activeCountByType, cancel, startWatcher }
+  return { register, transition, touchHeartbeat, get, list, abortChildren, snapshot, activeCount, activeCountByType, cancel, startWatcher }
 })
 
 /** Default progress-stall window before an active subagent is marked lost. */

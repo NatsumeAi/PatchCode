@@ -4,6 +4,7 @@ import { Effect, Layer, Record, Result, Schema, Context } from "effect"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { registerSecretValue } from "@opencode-ai/core/secret-redaction"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
@@ -35,6 +36,18 @@ export class WellKnown extends Schema.Class<WellKnown>("WellKnownAuth")({
 export const Info = Schema.Union([Oauth, Api, WellKnown]).annotate({ discriminator: "type", identifier: "Auth" })
 export type Info = Schema.Schema.Type<typeof Info>
 
+const registerAuthInfo = (info: Info) => {
+  if (info.type === "api") registerSecretValue(info.key)
+  if (info.type === "wellknown") {
+    registerSecretValue(info.key)
+    registerSecretValue(info.token)
+  }
+  if (info.type === "oauth") {
+    registerSecretValue(info.access)
+    registerSecretValue(info.refresh)
+  }
+}
+
 export class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect()),
@@ -58,12 +71,18 @@ const layer = Layer.effect(
     const all = Effect.fn("Auth.all")(function* () {
       if (process.env.OPENCODE_AUTH_CONTENT) {
         try {
-          return JSON.parse(process.env.OPENCODE_AUTH_CONTENT)
+          const parsed = JSON.parse(process.env.OPENCODE_AUTH_CONTENT) as Record<string, Info>
+          for (const info of Object.values(parsed)) {
+            if (info && typeof info === "object" && "type" in info) registerAuthInfo(info)
+          }
+          return parsed
         } catch (err) {}
       }
 
       const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
-      return Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
+      const parsed = Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
+      for (const info of Object.values(parsed)) registerAuthInfo(info)
+      return parsed
     })
 
     const get = Effect.fn("Auth.get")(function* (providerID: string) {
@@ -75,6 +94,7 @@ const layer = Layer.effect(
       const data = yield* all()
       if (norm !== key) delete data[key]
       delete data[norm + "/"]
+      registerAuthInfo(info)
       yield* fsys
         .writeJson(file, { ...data, [norm]: info }, 0o600)
         .pipe(Effect.mapError(fail("Failed to write auth data")))

@@ -42,7 +42,6 @@ const LIVE_ADVERTISED_TOOLS = [
   "grep",
   "job",
   "list_dir",
-  "lsp",
   "memory_add_note",
   "memory_list",
   "memory_read",

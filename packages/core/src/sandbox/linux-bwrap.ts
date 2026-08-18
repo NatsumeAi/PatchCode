@@ -5,6 +5,12 @@ import type { ResolvedProfile } from "./profile"
 
 export type SpawnClass = "workspace-child" | "integration-child"
 
+export interface ExtraBind {
+  readonly from: string
+  readonly to: string
+  readonly ro?: boolean
+}
+
 export interface LinuxWrapInput {
   readonly profile: ResolvedProfile
   readonly class: SpawnClass
@@ -14,6 +20,8 @@ export interface LinuxWrapInput {
   readonly bwrapPath: string
   readonly deniedFiles: readonly string[]
   readonly deniedDirs: readonly string[]
+  readonly seccompFd?: number
+  readonly extraBinds?: readonly ExtraBind[]
 }
 
 export interface WrappedArgv {
@@ -48,6 +56,12 @@ export function buildLinuxWrap(input: LinuxWrapInput): WrappedArgv {
   }
   for (const dir of input.deniedDirs) {
     args.push("--tmpfs", dir)
+  }
+  for (const bind of input.extraBinds ?? []) {
+    args.push(bind.ro === false ? "--bind" : "--ro-bind", bind.from, bind.to)
+  }
+  if (input.seccompFd !== undefined) {
+    args.push("--seccomp", String(input.seccompFd))
   }
   args.push("--chdir", input.cwd, "--", input.command, ...input.args)
   return { command: input.bwrapPath, args }

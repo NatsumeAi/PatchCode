@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { decide } from "../../src/exec-policy/decide"
-import { loadMerged } from "../../src/exec-policy/service"
+import { appendAllowPrefix, loadMerged } from "../../src/exec-policy/service"
 
 describe("exec-policy merge", () => {
   const dirs: string[] = []
@@ -38,5 +38,14 @@ describe("exec-policy merge", () => {
     expect(untrusted.skippedUntrusted).toBe(path.join(locationDir, ".opencode", "exec-policy.toml"))
     const trusted = await loadMerged({ configDir, locationDir, trusted: true })
     expect(decide(trusted, { tag: "segments", segments: [["ls"]] }).effect).toBe("deny")
+  })
+
+  test("appendAllowPrefix writes toml allow rule", async () => {
+    const configDir = await mkdtemp(path.join(os.tmpdir(), "oc-ep-cfg-"))
+    const locationDir = await mkdtemp(path.join(os.tmpdir(), "oc-ep-loc-"))
+    dirs.push(configDir, locationDir)
+    await appendAllowPrefix(["curl", "https://example.com"], configDir)
+    const policy = await loadMerged({ configDir, locationDir, trusted: false })
+    expect(decide(policy, { tag: "segments", segments: [["curl", "https://example.com"]] }).effect).toBe("allow")
   })
 })

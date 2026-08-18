@@ -1,5 +1,6 @@
 import type { Event, Message, Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/v2"
 import * as Locale from "@/util/locale"
+import { createLivePartState, leftoverPartsFromLive, liveSessionID, type LivePartState } from "@/session/live-legacy-parts"
 import {
   bootstrapSessionData,
   createSessionData,
@@ -40,6 +41,7 @@ type DetailState = {
 export type SubagentData = {
   tabs: Map<string, FooterSubagentTab>
   details: Map<string, DetailState>
+  live: LivePartState
 }
 
 export type BootstrapSubagentInput = {
@@ -654,6 +656,7 @@ export function createSubagentData(): SubagentData {
   return {
     tabs: new Map(),
     details: new Map(),
+    live: createLivePartState(),
   }
 }
 
@@ -809,6 +812,16 @@ export function reduceSubagentData(input: {
     }
   }
 
+  let liveTab = false
+  if (liveSessionID(event)) {
+    for (const part of leftoverPartsFromLive(event, input.data.live)) {
+      if (part.type !== "tool") continue
+      if (part.sessionID === input.sessionID) {
+        liveTab = syncTaskTab(input.data, part) || liveTab
+      }
+    }
+  }
+
   const sessionID =
     event.type === "message.updated" ||
     event.type === "message.part.delta" ||
@@ -827,10 +840,10 @@ export function reduceSubagentData(input: {
       ? event.properties.sessionID
       : event.type === "message.part.updated"
         ? event.properties.part.sessionID
-        : undefined
+        : liveSessionID(event)
 
   if (!sessionID || !knownSession(input.data, sessionID)) {
-    return false
+    return liveTab
   }
 
   const detail = ensureDetail(input.data, sessionID)
@@ -840,7 +853,7 @@ export function reduceSubagentData(input: {
       : false
   if (event.type === "session.status") {
     if (event.properties.status.type !== "retry") {
-      return cancelled
+      return cancelled || liveTab
     }
 
     return (
@@ -852,7 +865,9 @@ export function reduceSubagentData(input: {
           source: "system",
           messageID: `retry:${event.properties.status.attempt}`,
         },
-      ]) || cancelled
+      ]) ||
+      cancelled ||
+      liveTab
     )
   }
 
@@ -866,7 +881,9 @@ export function reduceSubagentData(input: {
           source: "system",
           messageID: `session.error:${event.properties.sessionID}:${formatError(event.properties.error)}`,
         },
-      ]) || cancelled
+      ]) ||
+      cancelled ||
+      liveTab
     )
   }
 
@@ -876,6 +893,8 @@ export function reduceSubagentData(input: {
       event,
       thinking: input.thinking,
       limits: input.limits,
-    }) || cancelled
+    }) ||
+    cancelled ||
+    liveTab
   )
 }

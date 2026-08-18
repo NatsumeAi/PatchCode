@@ -877,4 +877,42 @@ describe("Config", () => {
       ),
     ),
   )
+
+  it.live("substitutes {env:} in OPENCODE_CONFIG_CONTENT", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const previous = {
+              content: process.env.OPENCODE_CONFIG_CONTENT,
+              defer: process.env.OPENCODE_TEST_MCP_DEFER,
+            }
+            process.env.OPENCODE_TEST_MCP_DEFER = "3"
+            process.env.OPENCODE_CONFIG_CONTENT =
+              '{"mcp":{"deferAfter":{env:OPENCODE_TEST_MCP_DEFER}},"browser":{"enabled":false}}'
+            return previous
+          }),
+          (previous) =>
+            Effect.sync(() => {
+              if (previous.content === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+              else process.env.OPENCODE_CONFIG_CONTENT = previous.content
+              if (previous.defer === undefined) delete process.env.OPENCODE_TEST_MCP_DEFER
+              else process.env.OPENCODE_TEST_MCP_DEFER = previous.defer
+            }),
+        ).pipe(
+          Effect.flatMap(() =>
+            Effect.gen(function* () {
+              const config = yield* Config.Service
+              const entries = yield* config.entries()
+              expect(Config.latest(entries, "mcp")?.deferAfter).toBe(3)
+              expect(Config.latest(entries, "browser")?.enabled).toBe(false)
+            }).pipe(Effect.provide(testLayer(tmp.path))),
+          ),
+        ),
+      ),
+    ),
+  )
 })

@@ -7,7 +7,6 @@ import { EventV2 } from "../event"
 import { SystemContext } from "../system-context/index"
 import { ContextSnapshotDecodeError } from "./error"
 import { SessionEvent } from "./event"
-import { SessionHistory } from "./history"
 import { SessionInput } from "./input"
 import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
@@ -52,10 +51,7 @@ const prepareOnce = Effect.fnUntraced(function* (
   context: Effect.Effect<SystemContext.SystemContext>,
   sessionID: SessionSchema.ID,
 ) {
-  const [value, stored, compaction] = yield* Effect.all(
-    [context, find(db, sessionID), SessionHistory.latestCompaction(db, sessionID)],
-    { concurrency: "unbounded" },
-  )
+  const [value, stored] = yield* Effect.all([context, find(db, sessionID)], { concurrency: "unbounded" })
   if (!stored) {
     const generation = yield* SystemContext.initialize(value)
     const baselineSeq = yield* insert(db, sessionID, generation)
@@ -65,15 +61,14 @@ const prepareOnce = Effect.fnUntraced(function* (
   const snapshot = yield* Schema.decodeUnknownEffect(SystemContext.Snapshot)(stored.snapshot).pipe(
     Effect.mapError((error) => new ContextSnapshotDecodeError({ sessionID, details: String(error) })),
   )
-  const replacementSeq = compaction !== undefined && compaction.seq > stored.baseline_seq ? compaction.seq : undefined
-  const result = replacementSeq
-    ? yield* SystemContext.replace(value, snapshot)
-    : yield* SystemContext.reconcile(value, snapshot)
+  // Compact must not rewrite origin. Skill/instruction refresh after compact
+  // is a ContextUpdated TAIL (PromptTapeAppend.lowerSystemUpdate), not replace.
+  const result = yield* SystemContext.reconcile(value, snapshot)
   if (result._tag === "Unchanged" || result._tag === "ReplacementBlocked") {
     return { baseline: stored.baseline, baselineSeq: stored.baseline_seq }
   }
   if (result._tag === "ReplacementReady") {
-    const baselineSeq = replacementSeq ?? (yield* EventV2.latestSequence(db, sessionID))
+    const baselineSeq = yield* EventV2.latestSequence(db, sessionID)
     yield* replace(db, sessionID, baselineSeq, result.generation)
     return { baseline: result.generation.baseline, baselineSeq }
   }

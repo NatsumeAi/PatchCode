@@ -120,6 +120,93 @@ describe("revert V2 adapter golden (stage/clear/commit)", () => {
     }),
   )
 
+  it.effect("partID stage trims from that part; unknown partID is a no-op", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const db = database.db
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+        .pipe(Effect.catch(() => Effect.void))
+      const sid = SessionV2.ID.make("ses_revert_part")
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sid,
+          project_id: Project.ID.global,
+          slug: "revert-part",
+          directory: "/project",
+          title: "revert-part",
+          version: "test",
+        })
+        .run()
+      const keep = SessionMessage.AssistantText.make({ type: "text", id: "txt_keep", text: "keep" })
+      const drop = SessionMessage.AssistantText.make({ type: "text", id: "txt_drop", text: "drop" })
+      const {
+        id: _,
+        type,
+        ...data
+      } = encodeMessage(
+        SessionMessage.Assistant.make({
+          id: SessionMessage.ID.make("msg_parts"),
+          type: "assistant",
+          agent: "build",
+          model,
+          content: [keep, drop],
+          time: { created },
+        }),
+      )
+      const messageID = SessionMessage.ID.make("msg_parts")
+      yield* db
+        .insert(SessionMessageTable)
+        .values({ id: messageID, session_id: sid, type, seq: 1, time_created: DateTime.toEpochMillis(created), data })
+        .run()
+      const later = SessionMessage.ID.make("msg_after")
+      const laterRow = assistantRow(later, 2)
+      yield* db.insert(SessionMessageTable).values({ ...laterRow, session_id: sid }).run()
+
+      const events = yield* EventV2.Service
+      const load = () =>
+        db
+          .select()
+          .from(SessionTable)
+          .where(eq(SessionTable.id, sid))
+          .get()
+          .pipe(
+            Effect.orDie,
+            Effect.map((row) => fromRow(row!)),
+          )
+
+      const unknown = yield* SessionRevert.stage({
+        session: yield* load(),
+        messageID,
+        partID: "missing",
+        files: false,
+      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(EventV2.Service, events))
+      expect(unknown).toBeUndefined()
+      expect((yield* load()).revert).toBeUndefined()
+
+      yield* SessionRevert.stage({
+        session: yield* load(),
+        messageID,
+        partID: "txt_drop",
+        files: false,
+      }).pipe(Effect.provideService(Database.Service, database), Effect.provideService(EventV2.Service, events))
+      expect((yield* load()).revert?.partID).toBe("txt_drop")
+
+      yield* SessionRevert.commit(yield* load()).pipe(Effect.provideService(EventV2.Service, events))
+      const remaining = yield* db.select().from(SessionMessageTable).where(eq(SessionMessageTable.session_id, sid)).all()
+      expect(remaining.map((row) => row.id)).toEqual([messageID])
+      const decoded = Schema.decodeUnknownSync(SessionMessage.Message)({
+        ...remaining[0]!.data,
+        id: remaining[0]!.id,
+        type: remaining[0]!.type,
+      })
+      expect(decoded.type === "assistant" ? decoded.content.map((item) => item.id) : []).toEqual(["txt_keep"])
+    }),
+  )
+
   it.effect("busy authority is SessionExecution.active (empty under noop)", () =>
     Effect.gen(function* () {
       const execution = yield* SessionExecution.Service

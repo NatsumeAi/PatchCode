@@ -5,10 +5,12 @@ import { Effect, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Global } from "@opencode-ai/core/global"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SkillV2 } from "@opencode-ai/core/skill"
 import { SkillDiscovery } from "@opencode-ai/core/skill/discovery"
+import { SkillLock } from "@opencode-ai/core/skill/lock"
 import { tempLocationLayer } from "./fixture/location"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
@@ -30,6 +32,7 @@ const it = testEffect(
     [Location.node, tempLocationLayer],
   ]),
 )
+const isolated = testEffect(Layer.empty)
 
 function write(directory: string, name: string, description: string) {
   return fs.writeFile(
@@ -94,7 +97,7 @@ describe("SkillV2", () => {
     ),
   )
 
-  it.live("loads URL sources and filters skills for agents", () =>
+  isolated.live("loads URL sources into quarantine until lock is activated", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -108,20 +111,34 @@ describe("SkillV2", () => {
           pulls = 0
           urls.set("https://example.test/skills/", [AbsolutePath.make(tmp.path)])
 
-          const agents = yield* AgentV2.Service
-          yield* agents.transform((editor) =>
-            editor.update(AgentV2.ID.make("reviewer"), (agent) => {
-              agent.permissions.push({ action: "skill", resource: "deploy", effect: "deny" })
-            }),
-          )
+          const graph = AppNodeBuilder.build(LayerNode.group([SkillV2.node, AgentV2.node]), [
+            [SkillDiscovery.node, discovery],
+            [Location.node, tempLocationLayer],
+            [Global.node, Global.layerWith({ config: tmp.path, cache: tmp.path })],
+          ])
 
-          const skill = yield* SkillV2.Service
-          yield* skill.transform((editor) => editor.source({ type: "url", url: "https://example.test/skills/" }))
+          yield* Effect.gen(function* () {
+            const agents = yield* AgentV2.Service
+            yield* agents.transform((editor) =>
+              editor.update(AgentV2.ID.make("reviewer"), (agent) => {
+                agent.permissions.push({ action: "skill", resource: "deploy", effect: "deny" })
+              }),
+            )
 
-          expect((yield* skill.list()).map((item) => item.name)).toEqual(["deploy"])
-          expect((yield* skill.list()).map((item) => item.name)).toEqual(["deploy"])
-          expect(pulls).toBe(1)
-          expect(SkillV2.available(yield* skill.list(), (yield* agents.get(AgentV2.ID.make("reviewer")))!)).toEqual([])
+            const skill = yield* SkillV2.Service
+            yield* skill.transform((editor) => editor.source({ type: "url", url: "https://example.test/skills/" }))
+
+            expect((yield* skill.list()).map((item) => item.name)).toEqual([])
+            expect(pulls).toBe(1)
+            const row = yield* Effect.promise(() => SkillLock.get("deploy", tmp.path))
+            expect(row?.state).toBe("quarantine")
+            expect(row?.source).toBe("url")
+
+            yield* Effect.promise(() => SkillLock.upsert({ ...row!, state: "active" }, tmp.path))
+            expect((yield* skill.list()).map((item) => item.name)).toEqual(["deploy"])
+            expect(pulls).toBe(1)
+            expect(SkillV2.available(yield* skill.list(), (yield* agents.get(AgentV2.ID.make("reviewer")))!)).toEqual([])
+          }).pipe(Effect.provide(graph))
         }),
       ),
     ),

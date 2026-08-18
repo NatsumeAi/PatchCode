@@ -199,6 +199,45 @@ describe("SubagentRegistry", () => {
       }),
     ).toBe(true)
   })
+
+  it("abortChildren dispatches parent_interrupt for live children only", async () => {
+    const aborts: string[] = []
+    const lifecycle = Layer.succeed(
+      SubagentLifecycle.Service,
+      SubagentLifecycle.Service.of({
+        register: () => Effect.void,
+        unregister: () => Effect.void,
+        dispatch: (event) =>
+          Effect.sync(() => {
+            if (event._tag === "Abort") aborts.push(`${event.childSessionID}:${event.reason}`)
+          }),
+      }),
+    )
+    const done = SessionSchema.ID.make("ses_child_done")
+    const live = SessionSchema.ID.make("ses_child_live")
+    const program = Effect.gen(function* () {
+      const registry = yield* SubagentRegistry.Service
+      yield* registry.register({
+        parentSessionID: parent,
+        childSessionID: live,
+        subagentType: "explore",
+        address: "/root/live",
+      })
+      yield* registry.transition(live, "active")
+      yield* registry.register({
+        parentSessionID: parent,
+        childSessionID: done,
+        subagentType: "explore",
+        address: "/root/done",
+      })
+      yield* registry.transition(done, "active")
+      yield* registry.transition(done, "completed")
+      const ids = yield* registry.abortChildren(parent)
+      expect(ids).toEqual([live])
+      expect(aborts).toEqual([`${live}:parent_interrupt`])
+    }).pipe(Effect.provide(SubagentRegistry.layerForTest.pipe(Layer.provideMerge(lifecycle))))
+    await Effect.runPromise(program)
+  })
 })
 
 describe("SubagentRegistry node", () => {

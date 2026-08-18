@@ -12,11 +12,13 @@ import { Tools } from "@opencode-ai/core/tool/tools"
 import { Permission } from "@opencode-ai/core/permission"
 import { Location } from "@opencode-ai/core/location"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
-import type { ToolDefinition } from "@opencode-ai/plugin"
+import { Hooks } from "@opencode-ai/core/hooks"
+import type { ToolDefinition, Hooks as PluginHooks } from "@opencode-ai/plugin"
 import { Effect, Exit, JsonSchema, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { MCP, type McpTool } from "@/mcp"
 import { Plugin } from "@/plugin"
+import { inProcessFromPlugin } from "@/plugin/hooks-bridge"
 import { InstanceStore } from "@/project/instance-store"
 import { EventV2Bridge } from "@/event-bridge"
 import { EffectBridge } from "@/effect/bridge"
@@ -79,15 +81,15 @@ function isZodType(value: unknown): value is z.ZodType {
   return typeof value === "object" && value !== null && ("_zod" in value || "_def" in value)
 }
 
-function assertPermission(action: string, context: Tool.Context) {
+function assertPermission(action: string, context: Tool.Context, extra?: { resources?: string[]; save?: string[] }) {
   return Effect.gen(function* () {
     const permission = yield* Effect.serviceOption(Permission.Service)
     if (Option.isNone(permission)) return
     yield* permission.value
       .assert({
         action,
-        resources: ["*"],
-        save: ["*"],
+        resources: extra?.resources ?? ["*"],
+        save: extra?.save ?? ["*"],
         sessionID: context.sessionID,
         agent: context.agent,
         source: {
@@ -98,6 +100,248 @@ function assertPermission(action: string, context: Tool.Context) {
       })
       .pipe(Effect.mapError(() => new ToolFailure({ message: `Permission denied: ${action}` })))
   })
+}
+
+const MCP_RESOURCE_TOOLS = {
+  list: "list_mcp_resources",
+  listTemplates: "list_mcp_resource_templates",
+  read: "read_mcp_resource",
+} as const
+export const MAX_MCP_RESOURCE_BLOB_BYTES = 10 * 1024 * 1024
+const SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES = new Set([
+  "application/pdf",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+])
+
+const ListMcpResourcesInput = Schema.Struct({
+  server: Schema.optional(Schema.String),
+})
+const ReadMcpResourceInput = Schema.Struct({
+  server: Schema.String,
+  uri: Schema.String,
+})
+
+function optionalString(args: Record<string, unknown>, key: string) {
+  const value = args[key]
+  if (value === undefined || value === null || value === "") return undefined
+  if (typeof value !== "string") throw new Error(`${key} must be a string`)
+  return value
+}
+
+function requiredString(args: Record<string, unknown>, key: string) {
+  const value = optionalString(args, key)
+  if (value) return value
+  throw new Error(`${key} is required`)
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function base64Size(value: string) {
+  const trimmed = value.replace(/\s/g, "")
+  const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0
+  return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding)
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`
+  return `${Math.ceil(value / (1024 * 1024))} MB`
+}
+
+function formatMcpResource(resource: { client: string } & Record<string, unknown>) {
+  const result = Object.fromEntries(Object.entries(resource).filter((entry) => entry[0] !== "client"))
+  return { ...result, server: resource.client }
+}
+
+export function formatMcpResourceContent(server: string, uri: string, content: { contents: unknown }) {
+  const items = (Array.isArray(content.contents) ? content.contents : [content.contents]).filter(isRecord)
+  const text: string[] = []
+  const attachments: Array<{ mime: string; data: string; name: string }> = []
+
+  for (const item of items) {
+    const itemUri = typeof item.uri === "string" ? item.uri : uri
+    const mime = typeof item.mimeType === "string" ? item.mimeType : "application/octet-stream"
+    if (typeof item.text === "string") {
+      text.push(`Resource: ${itemUri}\nMIME: ${mime}\n${item.text}`)
+      continue
+    }
+    if (typeof item.blob === "string") {
+      const size = base64Size(item.blob)
+      if (!SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES.has(mime)) {
+        text.push(
+          `[Binary MCP resource omitted: ${itemUri} (${mime}, ${formatBytes(size)}) is not a supported attachment type]`,
+        )
+        continue
+      }
+      if (size > MAX_MCP_RESOURCE_BLOB_BYTES) {
+        text.push(
+          `[Binary MCP resource omitted: ${itemUri} (${mime}, ${formatBytes(size)}) exceeds ${formatBytes(MAX_MCP_RESOURCE_BLOB_BYTES)}]`,
+        )
+        continue
+      }
+      text.push(`[Binary MCP resource attached: ${itemUri} (${mime})]`)
+      attachments.push({ mime, data: item.blob, name: itemUri })
+      continue
+    }
+    text.push(`[MCP resource content without text or blob: ${itemUri}]`)
+  }
+
+  return {
+    attachments,
+    text: text.join("\n\n") || `MCP resource ${uri} from ${server} returned no contents.`,
+  }
+}
+
+function resourceServers(clients: Record<string, { getServerCapabilities?: () => { resources?: unknown } | undefined }>) {
+  return Object.entries(clients)
+    .filter((entry) => !!entry[1].getServerCapabilities?.()?.resources)
+    .map((entry) => entry[0])
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function mcpResourceTools(mcp: MCP.Interface): Record<string, Tool.AnyTool> {
+  const list = Tool.withPermission(
+    Tool.make({
+      description:
+        "Lists resources provided by connected MCP servers. Resources provide context such as files, database schemas, or application-specific information.",
+      input: ListMcpResourcesInput,
+      output: DynamicOutput,
+      toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+      execute: (input, context) =>
+        Effect.gen(function* () {
+          const parsed = { server: optionalString(toRecord(input), "server") }
+          const clients = yield* mcp.clients()
+          const servers = resourceServers(clients)
+          if (parsed.server && !servers.includes(parsed.server)) {
+            return yield* new ToolFailure({
+              message:
+                servers.length === 0
+                  ? `MCP server "${parsed.server}" does not support resources`
+                  : `MCP server "${parsed.server}" does not support resources. Available resource servers: ${servers.join(", ")}`,
+            })
+          }
+          const patterns = parsed.server ? [`mcp:${parsed.server}:*`] : servers.map((server) => `mcp:${server}:*`)
+          yield* assertPermission("read", context, { resources: patterns, save: patterns })
+          const resources = Object.values(yield* mcp.resources(parsed.server))
+          const filtered = resources
+            .filter((resource) => !parsed.server || resource.client === parsed.server)
+            .toSorted((a, b) =>
+              (a.client + "\u0000" + a.name + "\u0000" + a.uri).localeCompare(
+                b.client + "\u0000" + b.name + "\u0000" + b.uri,
+              ),
+            )
+          return {
+            title: parsed.server ? `MCP resources: ${parsed.server}` : "MCP resources",
+            output: JSON.stringify({ resources: filtered.map((item) => formatMcpResource(item)) }, null, 2),
+          }
+        }),
+    }),
+    "read",
+  )
+
+  const listTemplates = Tool.withPermission(
+    Tool.make({
+      description:
+        "Lists resource templates provided by connected MCP servers. Resource templates are parameterized resources that can be read after filling in their URI template.",
+      input: ListMcpResourcesInput,
+      output: DynamicOutput,
+      toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
+      execute: (input, context) =>
+        Effect.gen(function* () {
+          const parsed = { server: optionalString(toRecord(input), "server") }
+          const clients = yield* mcp.clients()
+          const servers = resourceServers(clients)
+          if (parsed.server && !servers.includes(parsed.server)) {
+            return yield* new ToolFailure({
+              message:
+                servers.length === 0
+                  ? `MCP server "${parsed.server}" does not support resources`
+                  : `MCP server "${parsed.server}" does not support resources. Available resource servers: ${servers.join(", ")}`,
+            })
+          }
+          const patterns = parsed.server ? [`mcp:${parsed.server}:*`] : servers.map((server) => `mcp:${server}:*`)
+          yield* assertPermission("read", context, { resources: patterns, save: patterns })
+          const templates = Object.values(yield* mcp.resourceTemplates(parsed.server))
+          const filtered = templates
+            .filter((template) => !parsed.server || template.client === parsed.server)
+            .toSorted((a, b) =>
+              (a.client + "\u0000" + String(a.name ?? "") + "\u0000" + String(a.uriTemplate ?? "")).localeCompare(
+                b.client + "\u0000" + String(b.name ?? "") + "\u0000" + String(b.uriTemplate ?? ""),
+              ),
+            )
+          return {
+            title: parsed.server ? `MCP resource templates: ${parsed.server}` : "MCP resource templates",
+            output: JSON.stringify(
+              { resourceTemplates: filtered.map((item) => formatMcpResource(item as { client: string } & Record<string, unknown>)) },
+              null,
+              2,
+            ),
+          }
+        }),
+    }),
+    "read",
+  )
+
+  const read = Tool.withPermission(
+    Tool.make({
+      description:
+        "Read a specific resource from an MCP server using the server name and resource URI. The URI is an MCP identifier and does not need to be a file URL.",
+      input: ReadMcpResourceInput,
+      output: DynamicOutput,
+      toModelOutput: ({ output }) => [
+        { type: "text", text: output.output },
+        ...(output.attachments ?? []).map((item) => ({
+          type: "file" as const,
+          data: item.data,
+          mime: item.mime,
+          name: item.name ?? output.title,
+        })),
+      ],
+      execute: (input, context) =>
+        Effect.gen(function* () {
+          const parsed = {
+            server: requiredString(toRecord(input), "server"),
+            uri: requiredString(toRecord(input), "uri"),
+          }
+          const clients = yield* mcp.clients()
+          const client = clients[parsed.server]
+          if (!client) return yield* new ToolFailure({ message: `MCP server "${parsed.server}" is not connected` })
+          if (!client.getServerCapabilities()?.resources) {
+            return yield* new ToolFailure({ message: `MCP server "${parsed.server}" does not support resources` })
+          }
+          yield* assertPermission("read", context, {
+            resources: [`mcp:${parsed.server}:${parsed.uri}`],
+            save: [`mcp:${parsed.server}:*`],
+          })
+          const content = yield* mcp.readResource(parsed.server, parsed.uri)
+          if (!content) {
+            return yield* new ToolFailure({ message: `Failed to read MCP resource: ${parsed.server}/${parsed.uri}` })
+          }
+          const formatted = formatMcpResourceContent(parsed.server, parsed.uri, content)
+          return {
+            title: `MCP resource: ${parsed.uri}`,
+            output: formatted.text,
+            ...(formatted.attachments.length > 0 ? { attachments: formatted.attachments } : {}),
+          }
+        }),
+    }),
+    "read",
+  )
+
+  return {
+    [MCP_RESOURCE_TOOLS.list]: list,
+    [MCP_RESOURCE_TOOLS.listTemplates]: listTemplates,
+    [MCP_RESOURCE_TOOLS.read]: read,
+  }
 }
 
 function mcpToTool(
@@ -300,6 +544,18 @@ const hostLayer = Layer.effect(
 
         let registrationScope: Scope.Scope | undefined
 
+        const hooksSvc = yield* Effect.serviceOption(Hooks.Service)
+        if (Option.isSome(hooksSvc)) {
+          const plugins = yield* instances.provide({ directory }, plugin.list()).pipe(
+            Effect.catchCause(() => Effect.succeed([] as PluginHooks[])),
+          )
+          for (const [index, item] of plugins.entries()) {
+            for (const handler of inProcessFromPlugin(item, index)) {
+              yield* hooksSvc.value.register(handler)
+            }
+          }
+        }
+
         const sync = Effect.fn("DynamicTools.sync")(function* () {
           if (registrationScope) {
             yield* Scope.close(registrationScope, Exit.void).pipe(Effect.ignore)
@@ -323,6 +579,12 @@ const hostLayer = Layer.effect(
             if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) continue
             record[name] = mcpToTool(name, entry)
           }
+
+          const clients = yield* instances.provide({ directory }, mcp.clients()).pipe(
+            Effect.catchCause(() => Effect.succeed({} as Record<string, never>)),
+          )
+          const hasMcpResourceServer = resourceServers(clients).length > 0
+          const resourceRecord = hasMcpResourceServer ? mcpResourceTools(mcp) : {}
 
           const plugins = yield* instances.provide({ directory }, plugin.list()).pipe(
             Effect.catchCause((cause) =>
@@ -365,12 +627,17 @@ const hostLayer = Layer.effect(
             }
           }
 
-          if (Object.keys(record).length === 0) return
+          if (Object.keys(record).length > 0) {
+            yield* tools.register(record, { source: "dynamic" }).pipe(Scope.provide(scope), Effect.orDie)
+          }
+          if (Object.keys(resourceRecord).length > 0) {
+            yield* tools.register(resourceRecord, { source: "builtin" }).pipe(Scope.provide(scope), Effect.orDie)
+          }
+          if (Object.keys(record).length === 0 && Object.keys(resourceRecord).length === 0) return
 
-          yield* tools.register(record, { source: "dynamic" }).pipe(Scope.provide(scope), Effect.orDie)
           yield* Effect.logInfo("DynamicTools registered", {
             directory,
-            count: Object.keys(record).length,
+            count: Object.keys(record).length + Object.keys(resourceRecord).length,
           })
         })
 

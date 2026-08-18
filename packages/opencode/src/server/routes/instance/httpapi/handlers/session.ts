@@ -56,6 +56,7 @@ import {
   RevertPayload,
   ShellPayload,
   SummarizePayload,
+  TrustPayload,
   UncompactPayload,
   UpdatePayload,
 } from "../groups/session"
@@ -925,16 +926,16 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       yield* assertNotBusy(ctx.params.sessionID)
-      // V2 stage is messageID-only. Reject partID instead of silently widening to full-message revert.
-      if (ctx.payload.partID) {
-        return yield* new HttpApiError.BadRequest({})
-      }
       const messageID = yield* Effect.try({
         try: () => SessionMessage.ID.make(String(ctx.payload.messageID)),
         catch: () => new HttpApiError.BadRequest({}),
       })
       yield* v2Svc.revert
-        .stage({ sessionID: ctx.params.sessionID, messageID })
+        .stage({
+          sessionID: ctx.params.sessionID,
+          messageID,
+          ...(ctx.payload.partID ? { partID: String(ctx.payload.partID) } : {}),
+        })
         .pipe(
           // V1 parity: unknown messageID is a 200 no-op that returns the session unchanged.
           Effect.catchTag("Session.MessageNotFoundError", () => Effect.void),
@@ -1092,6 +1093,22 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       )
     })
 
+    const trust = Effect.fn("SessionHttpApi.trust")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof TrustPayload.Type
+    }) {
+      const current = yield* requireSession(ctx.params.sessionID)
+      const directory = ctx.payload.directory ?? current.directory
+      if (!ctx.payload.grant) return directory
+      return yield* withLocationHooks(
+        ctx.params.sessionID,
+        Effect.gen(function* () {
+          const service = yield* Hooks.Service
+          return yield* service.trust(directory)
+        }),
+      )
+    })
+
     return handlers
       .handle("list", list)
       .handle("status", status)
@@ -1128,5 +1145,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("jobKill", jobKill)
       .handle("jobPromote", jobPromote)
       .handle("hooks", hooks)
+      .handle("trust", trust)
   }),
 )

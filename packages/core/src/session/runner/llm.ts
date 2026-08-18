@@ -28,10 +28,12 @@ import { MemoryRecall } from "../../memory/recall"
 import { MemoryFlush } from "../../memory/flush"
 import { MemoryPreCompress } from "../../memory/pre-compress-wire"
 import { SkillGuidance } from "../../skill/guidance"
+import { SkillV2 } from "../../skill"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { ToolRegistry } from "../../tool/registry"
 import { StructuredOutput } from "../../tool/structured-output"
 import { frameToolResult } from "./tool-result-framing"
+import { redactSecrets, redactUnknown } from "../../secret-redaction"
 import { RepairToolCall } from "./repair-tool-call"
 import { Hooks } from "../../hooks"
 import { ToolOutputStore } from "../../tool-output-store"
@@ -585,6 +587,14 @@ const layer = Layer.effect(
         )
       })
 
+    const rehydrateAfterCompact = (sessionID: SessionSchema.ID, agent: AgentV2.Selection) =>
+      Effect.gen(function* () {
+        MemoryRecall.invalidateRecallCache()
+        const skills = yield* Effect.serviceOption(SkillV2.Service)
+        if (Option.isSome(skills)) yield* skills.value.reload().pipe(Effect.ignore)
+        yield* SessionContextEpoch.prepare(db, events, loadSystemContext(agent), sessionID).pipe(Effect.ignore)
+      })
+
     /**
      * Render one drained verifier-reject feedback slice into a single
      * model-visible system-context text. Returns the empty string when both
@@ -1088,6 +1098,7 @@ const layer = Layer.effect(
         window: contextWindow,
       })
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })) {
+        yield* rehydrateAfterCompact(session.id, agent)
         yield* dropTape(session.id)
         yield* flushMemoryIfWired(session.id)
         yield* drain.contextEngine.compact.pipe(Effect.ignore)
@@ -1097,6 +1108,7 @@ const layer = Layer.effect(
         const did = yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })
         yield* drain.contextEngine.compact.pipe(Effect.ignore)
         if (did) {
+          yield* rehydrateAfterCompact(session.id, agent)
           yield* dropTape(session.id)
           yield* flushMemoryIfWired(session.id)
           return yield* Effect.die(continueAfterCompaction(currentStep))
@@ -1175,7 +1187,7 @@ const layer = Layer.effect(
                       typeof settled.result === "object" && settled.result && "value" in settled.result
                         ? String((settled.result as { value?: unknown }).value ?? "")
                         : JSON.stringify(settled.output ?? settled.result)
-                    return { result: output }
+                    return { result: redactSecrets(output) }
                   }),
                 approvalHandler: (approvalTools) =>
                   Effect.gen(function* () {
@@ -1263,11 +1275,30 @@ const layer = Layer.effect(
                     if (event.providerExecuted) hostedTools.add(event.id)
                   }
                   if (LLMEvent.is.toolResult(event)) {
-                    toolResults.set(event.id, JSON.stringify(event.output ?? event.result))
+                    const output =
+                      event.output === undefined ? undefined : (redactUnknown(event.output) as typeof event.output)
+                    const result = redactUnknown(event.result) as typeof event.result
+                    event = LLMEvent.toolResult({
+                      id: event.id,
+                      name: event.name,
+                      result,
+                      ...(output === undefined ? {} : { output }),
+                      ...(event.providerExecuted === undefined ? {} : { providerExecuted: event.providerExecuted }),
+                      ...(event.providerMetadata === undefined ? {} : { providerMetadata: event.providerMetadata }),
+                    })
+                    toolResults.set(event.id, redactSecrets(JSON.stringify(event.output ?? event.result)))
                     if (event.providerExecuted) hostedTools.add(event.id)
                   }
                   if (LLMEvent.is.toolError(event)) {
-                    toolResults.set(event.id, event.message)
+                    const message = redactSecrets(event.message)
+                    event = LLMEvent.toolError({
+                      id: event.id,
+                      name: event.name,
+                      message,
+                      ...(event.error === undefined ? {} : { error: event.error }),
+                      ...(event.providerMetadata === undefined ? {} : { providerMetadata: event.providerMetadata }),
+                    })
+                    toolResults.set(event.id, message)
                   }
                   yield* publish(event)
                   yield* drain.hooks.onStream({ _tag: "chunk", sessionID: session.id })
@@ -1337,7 +1368,7 @@ const layer = Layer.effect(
                         settledOut = { ...done, output: { ...done.output, content: normalized } }
                       }
                       toolSettlements.set(event.id, settledOut)
-                      toolResults.set(event.id, JSON.stringify(settledOut.output ?? settledOut.result))
+                      toolResults.set(event.id, redactSecrets(JSON.stringify(settledOut.output ?? settledOut.result)))
                       yield* publish(
                         LLMEvent.toolResult({
                           id: event.id,
@@ -1368,6 +1399,7 @@ const layer = Layer.effect(
               // through onFailover (a non-retryable classification would wrongly
               // request terminal failure when the turn legitimately replays).
               yield* flushMemoryIfWired(session.id)
+              yield* rehydrateAfterCompact(session.id, agent)
               yield* dropTape(session.id)
               const compactionHook = yield* Effect.serviceOption(PluginHooks.CompactionService)
               const auto =
@@ -1872,6 +1904,7 @@ const layer = Layer.effect(
         request,
         reason: "manual",
       })
+      yield* rehydrateAfterCompact(sessionID, agent)
       yield* dropTape(sessionID)
     })
 

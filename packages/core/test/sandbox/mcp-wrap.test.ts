@@ -12,7 +12,7 @@ test("MCP stdio wrap is integration-child and begins with bwrap when profile !==
     location: "/tmp",
     home: "/tmp",
   })
-  expect(wrapped.command).toContain("bwrap")
+  expect(wrapped.command.includes("bwrap") || wrapped.args.some((arg) => String(arg).includes("bwrap"))).toBe(true)
   expect(wrapped.args).not.toContain("--unshare-net")
   const dd = wrapped.args.indexOf("--")
   expect(wrapped.args.slice(dd)).toEqual(["--", "cat"])

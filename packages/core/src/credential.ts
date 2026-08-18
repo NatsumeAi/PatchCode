@@ -7,6 +7,7 @@ import { Integration } from "@opencode-ai/schema/integration"
 import { Database } from "./database/database"
 import { makeGlobalNode } from "./effect/app-node"
 import { CredentialTable } from "./credential/sql"
+import { registerSecretValue } from "./secret-redaction"
 
 export const ID = Credential.ID
 export type ID = Credential.ID
@@ -19,6 +20,15 @@ export type Key = Credential.Key
 
 export const Value = Credential.Value
 export type Value = Credential.Value
+
+const registerValue = (value: Value | undefined) => {
+  if (!value) return
+  if (value.type === "key") registerSecretValue(value.key)
+  if (value.type === "oauth") {
+    registerSecretValue(value.access)
+    registerSecretValue(value.refresh)
+  }
+}
 
 export class Info extends Schema.Class<Info>("Credential.Info")({
   id: ID,
@@ -55,12 +65,14 @@ const layer = Layer.effect(
     const decode = Schema.decodeUnknownSync(Value)
     const stored = (row: typeof CredentialTable.$inferSelect) => {
       if (!row.integration_id) return
-      return new Info({
+      const credential = new Info({
         id: row.id,
         integrationID: row.integration_id,
         label: row.label,
         value: decode(row.value),
       })
+      registerValue(credential.value)
+      return credential
     }
 
     return Service.of({
@@ -98,6 +110,7 @@ const layer = Layer.effect(
           label: input.label ?? "default",
           value: input.value,
         })
+        registerValue(credential.value)
         yield* db
           .transaction((tx) =>
             Effect.gen(function* () {
@@ -121,6 +134,7 @@ const layer = Layer.effect(
       }),
       update: Effect.fn("Credential.update")(function* (id, updates) {
         if (!updates.label && !updates.value) return
+        registerValue(updates.value)
         yield* db
           .update(CredentialTable)
           .set({ label: updates.label, value: updates.value })

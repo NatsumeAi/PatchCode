@@ -234,6 +234,7 @@ export interface Interface {
     readonly stage: (input: {
       sessionID: SessionSchema.ID
       messageID: SessionMessage.ID
+      partID?: string
       files?: boolean
     }) => Effect.Effect<Revert.State, NotFoundError | SessionBusyError | MessageNotFoundError | Snapshot.Error>
     readonly clear: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | Snapshot.Error>
@@ -376,6 +377,9 @@ const layer = Layer.effect(
             })
             .pipe(Effect.ignore)
         }
+        const sandboxExplicit = Boolean(
+          input.sandboxProfile || process.env.OPENCODE_SANDBOX || configProfile || parentProfile,
+        )
         pinSession(sessionID, sandboxProfile)
         const info = SessionV1.SessionInfo.make({
           id: sessionID,
@@ -395,7 +399,7 @@ const layer = Layer.effect(
                 variant: input.model.variant,
               }
             : undefined,
-          metadata: { ...input.metadata, sandboxProfile },
+          metadata: { ...input.metadata, sandboxProfile, sandboxExplicit },
           cost: 0,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           time: { created: now, updated: now },
@@ -946,11 +950,19 @@ const layer = Layer.effect(
           if (yield* occupied(input.sessionID)) {
             return yield* new SessionBusyError({ sessionID: input.sessionID })
           }
-          const staged = yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
+          const staged = yield* SessionRevert.stage({
+            session,
+            messageID: input.messageID,
+            partID: input.partID,
+            files: input.files,
+          }).pipe(
             Effect.provideService(Database.Service, database),
             Effect.provideService(EventV2.Service, events),
             Effect.provide(locations.get(session.location)),
           )
+          if (!staged) {
+            return session.revert ?? { messageID: input.messageID }
+          }
           PromptTapeStore.snapshotRevert(input.sessionID)
           return staged
         }),

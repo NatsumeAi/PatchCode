@@ -4,9 +4,12 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { glob as scanGlob } from "glob"
+import { METADATA_HOSTS } from "../net/deny-host"
+import { Global } from "../global"
 import { buildDarwinWrap } from "./darwin-seatbelt"
 import type { SpawnClass } from "./linux-bwrap"
 import { buildLinuxWrap } from "./linux-bwrap"
+import { loadSeccompBpf, SECCOMP_FD, seccompBpfPath } from "./linux-seccomp"
 import { GLOB_OVERFLOW, globMatchAny } from "./profile"
 import {
   ensureBackend,
@@ -112,8 +115,8 @@ const walkCustomHome = (
     const full = path.join(root, entry.name)
     if (globMatchAny(globs, full)) add(path.resolve(full))
     if (entry.isDirectory()) {
-      if (depth >= 6) continue
-      if (entry.name === "node_modules" || entry.name === ".git") continue
+      if (depth >= HOME_SECRET_DEPTH) continue
+      if (HOME_SKIP_DIRS.has(entry.name)) continue
       walkCustomHome(full, add, globs, depth + 1)
     }
   }
@@ -252,15 +255,43 @@ export async function wrapSpawn(input: WrapSpawnInput): Promise<WrapSpawnResult>
   if (!bwrapPath || !exists(bwrapPath)) {
     throw new Unavailable({ profile: resolved.profile.name, backend: "bwrap", reason: "unavailable" })
   }
-  const binary = bwrapPath
-  return buildLinuxWrap({
+  if (!loadSeccompBpf()) {
+    throw new Unavailable({ profile: resolved.profile.name, backend: "seccomp", reason: "unavailable" })
+  }
+  const extraBinds =
+    input.class === "workspace-child" && !resolved.profile.restrictNetwork
+      ? [{ from: writeMetadataHosts(), to: "/etc/hosts" as const }]
+      : []
+  const wrapped = buildLinuxWrap({
     profile: resolved.profile,
     class: input.class,
     cwd: path.resolve(input.cwd),
     command: input.command,
     args: input.args,
-    bwrapPath: binary,
+    bwrapPath,
     deniedFiles: denied.files,
     deniedDirs: denied.dirs,
+    seccompFd: SECCOMP_FD,
+    extraBinds,
   })
+  return withSeccompFd(wrapped.command, wrapped.args, seccompBpfPath())
+}
+
+function writeMetadataHosts() {
+  const dest = path.join(Global.Path.tmp, `hosts-metadata-${process.pid}`)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  let original = ""
+  try {
+    original = fs.readFileSync("/etc/hosts", "utf8")
+  } catch {
+    original = ""
+  }
+  const names = [...METADATA_HOSTS, "169.254.169.254"].join(" ")
+  fs.writeFileSync(dest, `${original}\n# opencode metadata SSRF\n0.0.0.0 ${names}\n:: ${names}\n`)
+  return dest
+}
+
+function withSeccompFd(bwrapPath: string, bwrapArgs: readonly string[], bpfPath: string): WrapSpawnResult {
+  const script = `exec "$0" "$@" 3<${JSON.stringify(bpfPath)}`
+  return { command: "/bin/sh", args: ["-c", script, bwrapPath, ...bwrapArgs] }
 }

@@ -82,4 +82,7 @@ export const Flag = {
   get OPENCODE_EXPERIMENTAL_NATIVE_LLM() {
     return truthy("OPENCODE_EXPERIMENTAL_NATIVE_LLM")
   },
+  get OPENCODE_EXPERIMENTAL_LSP_TOOL() {
+    return enabledByExperimental("OPENCODE_EXPERIMENTAL_LSP_TOOL")
+  },
 }

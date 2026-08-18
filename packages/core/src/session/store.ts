@@ -12,6 +12,8 @@ import { SessionSchema } from "./schema"
 import { SessionMessageTable, SessionTable } from "./sql"
 import { fromRow } from "./info"
 import { PermissionV1 } from "@opencode-ai/schema/permission-legacy"
+import { isSandboxExplicit, upgradeLegacyOffProfile } from "../sandbox/resolve"
+import { Unavailable } from "../sandbox/windows"
 
 export interface Interface {
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info | undefined>
@@ -42,7 +44,29 @@ const layer = Layer.effect(
     return Service.of({
       get: Effect.fn("SessionStore.get")(function* (sessionID) {
         const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
-        return row ? fromRow(row) : undefined
+        if (!row) return undefined
+        if (row.sandbox_profile === "off" && !isSandboxExplicit(row.metadata) && process.platform !== "win32") {
+          const name = yield* Effect.tryPromise({
+            try: () => upgradeLegacyOffProfile(row.directory),
+            catch: (cause) =>
+              cause instanceof Unavailable
+                ? cause
+                : new Unavailable({
+                    profile: "workspace",
+                    backend: process.platform,
+                    reason: cause instanceof Error ? cause.message : String(cause),
+                  }),
+          }).pipe(Effect.orDie)
+          const metadata = { ...(row.metadata ?? {}), sandboxProfile: name, sandboxExplicit: false }
+          yield* db
+            .update(SessionTable)
+            .set({ sandbox_profile: name, metadata })
+            .where(eq(SessionTable.id, sessionID))
+            .run()
+            .pipe(Effect.orDie)
+          return fromRow({ ...row, sandbox_profile: name, metadata })
+        }
+        return fromRow(row)
       }),
       sessionPermission: Effect.fn("SessionStore.sessionPermission")(function* (sessionID) {
         const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)

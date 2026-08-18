@@ -44,6 +44,15 @@ test("metadata curl deny", () => {
   ).toBe("deny")
 })
 
+test("RFC1918 curl deny", () => {
+  expect(
+    decide(policy, {
+      tag: "segments",
+      segments: [["curl", "http://192.168.1.1/"]],
+    }).effect,
+  ).toBe("deny")
+})
+
 test("load-time match fixtures pass", async () => {
   const loaded = await loadBuiltin()
   expect(longestPrefix(["git", "status"], loaded.rules)?.effect).toBe("allow")

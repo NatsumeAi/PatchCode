@@ -17,13 +17,15 @@ describe("W5 inventory", () => {
     expect(settle).toBeGreaterThan(pre)
   })
 
-  test("bash PreToolUse is after permission and before wrapSpawn", () => {
+  test("bash PreToolUse is after W2 deny and before permission", () => {
     const text = fs.readFileSync(path.join(coreSrc, "tool/bash.ts"), "utf8")
-    const perm = text.indexOf("permission.assert")
+    const deny = text.indexOf('decision.effect === "deny"')
     const pre = text.indexOf('event: "PreToolUse"')
+    const perm = text.indexOf("permission.assert", pre)
     const wrap = text.indexOf("sandbox.wrapSpawn")
-    expect(pre).toBeGreaterThan(perm)
-    expect(wrap).toBeGreaterThan(pre)
+    expect(pre).toBeGreaterThan(deny)
+    expect(perm).toBeGreaterThan(pre)
+    expect(wrap).toBeGreaterThan(perm)
   })
 
   test("run-command timeout is deny", () => {

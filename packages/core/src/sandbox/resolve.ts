@@ -16,6 +16,7 @@ import {
   type ResolvedProfile,
 } from "./profile"
 import { Unavailable, Unsupported, windowsRefuse } from "./windows"
+import { loadSeccompBpf } from "./linux-seccomp"
 
 const pins = new Map<string, string>()
 
@@ -51,9 +52,19 @@ export type RequestedProfile = {
   readonly trusted?: boolean
 }
 
+export function isSandboxExplicit(metadata: Record<string, unknown> | null | undefined) {
+  return metadata?.sandboxExplicit === true
+}
+
 export async function defaultUnixProfile(location: string, trusted?: boolean) {
   const isTrusted = trusted ?? (await Trust.isTrusted(location))
   return isTrusted ? "workspace" : "strict"
+}
+
+export async function upgradeLegacyOffProfile(directory: string, platform = process.platform): Promise<string> {
+  const name = await defaultUnixProfile(directory)
+  ensureBackend(name, platform)
+  return name
 }
 
 export async function resolveNewProfileName(input: RequestedProfile): Promise<string> {
@@ -122,6 +133,9 @@ export function ensureBackend(profile: string, platform = process.platform, bwra
     const resolved = bwrapPath ?? lookupBwrap()
     if (!resolved || !fs.existsSync(resolved)) {
       throw new Unavailable({ profile, backend: "bwrap", reason: "unavailable" })
+    }
+    if (!loadSeccompBpf()) {
+      throw new Unavailable({ profile, backend: "seccomp", reason: "unavailable" })
     }
     return
   }

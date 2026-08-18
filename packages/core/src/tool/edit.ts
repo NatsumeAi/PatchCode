@@ -109,6 +109,8 @@ const layer = Layer.effectDiscard(
                   Effect.mapError((error) =>
                     error instanceof PlanGate.Denied
                       ? new ToolFailure({ message: error.message })
+                      : error instanceof FileMutation.HardlinkDenied
+                        ? new ToolFailure({ message: error.message })
                       : error instanceof FileMutation.StaleContentError
                         ? new ToolFailure({
                             message: "File changed after permission approval. Read it again before editing.",

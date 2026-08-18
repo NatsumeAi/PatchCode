@@ -162,4 +162,32 @@ describe("SkillDiscovery.pull", () => {
       await tmp[Symbol.asyncDispose]()
     }
   })
+
+  test("rejects file: catalog URLs without HTTP", async () => {
+    const tmp = await tmpdir()
+    const requests: string[] = []
+    try {
+      const http = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.sync(() => requests.push(request.url)).pipe(
+            Effect.map(() => HttpClientResponse.fromWeb(request, new Response("no", { status: 500 }))),
+          ),
+        ),
+      )
+      const skillDiscoveryLayer = AppNodeBuilder.build(SkillDiscovery.node, [
+        [LayerNodePlatform.httpClient, http],
+        [Global.node, Global.layerWith({ cache: tmp.path })],
+      ])
+      const directories = await Effect.runPromise(
+        Effect.gen(function* () {
+          return yield* (yield* SkillDiscovery.Service).pull("file:///tmp/catalog/")
+        }).pipe(Effect.provide(skillDiscoveryLayer)),
+      )
+      expect(directories).toEqual([])
+      expect(requests).toEqual([])
+    } finally {
+      await tmp[Symbol.asyncDispose]()
+    }
+  })
 })

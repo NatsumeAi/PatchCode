@@ -245,11 +245,9 @@ const layer = Layer.effectDiscard(
               }
               const resolved = yield* sandbox.resolve(context.sessionID)
 
-              // Frozen W1–W3 execute chain (do not invent a second spawn file):
-              // classify → decide → PlanGate(W8b no-op) → Permission → PreToolUse(W5 no-op)
-              //   → wrapSpawn → BackgroundJob.start → AppProcess
-              // W2 inserts classify/decide. W3 inserts start after wrapSpawn argv is built.
-              // Deny (W2 / permission) must not start.
+              // Frozen execute chain:
+              // classify → decide → PlanGate → PreToolUse → Permission → wrapSpawn → BackgroundJob
+              // W2 deny never reaches PreToolUse. Settle skips bash PreToolUse so this is the only dispatch.
               const decision = yield* execPolicy.decideCommand(input.command, shell, {
                 sandboxProfile: resolved.name,
               })
@@ -264,6 +262,18 @@ const layer = Layer.effectDiscard(
                 new ToolFailure({ message: "The user rejected permission to use this specific tool call." }),
               )
               if (decision.effect === "deny") return yield* denyTool
+              // PreToolUse once, after classify/decide (W2 deny never reaches here) and before Permission.
+              const hooksOpt = yield* Effect.serviceOption(Hooks.Service)
+              if (Option.isSome(hooksOpt)) {
+                const hooked = yield* hooksOpt.value.dispatch({
+                  event: "PreToolUse",
+                  sessionID: context.sessionID,
+                  toolName: name,
+                  toolInput: input,
+                })
+                if (hooked._tag === "Deny")
+                  return yield* new ToolFailure({ message: `Hook denied: ${hooked.reason}` })
+              }
               if (decision.effect === "ask") {
                 yield* permission.assertPolicyAsk({
                   action: name,
@@ -282,18 +292,6 @@ const layer = Layer.effectDiscard(
                   agent: context.agent,
                   source,
                 }).pipe(Effect.catchTag("Permission.BlockedError", () => denyTool))
-              }
-              // PreToolUse (W5): after permission, before wrapSpawn. W2 deny does not reach here.
-              const hooksOpt = yield* Effect.serviceOption(Hooks.Service)
-              if (Option.isSome(hooksOpt)) {
-                const hooked = yield* hooksOpt.value.dispatch({
-                  event: "PreToolUse",
-                  sessionID: context.sessionID,
-                  toolName: name,
-                  toolInput: input,
-                })
-                if (hooked._tag === "Deny")
-                  return yield* new ToolFailure({ message: `Hook denied: ${hooked.reason}` })
               }
 
               if ((yield* fs.stat(target.canonical)).type !== "Directory")

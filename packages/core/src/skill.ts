@@ -2,6 +2,7 @@ export * as SkillV2 from "./skill"
 
 import { makeLocationNode } from "./effect/app-node"
 import path from "path"
+import { mkdir, copyFile } from "node:fs/promises"
 import { Context, Effect, Layer, Schema, Types } from "effect"
 import { Skill } from "@opencode-ai/schema/skill"
 import { AgentV2 } from "./agent"
@@ -81,6 +82,7 @@ const layer = Layer.effect(
     const load = Effect.fn("SkillV2.load")(function* (source: Source) {
       const skills: Info[] = []
       if (source.type === "embedded") return [source.skill]
+      if (source.type === "url" && source.url.trim().toLowerCase().startsWith("file:")) return []
       const directories = source.type === "directory" ? [source.path] : yield* discovery.pull(source.url)
       for (const directory of directories) {
         const files = yield* fs
@@ -117,6 +119,30 @@ const layer = Layer.effect(
           })
         }
       }
+      if (source.type === "url") {
+        for (const skill of skills) {
+          const existing = yield* Effect.promise(() => SkillLock.get(skill.name, configDir))
+          if (existing?.state === "active") continue
+          const dest = path.join(SkillLock.skillsDir(configDir), skill.name)
+          yield* Effect.promise(async () => {
+            await mkdir(dest, { recursive: true })
+            await copyFile(skill.location, path.join(dest, "SKILL.md"))
+          })
+          yield* Effect.promise(() =>
+            SkillLock.upsert(
+              {
+                name: skill.name,
+                source: "url",
+                uri: source.url,
+                sha256: SkillLock.hashText(skill.content),
+                installedAt: Date.now(),
+                state: "quarantine",
+              },
+              configDir,
+            ),
+          )
+        }
+      }
       return skills
     })
 
@@ -125,7 +151,6 @@ const layer = Layer.effect(
     const cache = new Map<string, Info[]>()
     const list = Effect.fn("SkillV2.list")(function* () {
       const skills = new Map<string, Info>()
-      const quarantined = yield* Effect.promise(() => SkillLock.quarantinedNames(configDir))
       const locationDir = locationOpt._tag === "Some" ? String(locationOpt.value.directory) : undefined
       const projectTrusted =
         locationDir === undefined ? true : yield* Effect.promise(() => Trust.isTrusted(locationDir, { configDir }))
@@ -141,7 +166,11 @@ const layer = Layer.effect(
         const key = Source.key(source)
         const loaded = cache.get(key) ?? (yield* load(source))
         cache.set(key, loaded)
-        for (const skill of loaded) {
+      }
+      const quarantined = yield* Effect.promise(() => SkillLock.quarantinedNames(configDir))
+      for (const source of state.get().sources) {
+        if (skipProject(source)) continue
+        for (const skill of cache.get(Source.key(source)) ?? []) {
           if (quarantined.has(skill.name)) continue
           skills.set(skill.name, skill)
         }

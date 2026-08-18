@@ -60,10 +60,31 @@ const plan = Effect.fn("SessionRevert.plan")(function* (input: BoundaryInput) {
 export const stage = Effect.fn("SessionRevert.stage")(function* (input: {
   readonly session: SessionSchema.Info
   readonly messageID: SessionMessage.ID
+  readonly partID?: string
   readonly files?: boolean
 }) {
   const snapshot = yield* Snapshot.Service
   const events = yield* EventV2.Service
+  const db = (yield* Database.Service).db
+  if (input.partID) {
+    const row = yield* db
+      .select()
+      .from(SessionMessageTable)
+      .where(and(eq(SessionMessageTable.session_id, input.session.id), eq(SessionMessageTable.id, input.messageID)))
+      .get()
+      .pipe(Effect.orDie)
+    if (!row) return yield* new MessageNotFoundError({ sessionID: input.session.id, messageID: input.messageID })
+    const message = yield* Schema.decodeUnknownEffect(SessionMessage.Message)({
+      ...row.data,
+      id: row.id,
+      type: row.type,
+    }).pipe(Effect.orDie)
+    const ids =
+      message.type === "assistant"
+        ? message.content.map((item) => item.id)
+        : []
+    if (!ids.includes(input.partID)) return undefined
+  }
   const original = input.session.revert?.snapshot
     ? Snapshot.ID.make(input.session.revert.snapshot)
     : yield* snapshot.capture()
@@ -80,6 +101,7 @@ export const stage = Effect.fn("SessionRevert.stage")(function* (input: {
     : []
   const revert = {
     messageID: input.messageID,
+    ...(input.partID ? { partID: input.partID } : {}),
     snapshot: original,
     diff: files
       .map((file) => file.patch)
@@ -116,6 +138,7 @@ export const commit = Effect.fn("SessionRevert.commit")(function* (session: Sess
   yield* events.publish(SessionEvent.RevertEvent.Committed, {
     sessionID: session.id,
     messageID: session.revert.messageID,
+    ...(session.revert.partID ? { partID: session.revert.partID } : {}),
     timestamp: yield* DateTime.now,
   })
 })

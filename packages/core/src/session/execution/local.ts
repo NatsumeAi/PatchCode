@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer } from "effect"
+import { Cause, Effect, Layer, Option } from "effect"
 import { LocationServiceMap } from "../../location-service-map"
 import { makeGlobalNode } from "../../effect/app-node"
 import { SessionRunCoordinator } from "../run-coordinator"
@@ -6,6 +6,7 @@ import { SessionRunner } from "../runner"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { SessionExecution } from "../execution"
+import { SubagentRegistry } from "../subagent-registry"
 import { TaskTool } from "../../tool/task"
 import { Hooks } from "../../hooks"
 
@@ -48,9 +49,20 @@ const layer = Layer.effect(
       }),
     })
 
+    const fanoutParentInterrupt = (sessionID: SessionSchema.ID) =>
+      Effect.gen(function* () {
+        const registryOpt = yield* Effect.serviceOption(SubagentRegistry.Service)
+        if (Option.isNone(registryOpt)) return
+        const children = yield* registryOpt.value.abortChildren(sessionID)
+        for (const child of children) {
+          yield* coordinator.interrupt(child)
+        }
+      })
+
     const service = SessionExecution.Service.of({
       active: coordinator.active,
-      interrupt: coordinator.interrupt,
+      interrupt: (sessionID) =>
+        fanoutParentInterrupt(sessionID).pipe(Effect.andThen(coordinator.interrupt(sessionID))),
       resume: coordinator.run,
       wake: coordinator.wake,
     })

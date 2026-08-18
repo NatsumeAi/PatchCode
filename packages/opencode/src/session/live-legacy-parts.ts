@@ -1,14 +1,27 @@
 // Map live session.next.* SSE events onto leftover Message+Part shapes so
 // official CLI / ACP consumers that still read message.part.updated can paint
 // the unique live drain without a second durable leftover event stream.
-import type { Event, Part, ToolPart } from "@opencode-ai/sdk/v2"
+import type { Event, Part, ReasoningPart, TextPart, ToolPart } from "@opencode-ai/sdk/v2"
 
 export type LivePartState = {
   readonly tools: Map<string, { tool: string; input: Record<string, unknown>; start: number }>
+  readonly texts: Map<string, { text: string; start: number }>
+  readonly reasonings: Map<string, { text: string; start: number }>
 }
 
 export function createLivePartState(): LivePartState {
-  return { tools: new Map() }
+  return { tools: new Map(), texts: new Map(), reasonings: new Map() }
+}
+
+/** Session ID on live `session.next.*` events, including text/tool/permission-adjacent traffic. */
+export function liveSessionID(event: Event): string | undefined {
+  if (!event.type.startsWith("session.next.")) return undefined
+  const id = Reflect.get(event.properties, "sessionID")
+  return typeof id === "string" ? id : undefined
+}
+
+function streamKey(messageID: string, partID: string) {
+  return `${messageID}:${partID}`
 }
 
 function textPartID(messageID: string, textID: string) {
@@ -104,31 +117,81 @@ export function leftoverPartsFromLive(event: Event, state: LivePartState): Part[
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         },
       ]
+    case "session.next.text.started": {
+      state.texts.set(streamKey(event.properties.assistantMessageID, event.properties.textID), {
+        text: "",
+        start: event.properties.timestamp,
+      })
+      return []
+    }
+    case "session.next.text.delta": {
+      const key = streamKey(event.properties.assistantMessageID, event.properties.textID)
+      const current = state.texts.get(key)
+      const start = current?.start ?? event.properties.timestamp
+      const text = (current?.text ?? "") + event.properties.delta
+      state.texts.set(key, { text, start })
+      const part: TextPart = {
+        id: textPartID(event.properties.assistantMessageID, event.properties.textID),
+        sessionID: event.properties.sessionID,
+        messageID: event.properties.assistantMessageID,
+        type: "text",
+        text,
+        time: { start },
+      }
+      return [part]
+    }
     case "session.next.text.ended": {
+      const key = streamKey(event.properties.assistantMessageID, event.properties.textID)
+      const current = state.texts.get(key)
+      state.texts.delete(key)
       const end = event.properties.timestamp
-      return [
-        {
-          id: textPartID(event.properties.assistantMessageID, event.properties.textID),
-          sessionID: event.properties.sessionID,
-          messageID: event.properties.assistantMessageID,
-          type: "text",
-          text: event.properties.text,
-          time: { start: end, end },
-        },
-      ]
+      const part: TextPart = {
+        id: textPartID(event.properties.assistantMessageID, event.properties.textID),
+        sessionID: event.properties.sessionID,
+        messageID: event.properties.assistantMessageID,
+        type: "text",
+        text: event.properties.text,
+        time: { start: current?.start ?? end, end },
+      }
+      return [part]
+    }
+    case "session.next.reasoning.started": {
+      state.reasonings.set(streamKey(event.properties.assistantMessageID, event.properties.reasoningID), {
+        text: "",
+        start: event.properties.timestamp,
+      })
+      return []
+    }
+    case "session.next.reasoning.delta": {
+      const key = streamKey(event.properties.assistantMessageID, event.properties.reasoningID)
+      const current = state.reasonings.get(key)
+      const start = current?.start ?? event.properties.timestamp
+      const text = (current?.text ?? "") + event.properties.delta
+      state.reasonings.set(key, { text, start })
+      const part: ReasoningPart = {
+        id: reasoningPartID(event.properties.assistantMessageID, event.properties.reasoningID),
+        sessionID: event.properties.sessionID,
+        messageID: event.properties.assistantMessageID,
+        type: "reasoning",
+        text,
+        time: { start },
+      }
+      return [part]
     }
     case "session.next.reasoning.ended": {
+      const key = streamKey(event.properties.assistantMessageID, event.properties.reasoningID)
+      const current = state.reasonings.get(key)
+      state.reasonings.delete(key)
       const end = event.properties.timestamp
-      return [
-        {
-          id: reasoningPartID(event.properties.assistantMessageID, event.properties.reasoningID),
-          sessionID: event.properties.sessionID,
-          messageID: event.properties.assistantMessageID,
-          type: "reasoning",
-          text: event.properties.text,
-          time: { start: end, end },
-        },
-      ]
+      const part: ReasoningPart = {
+        id: reasoningPartID(event.properties.assistantMessageID, event.properties.reasoningID),
+        sessionID: event.properties.sessionID,
+        messageID: event.properties.assistantMessageID,
+        type: "reasoning",
+        text: event.properties.text,
+        time: { start: current?.start ?? end, end },
+      }
+      return [part]
     }
     case "session.next.tool.input.started":
       rememberTool(state, event.properties.callID, {

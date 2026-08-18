@@ -6,7 +6,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { makeLocationNode } from "../effect/app-node"
 import { LocationMutation } from "../location-mutation"
-import { denyHost } from "../net/deny-host"
+import { DeniedUrl, denyHost, guardUrl } from "../net/deny-host"
 import { Permission } from "../permission"
 import { Repository } from "../repository"
 import { RepositoryCache } from "../repository-cache"
@@ -62,6 +62,16 @@ const layer = Layer.effectDiscard(
               if (denyHost(reference.host) || denyHost(reference.remote)) {
                 return yield* new ToolFailure({ message: `Repository host is not allowed: ${reference.host}` })
               }
+              yield* Effect.tryPromise({
+                try: () => guardUrl(reference.remote.startsWith("http") ? reference.remote : `https://${reference.host}`),
+                catch: (error) =>
+                  new ToolFailure({
+                    message:
+                      error instanceof DeniedUrl || error instanceof Error
+                        ? `Repository host is not allowed: ${reference.host}`
+                        : `Repository host is not allowed: ${reference.host}`,
+                  }),
+              })
               yield* permission
                 .assert({
                   action: "repo",

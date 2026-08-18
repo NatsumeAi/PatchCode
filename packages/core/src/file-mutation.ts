@@ -3,6 +3,7 @@ export * as FileMutation from "./file-mutation"
 import { makeLocationNode } from "./effect/app-node"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { dirname } from "path"
+import { lstat } from "fs/promises"
 import { KeyedMutex } from "./effect/keyed-mutex"
 import { FSUtil } from "./fs-util"
 
@@ -42,6 +43,15 @@ export class StaleContentError extends Schema.TaggedErrorClass<StaleContentError
 export class TargetExistsError extends Schema.TaggedErrorClass<TargetExistsError>()("FileMutation.TargetExistsError", {
   path: Schema.String,
 }) {}
+
+export class HardlinkDenied extends Schema.TaggedErrorClass<HardlinkDenied>()("FileMutation.HardlinkDenied", {
+  path: Schema.String,
+  nlink: Schema.Number,
+}) {
+  override get message() {
+    return `Refusing to write through a hard link: ${this.path}`
+  }
+}
 
 export interface WriteResult {
   readonly operation: "write"
@@ -84,18 +94,18 @@ export interface RenameResult {
 
 export interface Interface {
   /** Create without replacing an existing target. */
-  readonly create: (input: WriteInput) => Effect.Effect<WriteResult, TargetExistsError | FSUtil.Error>
-  readonly write: (input: WriteInput) => Effect.Effect<WriteResult, FSUtil.Error>
+  readonly create: (input: WriteInput) => Effect.Effect<WriteResult, TargetExistsError | HardlinkDenied | FSUtil.Error>
+  readonly write: (input: WriteInput) => Effect.Effect<WriteResult, HardlinkDenied | FSUtil.Error>
   /** Write text while retaining an existing UTF-8 BOM and emitting at most one BOM. */
-  readonly writeTextPreservingBom: (input: TextWriteInput) => Effect.Effect<WriteResult, FSUtil.Error>
+  readonly writeTextPreservingBom: (input: TextWriteInput) => Effect.Effect<WriteResult, HardlinkDenied | FSUtil.Error>
   /** Commit only if an existing target still has the expected bytes. */
   readonly writeIfUnchanged: (
     input: ConditionalWriteInput,
-  ) => Effect.Effect<WriteResult, StaleContentError | FSUtil.Error>
+  ) => Effect.Effect<WriteResult, StaleContentError | HardlinkDenied | FSUtil.Error>
   readonly remove: (input: RemoveInput) => Effect.Effect<RemoveResult, FSUtil.Error>
   readonly rename: (
     input: RenameInput,
-  ) => Effect.Effect<RenameResult, TargetExistsError | StaleContentError | FSUtil.Error>
+  ) => Effect.Effect<RenameResult, TargetExistsError | StaleContentError | HardlinkDenied | FSUtil.Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/FileMutation") {}
@@ -137,9 +147,25 @@ const layer = Layer.effect(
       existed,
     })
 
+    const assertNotHardlink = (targetPath: string) =>
+      Effect.tryPromise({
+        try: async () => {
+          let info: Awaited<ReturnType<typeof lstat>>
+          try {
+            info = await lstat(targetPath)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+            throw error
+          }
+          if (info.nlink > 1) throw new HardlinkDenied({ path: targetPath, nlink: info.nlink })
+        },
+        catch: (cause) => (cause instanceof HardlinkDenied ? cause : (cause as Error)),
+      })
+
     const write = Effect.fn("FileMutation.write")((input: WriteInput) =>
       withTargetLock(input.target)(
         Effect.gen(function* () {
+          yield* assertNotHardlink(input.target.canonical)
           const existed = yield* fs.exists(input.target.canonical)
           yield* fs.writeWithDirs(input.target.canonical, input.content)
           const extra = yield* afterCommit({
@@ -155,6 +181,7 @@ const layer = Layer.effect(
     const writeTextPreservingBom = Effect.fn("FileMutation.writeTextPreservingBom")((input: TextWriteInput) =>
       withTargetLock(input.target)(
         Effect.gen(function* () {
+          yield* assertNotHardlink(input.target.canonical)
           const next = splitBom(input.content)
           const current = yield* fs
             .readFile(input.target.canonical)
@@ -176,6 +203,7 @@ const layer = Layer.effect(
     const create = Effect.fn("FileMutation.create")((input: WriteInput) =>
       withTargetLock(input.target)(
         Effect.gen(function* () {
+          yield* assertNotHardlink(input.target.canonical)
           const write =
             typeof input.content === "string"
               ? fs.writeFileString(input.target.canonical, input.content, { flag: "wx" })
@@ -201,6 +229,7 @@ const layer = Layer.effect(
     const writeIfUnchanged = Effect.fn("FileMutation.writeIfUnchanged")((input: ConditionalWriteInput) =>
       withTargetLock(input.target)(
         Effect.gen(function* () {
+          yield* assertNotHardlink(input.target.canonical)
           const current = yield* fs.readFile(input.target.canonical)
           if (!sameBytes(current, input.expected)) {
             return yield* new StaleContentError({ path: input.target.canonical })
@@ -248,6 +277,7 @@ const layer = Layer.effect(
     const rename = Effect.fn("FileMutation.rename")((input: RenameInput) =>
       withBothLocks(input.from, input.to)(
         Effect.gen(function* () {
+          yield* assertNotHardlink(input.from.canonical)
           if (yield* fs.exists(input.to.canonical)) {
             return yield* new TargetExistsError({ path: input.to.canonical })
           }

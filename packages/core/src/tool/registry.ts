@@ -15,6 +15,8 @@ import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
 import { Hooks } from "../hooks"
 import { ConfigService as WebSearchConfigService, webSearchEnabled } from "./websearch-config"
+import { Flag } from "../flag/flag"
+import { redactUnknown } from "../secret-redaction"
 
 export const SEARCH_TOOL = "search_tool"
 export const USE_TOOL = "use_tool"
@@ -26,6 +28,48 @@ export type DynamicHit = {
   readonly name: string
   readonly description: string
   readonly server: string
+}
+
+const tokenize = (value: string) =>
+  value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .filter((token) => token.length > 0)
+
+export const scoreDynamicHit = (item: DynamicHit, query: string) => {
+  const needles = tokenize(query)
+  if (needles.length === 0) return 0
+  const nameTokens = tokenize(item.name)
+  const descTokens = tokenize(item.description)
+  let score = 0
+  for (const needle of needles) {
+    if (nameTokens.some((token) => token === needle)) score += 3
+    else if (nameTokens.some((token) => token.includes(needle) || needle.includes(token))) score += 2
+    else if (descTokens.some((token) => token === needle || token.includes(needle) || needle.includes(token)))
+      score += 1
+  }
+  return score
+}
+
+export const rankDynamicHits = (items: readonly DynamicHit[], query: string, limit = 10) => {
+  const needle = query.trim()
+  if (needle.length === 0) return limit <= 0 ? [...items] : items.slice(0, limit)
+  const needles = tokenize(needle)
+  const ranked = items
+    .map((item) => ({ item, score: scoreDynamicHit(item, needle) }))
+    .filter((entry) => {
+      if (entry.score <= 0) return false
+      const nameTokens = tokenize(entry.item.name)
+      const descTokens = tokenize(entry.item.description)
+      return needles.every(
+        (token) =>
+          nameTokens.some((part) => part === token || part.includes(token) || token.includes(part)) ||
+          descTokens.some((part) => part === token || part.includes(token)),
+      )
+    })
+    .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name))
+    .map((entry) => entry.item)
+  return limit <= 0 ? ranked : ranked.slice(0, limit)
 }
 
 export type ExecuteInput = {
@@ -157,12 +201,13 @@ const registryLayer = Layer.effect(
             if ("result" in pending) return Effect.succeed(pending)
             return resources.bound({ sessionID: input.sessionID, toolCallID: input.call.id, output: pending.output }).pipe(
               Effect.map((bounded) => {
-                const result = ToolOutput.toResultValue(bounded.output)
+                const result = redactUnknown(ToolOutput.toResultValue(bounded.output)) as ToolResultValue
+                const output = redactUnknown(bounded.output) as typeof bounded.output
                 if (result.type === "error")
                   return bounded.outputPaths.length > 0 ? { result, outputPaths: bounded.outputPaths } : { result }
                 return bounded.outputPaths.length > 0
-                  ? { result, output: bounded.output, outputPaths: bounded.outputPaths }
-                  : { result, output: bounded.output }
+                  ? { result, output, outputPaths: bounded.outputPaths }
+                  : { result, output }
               }),
             )
           }),
@@ -195,14 +240,8 @@ const registryLayer = Layer.effect(
             server: name.includes("_") ? name.slice(0, name.indexOf("_")) : "mcp",
           })
         }
-        const needle = query.trim().toLowerCase()
-        const matched =
-          needle.length === 0
-            ? items
-            : items.filter(
-                (item) => item.name.toLowerCase().includes(needle) || item.description.toLowerCase().includes(needle),
-              )
-        return limit <= 0 ? matched : matched.slice(0, limit)
+        const needle = query.trim()
+        return rankDynamicHits(items, needle, limit)
       }),
       register: Effect.fn("ToolRegistry.register")(function* (tools, options?: Tools.RegisterOptions) {
         const entries = Object.entries(tools)
@@ -264,6 +303,7 @@ const registryLayer = Layer.effect(
           if (registration.source === "dynamic" && defer) advertised.delete(name)
           if (name === EXECUTE_TOOL && !executeEnabled) advertised.delete(name)
           if (BROWSER_TOOLS.has(name) && (!browserEnabled || Option.isNone(browserHost))) advertised.delete(name)
+          if (name === "lsp" && !Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL) advertised.delete(name)
         }
         const modelID = agent.modelID ?? ""
         if (modelID) {
@@ -281,6 +321,12 @@ const registryLayer = Layer.effect(
             ? { exa: search.value.enableExa, parallel: search.value.enableParallel }
             : {}
           if (!webSearchEnabled(agent.providerID, flags)) advertised.delete("websearch")
+        }
+        for (const name of Array.from(advertised.keys())) {
+          const registration = advertised.get(name)
+          if (!registration) continue
+          const rule = Permission.evaluate(permission(registration.tool, name), "*", permissions)
+          if (rule.effect === "deny" && rule.resource === "*") advertised.delete(name)
         }
         const definitions = Array.from(advertised, ([name, registration]) => definition(name, registration.tool))
         // Restore V1 describeTask: append callable subagent catalog to task tool description.

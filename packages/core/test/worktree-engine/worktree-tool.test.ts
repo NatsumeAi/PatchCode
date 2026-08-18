@@ -12,6 +12,7 @@ import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { WorktreeTool } from "@opencode-ai/core/tool/worktree"
 import { WorktreeEngine } from "@opencode-ai/core/worktree-engine"
+import { ReviewGate } from "@opencode-ai/core/session/review-gate"
 import { git } from "../fixture/git"
 import { location } from "../fixture/location"
 import { tmpdir } from "../fixture/tmpdir"
@@ -90,6 +91,8 @@ describe("W6 worktree tool", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(handle.dir, "README.md"), "two\n"))
       const diff = yield* run(tmp.path, "diff", "child")
       expect(diff.type).not.toBe("error")
+      yield* ReviewGate.reset(String(sessionID))
+      yield* ReviewGate.record(String(sessionID), "pass")
       const merge = yield* run(tmp.path, "merge", "child")
       expect(merge.type).not.toBe("error")
       expect(yield* Effect.promise(() => fs.readFile(path.join(tmp.path, "README.md"), "utf8"))).toBe("two\n")

@@ -92,3 +92,34 @@ test("websearch advertise respects webSearchEnabled", async () => {
   expect(opencode).toContain("websearch")
   expect(anthropic).not.toContain("websearch")
 })
+
+test("deny-star permission hides the tool from materialize", async () => {
+  const result = await Effect.runPromise(
+    withRegistry((registry) =>
+      toolDefinitions(registry, [{ action: "bash", resource: "*", effect: "deny" }]).pipe(
+        Effect.map((definitions) => definitions.map((tool) => tool.name)),
+      ),
+    ),
+  )
+  expect(result).not.toContain("bash")
+  expect(result).toContain("read")
+})
+
+test("lsp is hidden unless OPENCODE_EXPERIMENTAL_LSP_TOOL is on", async () => {
+  const off = await Effect.runPromise(
+    withRegistry((registry) => toolDefinitions(registry).pipe(Effect.map((d) => d.map((t) => t.name)))),
+  )
+  expect(off).not.toContain("lsp")
+
+  const previous = process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL
+  process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL = "true"
+  try {
+    const on = await Effect.runPromise(
+      withRegistry((registry) => toolDefinitions(registry).pipe(Effect.map((d) => d.map((t) => t.name)))),
+    )
+    expect(on).toContain("lsp")
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL
+    else process.env.OPENCODE_EXPERIMENTAL_LSP_TOOL = previous
+  }
+})

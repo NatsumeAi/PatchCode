@@ -265,6 +265,8 @@ const layer = Layer.effectDiscard(
                 Effect.mapError((error) =>
                   error instanceof ToolFailure
                     ? error
+                    : error instanceof FileMutation.HardlinkDenied
+                      ? new ToolFailure({ message: error.message })
                     : error instanceof PlanGate.Denied
                       ? new ToolFailure({ message: error.message })
                       : fail("patch"),

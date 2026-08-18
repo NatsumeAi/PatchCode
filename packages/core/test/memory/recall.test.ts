@@ -48,6 +48,15 @@ describe("Memory recall", () => {
     expect(recallQuery([{ type: "assistant", text: "x" }])).toBe("")
   })
 
+  test("recallQuery includes bounded assistant summaries when users exist", () => {
+    const q = recallQuery([
+      { type: "user", text: "how do we handle auth" },
+      { type: "assistant", content: [{ type: "text", text: "token store lives in auth.ts" }] },
+    ])
+    expect(q).toContain("how do we handle auth")
+    expect(q).toContain("token store")
+  })
+
   test("recallQuery caps to last three users and 800 chars", () => {
     const many = Array.from({ length: 6 }, (_, i) => ({ type: "user", text: `message number ${i}` }))
     const q = recallQuery(many)
@@ -65,6 +74,7 @@ describe("Memory recall", () => {
     expect(blocked).not.toContain("ignore previous instructions.md")
     expect(block).toContain("Relevant memory")
     expect(block).toContain("auth")
+    expect(block).toContain("这不是新用户消息")
     expect(block.length).toBeLessThanOrEqual(RECALL_BLOCK_MAX_CHARS)
   })
 

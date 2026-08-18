@@ -1068,7 +1068,7 @@ describe("session HttpApi", () => {
           headers,
           body: JSON.stringify({ messageID: MessageID.ascending(), partID: PartID.ascending() }),
         })
-        expect(partRevert.status).toBe(400)
+        expect(partRevert.status).toBe(200)
 
         const permissionID = String(PermissionV1.ID.ascending())
         const permission = yield* request(

@@ -6,6 +6,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
 import { Global } from "../global"
+import { DeniedUrl, guardUrl } from "../net/deny-host"
 import { Permission } from "../permission"
 import { SkillInstall } from "../skill/install"
 import { ToolRegistry } from "./registry"
@@ -47,6 +48,13 @@ const layer = Layer.effectDiscard(
               const uri = input.uri.trim()
               const denied = SkillInstall.rejectReason(uri)
               if (denied) return yield* new ToolFailure({ message: denied })
+              yield* Effect.tryPromise({
+                try: () => guardUrl(uri),
+                catch: (error) =>
+                  new ToolFailure({
+                    message: error instanceof DeniedUrl || error instanceof Error ? error.message : `Skill host is not allowed: ${uri}`,
+                  }),
+              })
               yield* permission
                 .assert({
                   action: "skill",

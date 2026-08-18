@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, afterEach } from "bun:test"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -21,6 +21,7 @@ import { SkillTool } from "@opencode-ai/core/tool/skill"
 import { SkillTrustTool } from "@opencode-ai/core/tool/skill-trust"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
+import { Net } from "@opencode-ai/core/net/deny-host"
 import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { executeTool, toolIdentity } from "../lib/tool"
@@ -63,6 +64,10 @@ const permission = Layer.succeed(
 )
 
 const it = testEffect(Layer.empty)
+
+afterEach(() => {
+  Net.setLookupForTest()
+})
 
 describe("W8h skills lock", () => {
   it.live("file: install is rejected and https fixture quarantines", () =>
@@ -108,6 +113,7 @@ describe("W8h skills lock", () => {
         expect((yield* Effect.promise(() => SkillLock.read(configDir))).skills).toEqual([])
 
         body = CLEAN
+        Net.setLookupForTest(async () => ["1.1.1.1"])
         const installed = yield* executeTool(registry, {
           sessionID,
           ...toolIdentity,
@@ -185,6 +191,7 @@ describe("W8h skills lock", () => {
       )
       yield* Effect.gen(function* () {
         body = THREAT
+        Net.setLookupForTest(async () => ["1.1.1.1"])
         const registry = yield* ToolRegistry.Service
         const installed = yield* executeTool(registry, {
           sessionID,

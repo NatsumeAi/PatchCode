@@ -12,6 +12,7 @@ import { SessionStore } from "./session/store"
 import { Wildcard } from "./util/wildcard"
 import { evaluate } from "./permission/evaluate"
 import { PermissionSaved } from "./permission/saved"
+import { ExecPolicy } from "./exec-policy/service"
 import { toCurrentRule } from "./session/subagent-permissions"
 import { Hooks } from "./hooks"
 
@@ -330,6 +331,33 @@ const layer = Layer.effect(
                 resources,
               })
             }
+            if (existing.policyAsk) {
+              for (const resource of resources) {
+                const prefix = resource.split(/\s+/).filter(Boolean)
+                if (prefix.length === 0) continue
+                yield* EffectRuntime.tryPromise({
+                  try: () => ExecPolicy.appendAllowPrefix(prefix),
+                  catch: (error) => error,
+                }).pipe(
+                  EffectRuntime.tapError((error) =>
+                    EffectRuntime.logError("ExecPolicy.appendAllowPrefix failed", {
+                      error: String(error),
+                      prefix,
+                    }),
+                  ),
+                  EffectRuntime.ignore,
+                )
+              }
+              const exec = yield* EffectRuntime.serviceOption(ExecPolicy.Service)
+              if (Option.isSome(exec)) {
+                yield* exec.value.reload().pipe(
+                  EffectRuntime.tapError((error) =>
+                    EffectRuntime.logError("ExecPolicy.reload failed", { error: String(error) }),
+                  ),
+                  EffectRuntime.ignore,
+                )
+              }
+            }
           }
           yield* Deferred.succeed(existing.deferred, undefined)
           pending.delete(input.requestID)
@@ -385,5 +413,5 @@ export const locationLayer = layer.pipe(Layer.provideMerge(AgentV2.locationLayer
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [EventV2.node, Location.node, AgentV2.node, SessionStore.node, PermissionSaved.node],
+  deps: [EventV2.node, Location.node, AgentV2.node, SessionStore.node, PermissionSaved.node, ExecPolicy.node],
 })

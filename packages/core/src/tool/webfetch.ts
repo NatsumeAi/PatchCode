@@ -7,6 +7,7 @@ import { Parser } from "htmlparser2"
 import TurndownService from "turndown"
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
+import { DeniedUrl, guardUrl } from "../net/deny-host"
 import { Permission } from "../permission"
 import { collectBoundedResponseBody } from "./http-body"
 import { ToolRegistry } from "./registry"
@@ -123,11 +124,28 @@ export function ensureLoopbackNoProxy() {
   if (changed) process.env.NO_PROXY = parts.join(",")
 }
 
+const MAX_REDIRECTS = 10
+
 const execute = (http: HttpClient.HttpClient, url: string, format: Format, userAgent = browserUserAgent) =>
-  Effect.sync(ensureLoopbackNoProxy).pipe(
-    Effect.andThen(http.pipe(HttpClient.followRedirects()).execute(request(url, format, userAgent))),
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-  )
+  Effect.gen(function* () {
+    yield* Effect.sync(ensureLoopbackNoProxy)
+    let current = url
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      yield* Effect.tryPromise({
+        try: () => guardUrl(current),
+        catch: (error) => (error instanceof DeniedUrl ? error : new DeniedUrl(current)),
+      })
+      const response = yield* http.execute(request(current, format, userAgent))
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers["location"]
+        if (!location) return yield* HttpClientResponse.filterStatusOk(response)
+        current = new URL(location, current).href
+        continue
+      }
+      return yield* HttpClientResponse.filterStatusOk(response)
+    }
+    return yield* Effect.fail(new Error("Too many redirects"))
+  })
 
 const collectBody = (response: HttpClientResponse.HttpClientResponse) =>
   collectBoundedResponseBody(
@@ -180,6 +198,13 @@ const layer = Layer.effectDiscard(
                 try: () => assertHttpUrl(new URL(input.url)),
                 catch: (error) => error,
               })
+              yield* Effect.tryPromise({
+                try: () => guardUrl(input.url),
+                catch: (error) =>
+                  error instanceof DeniedUrl || error instanceof Error
+                    ? new ToolFailure({ message: error.message })
+                    : new ToolFailure({ message: `URL is not allowed: ${input.url}` }),
+              })
 
               yield* permission.assert({
                 action: name,
@@ -227,7 +252,13 @@ const layer = Layer.effectDiscard(
                 }),
               )
               return fetched
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to fetch ${input.url}` }))),
+            }).pipe(
+              Effect.mapError((error) => {
+                if (error instanceof ToolFailure) return error
+                if (error instanceof DeniedUrl) return new ToolFailure({ message: error.message })
+                return new ToolFailure({ message: `Unable to fetch ${input.url}` })
+              }),
+            ),
         }),
       })
       .pipe(Effect.orDie)

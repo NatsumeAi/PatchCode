@@ -66,8 +66,12 @@ const unique = (values: Array<string | undefined>) => {
 
 const escapeRegex = (value: string) => value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&")
 
+const globReCache = new Map<string, RegExp>()
+
 /** Gitignore-style glob: `* ? ** [abc]`. No braces. */
 export function globToRegExp(pattern: string): RegExp {
+  const cached = globReCache.get(pattern)
+  if (cached) return cached
   const source = slash(pattern)
   let i = 0
   let re = "^"
@@ -104,7 +108,9 @@ export function globToRegExp(pattern: string): RegExp {
     }
   }
   re += "$"
-  return new RegExp(re)
+  const compiled = new RegExp(re)
+  globReCache.set(pattern, compiled)
+  return compiled
 }
 
 export function globMatch(pattern: string, filepath: string): boolean {

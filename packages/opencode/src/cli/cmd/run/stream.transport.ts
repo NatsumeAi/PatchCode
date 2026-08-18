@@ -18,6 +18,7 @@
 import type { Event, GlobalEvent, OpencodeClient } from "@opencode-ai/sdk/v2"
 import { Context, Deferred, Effect, Exit, Layer, Scope, Stream } from "effect"
 import { makeRuntime } from "@/effect/run-service"
+import { liveSessionID } from "@/session/live-legacy-parts"
 import {
   blockerStatus,
   bootstrapSessionData,
@@ -146,10 +147,12 @@ function sid(event: Event): string | undefined {
     return event.properties.part.sessionID
   }
 
+  const live = liveSessionID(event)
+  if (live) {
+    return live
+  }
+
   if (
-    event.type === "session.next.shell.started" ||
-    event.type === "session.next.shell.progress" ||
-    event.type === "session.next.shell.ended" ||
     event.type === "permission.asked" ||
     event.type === "permission.asked" ||
     event.type === "permission.replied" ||

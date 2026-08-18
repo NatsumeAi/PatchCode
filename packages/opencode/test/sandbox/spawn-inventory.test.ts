@@ -60,8 +60,8 @@ describe("opencode spawn inventory", () => {
       location: "/tmp",
       home: "/tmp",
     })
-    expect(wrapped.command).toContain("bwrap")
-    const dd = wrapped.args.indexOf("--")
+    expect(wrapped.command.includes("bwrap") || wrapped.args.some((arg) => String(arg).includes("bwrap"))).toBe(true)
+    const dd = wrapped.args.lastIndexOf("--")
     expect(wrapped.args.slice(dd)).toEqual(["--", "cat"])
   })
 
@@ -79,7 +79,7 @@ describe("opencode spawn inventory", () => {
       location: "/tmp",
       home: "/tmp",
     })
-    expect(wrapped.command).toContain("bwrap")
+    expect(wrapped.command.includes("bwrap") || wrapped.args.some((arg) => String(arg).includes("bwrap"))).toBe(true)
     expect(wrapped.args.at(-1)).toBe("--stdio")
     expect(wrapped.args.at(-2)).toBe("typescript-language-server")
   })

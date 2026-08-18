@@ -3,7 +3,7 @@ export * as BrowserTool from "./browser"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Layer, Option, Schema } from "effect"
 import { makeLocationNode } from "../effect/app-node"
-import { denyHost } from "../net/deny-host"
+import { DeniedUrl, guardUrl } from "../net/deny-host"
 import { Permission } from "../permission"
 import { BrowserHost } from "./browser-host"
 import { ToolRegistry } from "./registry"
@@ -59,7 +59,13 @@ const layer = Layer.effectDiscard(
           toModelOutput: ({ output }) => [{ type: "text", text: `${output.title} — ${output.url}` }],
           execute: (input, context) =>
             Effect.gen(function* () {
-              if (denyHost(input.url)) return yield* new ToolFailure({ message: `URL is not allowed: ${input.url}` })
+              yield* Effect.tryPromise({
+                try: () => guardUrl(input.url),
+                catch: (error) =>
+                  new ToolFailure({
+                    message: error instanceof DeniedUrl || error instanceof Error ? error.message : `URL is not allowed: ${input.url}`,
+                  }),
+              })
               yield* permission
                 .assert({
                   action: "browser",

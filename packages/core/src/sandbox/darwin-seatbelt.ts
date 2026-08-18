@@ -2,6 +2,7 @@ export * as DarwinSeatbelt from "./darwin-seatbelt"
 
 import type { SpawnClass } from "./linux-bwrap"
 import type { ResolvedProfile } from "./profile"
+import { METADATA_HOSTS } from "../net/deny-host"
 
 export interface DarwinWrapInput {
   readonly profile: ResolvedProfile
@@ -71,6 +72,14 @@ export function buildSeatbelt(input: Omit<DarwinWrapInput, "command" | "args" | 
   }
   for (const glob of profile.denyGlobs) {
     lines.push(`(deny file-read* file-write* (regex "${globToRegex(glob)}"))`)
+  }
+  if (spawnClass === "workspace-child") {
+    lines.push('(deny network-outbound (remote ip "169.254.169.254"))')
+    lines.push('(deny network-outbound (remote ip "::ffff:169.254.169.254"))')
+    for (const host of METADATA_HOSTS) {
+      lines.push(`(deny network-outbound (remote domain "${escapeSbpl(host)}"))`)
+    }
+    lines.push('(deny file-read* file-write* (subpath "/var/run/secrets/kubernetes.io"))')
   }
   if (spawnClass === "workspace-child" && profile.restrictNetwork) {
     lines.push("(deny network*)")

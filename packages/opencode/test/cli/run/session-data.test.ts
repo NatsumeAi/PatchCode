@@ -589,4 +589,57 @@ describe("run session data", () => {
       }),
     ])
   })
+
+  test("streams session.next text deltas before ended", () => {
+    let data = createSessionData()
+    const first = reduce(data, {
+      type: "session.next.text.delta",
+      properties: {
+        timestamp: 1,
+        sessionID: "session-1",
+        assistantMessageID: "msg-live",
+        textID: "txt-1",
+        delta: "hel",
+      },
+    })
+    expect(first.commits).toEqual([
+      expect.objectContaining({
+        kind: "assistant",
+        text: "hel",
+        phase: "progress",
+        partID: "prt_msg-live_txt-1",
+      }),
+    ])
+
+    const second = reduce(first.data, {
+      type: "session.next.text.delta",
+      properties: {
+        timestamp: 2,
+        sessionID: "session-1",
+        assistantMessageID: "msg-live",
+        textID: "txt-1",
+        delta: "lo",
+      },
+    })
+    expect(second.commits).toEqual([
+      expect.objectContaining({
+        kind: "assistant",
+        text: "lo",
+        phase: "progress",
+        partID: "prt_msg-live_txt-1",
+      }),
+    ])
+
+    const ended = reduce(second.data, {
+      type: "session.next.text.ended",
+      properties: {
+        timestamp: 3,
+        sessionID: "session-1",
+        assistantMessageID: "msg-live",
+        textID: "txt-1",
+        text: "hello",
+      },
+    })
+    expect(ended.commits).toEqual([])
+  })
 })
